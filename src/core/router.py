@@ -19,18 +19,14 @@ class Router:
         # ルート設定
         self.page.on_route_change = self._on_route_change
         self.page.views.clear()
-        self.page.views.append(self.views["/"])
+        self.views["/"].display()
 
     def _on_route_change(self, route):
         new_route = route.route
         if new_route in self.views:
             view = self.views[new_route]
-            # 既存のビューが存在する場合は更新
-            if view in self.page.views:
-                view.update_with_shared_data(self.shared_data)
-            else:
-                self.page.views.append(view)
-            self.page.update()
+            view.display()
+            view.update_with_shared_data(self.shared_data)
 
     def update_shared_data(self, data: dict):
         self.shared_data.update(data)
@@ -38,3 +34,10 @@ class Router:
         for view in self.page.views:
             if hasattr(view, "update_with_shared_data"):
                 view.update_with_shared_data(self.shared_data)
+
+    def navigate(self, route: str, data: dict = None):
+        """指定されたルートに遷移し、必要に応じてデータを更新する"""
+        if data:
+            self.update_shared_data(data)
+        self.page.go(route)
+        return self.views[route]

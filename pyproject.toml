@@ -1,0 +1,11 @@
+[project]
+name = "project-pygui"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "flet>=0.27.1",
+    "flet-desktop>=0.27.3",
+    "flet-web>=0.27.3",
+]

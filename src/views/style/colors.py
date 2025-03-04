@@ -1,0 +1,30 @@
+from flet import colors
+
+# Primary colors
+PRIMARY = colors.BLUE_500
+PRIMARY_CONTAINER = colors.BLUE_100
+ON_PRIMARY = colors.WHITE
+ON_PRIMARY_CONTAINER = colors.BLUE_900
+
+# Secondary colors
+SECONDARY = colors.BLUE_GREY_500
+SECONDARY_CONTAINER = colors.BLUE_GREY_100
+ON_SECONDARY = colors.WHITE
+ON_SECONDARY_CONTAINER = colors.BLUE_GREY_900
+
+# Background colors
+BACKGROUND = colors.WHITE
+ON_BACKGROUND = colors.GREY_900
+SURFACE = colors.WHITE
+ON_SURFACE = colors.GREY_900
+
+# Error colors
+ERROR = colors.RED_500
+ON_ERROR = colors.WHITE
+ERROR_CONTAINER = colors.RED_100
+ON_ERROR_CONTAINER = colors.RED_900
+
+# Additional colors
+SURFACE_VARIANT = colors.BLUE_GREY_50
+ON_SURFACE_VARIANT = colors.BLUE_GREY_700
+OUTLINE = colors.BLUE_GREY_200

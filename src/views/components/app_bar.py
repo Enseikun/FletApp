@@ -1,17 +1,15 @@
 import flet as ft
 
-from src.views.style.colors import ON_PRIMARY, PRIMARY
+from src.views.styles.color import Colors
 
 
-class AppBar:
-    def __init__(self, title: str) -> None:
+class AppBar(ft.AppBar):
+    def __init__(self, title: ft.Control) -> None:
+        super().__init__()
         self.title = title
 
     def build(self):
         return ft.AppBar(
-            title=ft.Text(
-                self.title,
-                color=ON_PRIMARY,
-            ),
-            bgcolor=PRIMARY,
+            title=self.title,
+            bgcolor=Colors.PRIMARY,
         )

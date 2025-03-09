@@ -1,22 +1,33 @@
+"""
+アプリケーションのメインエントリーポイント
+Fletを使用してアプリケーションを起動します
+"""
+
 import flet as ft
 
-from src.core.router import Router
-from src.views.menu_view import MenuView
+from src.core.router import Router  # ルーターをインポート
+from src.views.menu_view import create_menu_view
 
 
 def main(page: ft.Page):
-    # ページの設定
-    page.title = "Flet App"
-    page.window.resizable = True
+    """
+    Fletアプリケーションのメインエントリーポイント
+    """
+    # ページの基本設定
+    page.title = "FletApp"
 
     # ルーターの初期化
     router = Router(page)
 
-    # メニュービューをデフォルトルートとして追加
-    router.add_route(path="/", view_class=MenuView, title="メニュー")
+    # ルートの設定
+    router.add_route("/", create_menu_view, "Menu View")
 
-    # デフォルトルートに遷移
+    # 初期ルートに移動
     router.navigate("/")
 
+    # ページの更新
+    page.update()
 
-ft.app(target=main)
+
+if __name__ == "__main__":
+    ft.app(target=main)

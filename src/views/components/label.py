@@ -1,8 +1,3 @@
-"""
-ラベルコンポーネント
-テキストを表示するためのFletベースのコンポーネント
-"""
-
 from typing import Optional
 
 import flet as ft

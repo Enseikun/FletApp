@@ -1,27 +1,11 @@
-"""
-アプリケーションのメニュービュー
-Fletを使用したAppBar、SideBar、コンテンツエリアを表示する基本的なレイアウト
-"""
-
 import flet as ft
 
-from src.views.components.app_bar import AppBar
-from src.views.components.side_bar import SideBar
 
-
-class MenuView(ft.View):
-    """
-    アプリケーションのメインメニュービュー
-    AppBar、SideBar、コンテンツエリアを含む基本的なレイアウト
-    """
-
-    def __init__(self, route="/"):
+class MainContents(ft.Container):
+    def __init__(self):
         super().__init__(
-            route=route,
-            appbar=AppBar(title=ft.Text("メニュー")),
-            navigation_bar=SideBar(),
-            vertical_alignment=ft.MainAxisAlignment.CENTER,
-            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            expand=True,
+            padding=20,
         )
 
         # 各Destinationのコンテンツをキャッシュする辞書
@@ -30,26 +14,15 @@ class MenuView(ft.View):
         # 現在選択されているDestination
         self.current_destination = None
 
-        # コンテンツエリアのコンテナを作成
-        self.content_container = ft.Container(
-            content=ft.Text("メインコンテンツがここに表示されます", size=20),
-            alignment=ft.alignment.center,
-            expand=True,
-        )
+        # デフォルトのコンテンツ
+        self.content = ft.Text("メインコンテンツがここに表示されます", size=20)
 
-        # ビューのコンテンツを設定
-        self.controls = [self.content_container]
-
-        # SideBarのイベントハンドラを設定
-        if isinstance(self.navigation_bar, SideBar):
-            self.navigation_bar.on_destination_change = self.handle_destination_change
-
-    def handle_destination_change(self, destination_key):
+    def update_content(self, destination_key):
         """
-        SideBarのDestination変更を処理する
+        メインコンテンツエリアを更新する
 
         Args:
-            destination_key: 選択されたDestinationのキー
+            destination_key: 表示するコンテンツのキー
         """
         # 既に同じDestinationが選択されている場合は何もしない
         if self.current_destination == destination_key:
@@ -65,7 +38,7 @@ class MenuView(ft.View):
             )
 
         # コンテンツを更新
-        self.update_content(self.content_cache[destination_key])
+        self.content = self.content_cache[destination_key]
 
     def create_content_for_destination(self, destination_key):
         """
@@ -81,7 +54,7 @@ class MenuView(ft.View):
         if destination_key == "home":
             return ft.Column(
                 [
-                    ft.Text("ホーム画面", size=24),
+                    ft.Text("ホーム画面", size=24, weight=ft.FontWeight.BOLD),
                     ft.TextField(label="検索", width=300),
                     ft.ElevatedButton("検索"),
                 ],
@@ -92,7 +65,7 @@ class MenuView(ft.View):
         elif destination_key == "settings":
             return ft.Column(
                 [
-                    ft.Text("設定画面", size=24),
+                    ft.Text("設定画面", size=24, weight=ft.FontWeight.BOLD),
                     ft.Switch(label="ダークモード"),
                     ft.Dropdown(
                         label="言語",
@@ -110,7 +83,7 @@ class MenuView(ft.View):
         elif destination_key == "profile":
             return ft.Column(
                 [
-                    ft.Text("プロフィール画面", size=24),
+                    ft.Text("プロフィール画面", size=24, weight=ft.FontWeight.BOLD),
                     ft.TextField(label="ユーザー名", width=300),
                     ft.TextField(label="メールアドレス", width=300),
                     ft.ElevatedButton("保存"),
@@ -121,37 +94,3 @@ class MenuView(ft.View):
 
         # デフォルトのコンテンツ
         return ft.Text(f"不明なDestination: {destination_key}", size=20)
-
-    def update_content(self, new_content):
-        """
-        メインコンテンツエリアを更新する
-
-        Args:
-            new_content: 表示する新しいコンテンツ（Fletコントロール）
-        """
-        self.content_container.content = new_content
-        self.update()
-
-
-def create_menu_view(route=None, **kwargs):
-    """MenuViewのインスタンスを作成して返す"""
-    return MenuView(route=route or "/")
-
-
-def main(page: ft.Page):
-    """
-    Fletアプリケーションのメインエントリーポイント
-    """
-    page.title = "MVVMアプリケーション"
-    page.theme_mode = ft.ThemeMode.LIGHT
-
-    menu_view = create_menu_view()
-    page.add(menu_view)
-
-    # 初期Destinationを設定
-    if isinstance(menu_view.navigation_bar, SideBar):
-        menu_view.handle_destination_change("home")
-
-
-if __name__ == "__main__":
-    ft.app(target=main)

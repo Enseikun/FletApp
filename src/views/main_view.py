@@ -5,27 +5,37 @@ Fletを使用したAppBar、SideBar、MainContentsを表示するシングルペ
 
 import flet as ft
 
+from src.viewmodels.main_viewmodel import MainViewModel
+from src.viewmodels.sidebar_viewmodel import SideBarViewModel
 from src.views.components.app_bar import AppBar
 from src.views.components.main_contents import MainContents
 from src.views.components.side_bar import SideBar
+from src.views.styles.style import AppTheme
 
 
-class MainView(ft.View):
+class MainView(ft.Container):
     """
     アプリケーションのメインビュー
     AppBar、SideBar、MainContentsを含むシングルページアプリケーション
     """
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, page=None):
+        self.page = page
 
         # UI
-        self.page.appbar = AppBar(title=ft.Text("TestApp"))
-        self.side_bar = SideBar()
-        self.main_contents = MainContents()
+        if self.page is not None:
+            self.page.appbar = ft.AppBar(title=ft.Text("TestApp"))
+
+        # ビューモデルの初期化
+        self.main_viewmodel = MainViewModel()
+        self.sidebar_viewmodel = SideBarViewModel(self.main_viewmodel)
+
+        # コンポーネントの初期化（ビューモデルを渡す）
+        self.side_bar = SideBar(viewmodel=self.sidebar_viewmodel)
+        self.main_contents = MainContents(main_viewmodel=self.main_viewmodel)
 
         # レイアウトの構成
-        self.content = ft.Row(
+        content = ft.Row(
             [
                 self.side_bar,
                 ft.VerticalDivider(width=1),
@@ -34,24 +44,17 @@ class MainView(ft.View):
             expand=True,
         )
 
-        # サイドバーのイベントハンドラを設定
-        self.side_bar.on_destination_change = self.handle_destination_change
+        # 親クラスの初期化
+        super().__init__(content=content, expand=True)
 
-        # 初期表示を設定
-        self.handle_destination_change("home")
-
-    def handle_destination_change(self, destination_key):
-        """
-        サイドバーのDestination変更を処理する
-
-        Args:
-            destination_key: 選択されたDestinationのキー
-        """
-        # メインコンテンツを更新
-        self.main_contents.update_content(destination_key)
-        self.update()
+        # 初期表示を設定（ページがレンダリングされた後に実行）
+        if self.page:
+            self.page.on_load = lambda _: self.main_viewmodel.set_destination("home")
+        else:
+            # ページがない場合は直接設定
+            self.main_viewmodel.set_destination("home")
 
 
-def create_main_view():
+def create_main_view(page=None):
     """MainViewのインスタンスを作成して返す"""
-    return MainView()
+    return MainView(page)

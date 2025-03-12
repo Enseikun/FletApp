@@ -1,44 +1,54 @@
+"""
+メインコンテンツコンポーネント
+アプリケーションのメインコンテンツ領域を管理
+"""
+
 import flet as ft
+
+from src.views.components.text_with_subtitle import TextWithSubtitle
+from src.views.contents.content_factory import create_content
+from src.views.styles.style import AppTheme
 
 
 class MainContents(ft.Container):
-    def __init__(self):
+    """
+    アプリケーションのメインコンテンツ
+    サイドバーの選択に応じて表示内容を切り替える
+    """
+
+    def __init__(self, main_viewmodel=None):
+        """
+        初期化
+
+        Args:
+            main_viewmodel (MainViewModel, optional): メインビューモデル
+        """
+        self.main_viewmodel = main_viewmodel
+        self.current_content = None
+
+        # 親クラスの初期化
         super().__init__(
-            expand=True,
-            padding=20,
+            content=ft.Text("コンテンツを読み込み中..."), expand=True, padding=10
         )
 
-        # 各Destinationのコンテンツをキャッシュする辞書
-        self.content_cache = {}
-
-        # 現在選択されているDestination
-        self.current_destination = None
-
-        # デフォルトのコンテンツ
-        self.content = ft.Text("メインコンテンツがここに表示されます", size=20)
+        # ビューモデルが提供されている場合、コールバックを登録
+        if self.main_viewmodel:
+            self.main_viewmodel.add_destination_changed_callback(self.update_content)
 
     def update_content(self, destination_key):
         """
-        メインコンテンツエリアを更新する
+        表示するコンテンツを更新
 
         Args:
-            destination_key: 表示するコンテンツのキー
+            destination_key (str): 表示するコンテンツのキー
         """
-        # 既に同じDestinationが選択されている場合は何もしない
-        if self.current_destination == destination_key:
-            return
-
-        # 現在のDestinationを更新
-        self.current_destination = destination_key
-
-        # キャッシュにコンテンツがあればそれを使用、なければ新しく作成
-        if destination_key not in self.content_cache:
-            self.content_cache[destination_key] = self.create_content_for_destination(
-                destination_key
-            )
+        # コンテンツファクトリからコンテンツを取得
+        new_content = create_content(destination_key)
 
         # コンテンツを更新
-        self.content = self.content_cache[destination_key]
+        self.content = new_content
+        self.current_content = new_content
+        self.update()
 
     def create_content_for_destination(self, destination_key):
         """
@@ -92,5 +102,76 @@ class MainContents(ft.Container):
                 spacing=20,
             )
 
+        elif destination_key == "menu":
+            return self.build_text_with_subtitle_section()
+
         # デフォルトのコンテンツ
         return ft.Text(f"不明なDestination: {destination_key}", size=20)
+
+    def build_text_with_subtitle_section(self):
+        """ダミーテキストを使ったTextWithSubtitleコンポーネントのセクションを構築"""
+
+        # TextWithSubtitleコンポーネントのクリックハンドラ
+        def on_item_click(e):
+            print(f"アイテムがクリックされました: {e.control.text}")
+
+        # ダミーデータを使ったTextWithSubtitleコンポーネント
+        items = [
+            TextWithSubtitle(
+                text="プロジェクト管理",
+                subtitle="タスクの追加、編集、削除ができます",
+                on_click_callback=on_item_click,
+            ),
+            TextWithSubtitle(
+                text="スケジュール",
+                subtitle="予定の確認と管理を行います",
+                on_click_callback=on_item_click,
+            ),
+            TextWithSubtitle(
+                text="設定",
+                subtitle="アプリケーションの設定を変更します",
+                on_click_callback=on_item_click,
+            ),
+            TextWithSubtitle(
+                text="ヘルプ",
+                subtitle="使い方とよくある質問",
+                on_click_callback=on_item_click,
+                enable_hover=False,
+            ),
+            TextWithSubtitle(
+                text="ログアウト",
+                subtitle="アカウントからログアウトします",
+                on_click_callback=on_item_click,
+                activate=True,
+            ),
+        ]
+
+        # 無効化されたアイテムの例
+        disabled_item = TextWithSubtitle(
+            text="メンテナンス中",
+            subtitle="この機能は現在利用できません",
+            on_click_callback=on_item_click,
+            enabled=False,
+        )
+
+        # アイテムを縦に並べるカラム
+        items_column = ft.Column(
+            spacing=AppTheme.SPACING_MD,
+            controls=items + [disabled_item],
+        )
+
+        # メインコンテナ
+        return ft.Container(
+            content=ft.Column(
+                controls=[
+                    ft.Text("メニュー", size=AppTheme.TITLE_SIZE, weight="bold"),
+                    ft.Divider(),
+                    items_column,
+                ],
+                spacing=AppTheme.SPACING_MD,
+            ),
+            padding=AppTheme.PAGE_PADDING,
+            bgcolor=AppTheme.PAGE_BGCOLOR,
+            border_radius=AppTheme.CONTAINER_BORDER_RADIUS,
+            width=400,
+        )

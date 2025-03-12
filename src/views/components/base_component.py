@@ -3,6 +3,8 @@
 すべてのカスタムUIコンポーネントの基盤となるクラス
 """
 
+from typing import Callable, Optional
+
 import flet as ft
 
 from src.views.styles.style import ComponentState, ComponentStyle, StyleManager
@@ -21,6 +23,7 @@ class BaseComponent(ft.Control):
         enable_hover: bool = True,
         enable_press: bool = True,
         activate: bool = False,
+        on_click_callback: Optional[Callable] = None,
     ):
         """
         BaseComponentの初期化
@@ -31,12 +34,14 @@ class BaseComponent(ft.Control):
             enable_hover: ホバー効果を有効にするかどうか
             enable_press: プレス効果を有効にするかどうか
             activate: アクティブ状態で初期化するかどうか
+            on_click_callback: クリックイベントのコールバック関数
         """
         super().__init__()
         self.text = text
         self._enabled = enabled
         self._enable_hover = enable_hover
         self._enable_press = enable_press
+        self.on_click_callback = on_click_callback
 
         # 初期状態の設定
         if not enabled:
@@ -93,6 +98,19 @@ class BaseComponent(ft.Control):
 
         self._state = ComponentState.PRESSED
         self.update()
+
+        # コールバックが設定されている場合は呼び出す
+        if self.on_click_callback and self._enabled:
+            self.on_click_callback(e)
+
+        # クリック後に通常状態に戻す（プレス状態を維持しない）
+        if self._enabled:
+            self._state = (
+                self._state
+                if self._state == ComponentState.ACTIVE
+                else ComponentState.NORMAL
+            )
+            self.update()
 
     def enable(self):
         """コンポーネントを有効化"""

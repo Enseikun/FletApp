@@ -11,48 +11,70 @@ class SideBar(ft.NavigationRail):
     アプリケーションのサイドバーコンポーネント
     """
 
-    def __init__(self):
+    def __init__(self, viewmodel=None):
+        """
+        初期化
+
+        Args:
+            viewmodel (SideBarViewModel, optional): サイドバーのビューモデル
+        """
+        self.viewmodel = viewmodel
+
+        # デスティネーションの定義
+        destinations = [
+            ft.NavigationRailDestination(
+                icon=ft.icons.HOME_OUTLINED,
+                selected_icon=ft.icons.HOME,
+                label="ホーム",
+            ),
+            ft.NavigationRailDestination(
+                icon=ft.icons.MENU_BOOK_OUTLINED,
+                selected_icon=ft.icons.MENU_BOOK,
+                label="メニュー",
+            ),
+            ft.NavigationRailDestination(
+                icon=ft.icons.PERSON_OUTLINED,
+                selected_icon=ft.icons.PERSON,
+                label="プロフィール",
+            ),
+            ft.NavigationRailDestination(
+                icon=ft.icons.SETTINGS_OUTLINED,
+                selected_icon=ft.icons.SETTINGS,
+                label="設定",
+            ),
+        ]
+
+        # デスティネーションキーのマッピング
+        self.destination_keys = ["home", "menu", "profile", "settings"]
+
         super().__init__(
             selected_index=0,
             label_type=ft.NavigationRailLabelType.ALL,
+            extended=True,
             min_width=100,
             min_extended_width=200,
-            group_alignment=-0.9,
-            destinations=[
-                ft.NavigationRailDestination(
-                    icon=ft.icons.HOME_OUTLINED,
-                    selected_icon=ft.icons.HOME,
-                    label="ホーム",
-                ),
-                ft.NavigationRailDestination(
-                    icon=ft.icons.SETTINGS_OUTLINED,
-                    selected_icon=ft.icons.SETTINGS,
-                    label="設定",
-                ),
-                ft.NavigationRailDestination(
-                    icon=ft.icons.PERSON_OUTLINED,
-                    selected_icon=ft.icons.PERSON,
-                    label="プロフィール",
-                ),
-            ],
-            on_change=self._handle_on_change,
+            destinations=destinations,
+            on_change=self._on_change_internal,
         )
 
-        # Destinationが変更されたときのコールバック
-        self.on_destination_change = None
-
-        # Destinationのキーマッピング
-        self.destination_keys = ["home", "settings", "profile"]
-
-    def _handle_on_change(self, e):
+    def _on_change_internal(self, e):
         """
-        NavigationRailの選択変更イベントを処理する
+        内部のon_changeイベントハンドラ
+        選択されたインデックスからデスティネーションキーを取得してビューモデルに通知
+        """
+        if self.viewmodel:
+            selected_key = self.destination_keys[e.control.selected_index]
+            self.viewmodel.select_destination(selected_key)
+
+    def update_selected_destination(self, destination_key):
+        """
+        選択されたデスティネーションを更新
 
         Args:
-            e: イベントデータ
+            destination_key (str): 選択するデスティネーションキー
         """
-        if self.on_destination_change is not None:
-            # 選択されたインデックスに対応するキーを取得
-            selected_key = self.destination_keys[self.selected_index]
-            # コールバックを呼び出す
-            self.on_destination_change(selected_key)
+        if destination_key in self.destination_keys:
+            index = self.destination_keys.index(destination_key)
+            if self.selected_index != index:
+                self.selected_index = index
+                self.update()

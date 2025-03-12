@@ -11,11 +11,16 @@ def main(page: ft.Page):
     """
     Fletアプリケーションのメインエントリーポイント
     """
-    page.title = "シングルページアプリケーション"
+    # ページの設定
+    page.title = "TestApp"
 
-    # メインビューを作成して追加
-    main_view = create_main_view()
+    # MainViewにページを渡す
+    main_view = create_main_view(page)
+
+    # ページにビューを追加
     page.add(main_view)
+
+    page.update()
 
 
 if __name__ == "__main__":

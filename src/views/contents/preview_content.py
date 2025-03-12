@@ -1,51 +1,56 @@
+"""
+プレビューコンテンツ
+プレビュー画面のコンテンツを提供するクラス
+"""
+
 import flet as ft
 
 from src.views.components.text_with_subtitle import TextWithSubtitle
 from src.views.styles.style import AppTheme
 
 
-class HomeContent(ft.Container):
+class PreviewContent(ft.Container):
     """
-    ホーム画面のコンテンツ
+    プレビュー画面のコンテンツ
     TextWithSubtitleコンポーネントを使用したリストを表示
     """
 
     def __init__(self):
         """初期化"""
-
+        # 親クラスを先に初期化
         super().__init__()
 
         # TextWithSubtitleコンポーネントのクリックハンドラ
         def on_item_click(e):
-            print(f"ホームアイテムがクリックされました: {e.control.text}")
+            print(f"プレビューアイテムがクリックされました: {e.control.text}")
 
-        # ダミーのホームメニュー項目
+        # ダミーのプレビューメニュー項目
         items = [
             TextWithSubtitle(
-                text="最近の活動",
-                subtitle="過去7日間の活動履歴を表示します",
+                text="ドキュメント",
+                subtitle="プロジェクトのドキュメントを表示します",
                 on_click_callback=on_item_click,
             ),
             TextWithSubtitle(
-                text="お気に入り",
-                subtitle="お気に入りに登録したコンテンツ",
+                text="画像ギャラリー",
+                subtitle="保存された画像を閲覧します",
                 on_click_callback=on_item_click,
             ),
             TextWithSubtitle(
-                text="通知",
-                subtitle="未読の通知が3件あります",
-                on_click_callback=on_item_click,
-                activate=True,
-            ),
-            TextWithSubtitle(
-                text="統計情報",
-                subtitle="利用状況の統計を表示します",
+                text="データ分析",
+                subtitle="収集したデータの分析結果",
                 on_click_callback=on_item_click,
             ),
             TextWithSubtitle(
-                text="ヘルプとサポート",
-                subtitle="困ったときはこちら",
+                text="レポート",
+                subtitle="月次レポートを生成します",
                 on_click_callback=on_item_click,
+            ),
+            TextWithSubtitle(
+                text="エクスポート",
+                subtitle="データをエクスポートします",
+                on_click_callback=on_item_click,
+                enabled=False,
             ),
         ]
 
@@ -58,16 +63,16 @@ class HomeContent(ft.Container):
         # メインコンテンツ
         content = ft.Column(
             controls=[
-                ft.Text("ホーム", size=AppTheme.TITLE_SIZE, weight="bold"),
+                ft.Text("プレビュー", size=AppTheme.TITLE_SIZE, weight="bold"),
                 ft.Divider(),
-                ft.Text("メニュー", size=18, weight="bold"),
+                ft.Text("利用可能なプレビュー", size=18, weight="bold"),
                 items_column,
             ],
             spacing=AppTheme.SPACING_MD,
             scroll=ft.ScrollMode.AUTO,
         )
 
-        # 親クラスの初期化
+        # プロパティを後から設定
         self.content = content
         self.padding = AppTheme.PAGE_PADDING
         self.bgcolor = AppTheme.PAGE_BGCOLOR

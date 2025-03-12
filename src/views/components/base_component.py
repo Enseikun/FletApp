@@ -152,3 +152,10 @@ class BaseComponent(ft.Control):
     def build(self):
         """コンポーネントのUIを構築"""
         return self._create_container()
+
+    def _get_control_name(self):
+        # クラス名をスネークケースに変換して返す
+        class_name = self.__class__.__name__
+        return "".join(
+            ["_" + c.lower() if c.isupper() else c for c in class_name]
+        ).lstrip("_")

@@ -6,8 +6,7 @@
 import flet as ft
 
 from src.views.contents.home_content import HomeContent
-from src.views.contents.menu_content import MenuContent
-from src.views.contents.profile_content import ProfileContent
+from src.views.contents.preview_content import PreviewContent
 from src.views.contents.settings_content import SettingsContent
 
 
@@ -29,10 +28,8 @@ class ContentFactory:
         """
         if destination_key == "home":
             return HomeContent()
-        elif destination_key == "menu":
-            return MenuContent()
-        elif destination_key == "profile":
-            return ProfileContent()
+        elif destination_key == "preview":
+            return PreviewContent()
         elif destination_key == "settings":
             return SettingsContent()
         else:

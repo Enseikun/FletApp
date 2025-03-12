@@ -30,12 +30,7 @@ class SideBar(ft.NavigationRail):
             ft.NavigationRailDestination(
                 icon=ft.icons.MENU_BOOK_OUTLINED,
                 selected_icon=ft.icons.MENU_BOOK,
-                label="メニュー",
-            ),
-            ft.NavigationRailDestination(
-                icon=ft.icons.PERSON_OUTLINED,
-                selected_icon=ft.icons.PERSON,
-                label="プロフィール",
+                label="プレビュー",
             ),
             ft.NavigationRailDestination(
                 icon=ft.icons.SETTINGS_OUTLINED,
@@ -45,7 +40,7 @@ class SideBar(ft.NavigationRail):
         ]
 
         # デスティネーションキーのマッピング
-        self.destination_keys = ["home", "menu", "profile", "settings"]
+        self.destination_keys = ["home", "preview", "settings"]
 
         super().__init__(
             selected_index=0,

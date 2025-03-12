@@ -5,9 +5,7 @@
 
 import flet as ft
 
-from src.views.components.text_with_subtitle import TextWithSubtitle
 from src.views.contents.content_factory import create_content
-from src.views.styles.style import AppTheme
 
 
 class MainContents(ft.Container):
@@ -60,118 +58,8 @@ class MainContents(ft.Container):
         Returns:
             作成されたコンテンツ
         """
-        # 各Destinationに応じたコンテンツを作成
-        if destination_key == "home":
-            return ft.Column(
-                [
-                    ft.Text("ホーム画面", size=24, weight=ft.FontWeight.BOLD),
-                    ft.TextField(label="検索", width=300),
-                    ft.ElevatedButton("検索"),
-                ],
-                alignment=ft.MainAxisAlignment.START,
-                spacing=20,
-            )
+        # コンテンツファクトリからコンテンツを取得
+        return create_content(destination_key)
 
-        elif destination_key == "settings":
-            return ft.Column(
-                [
-                    ft.Text("設定画面", size=24, weight=ft.FontWeight.BOLD),
-                    ft.Switch(label="ダークモード"),
-                    ft.Dropdown(
-                        label="言語",
-                        options=[
-                            ft.dropdown.Option("日本語"),
-                            ft.dropdown.Option("English"),
-                        ],
-                        width=200,
-                    ),
-                ],
-                alignment=ft.MainAxisAlignment.START,
-                spacing=20,
-            )
-
-        elif destination_key == "profile":
-            return ft.Column(
-                [
-                    ft.Text("プロフィール画面", size=24, weight=ft.FontWeight.BOLD),
-                    ft.TextField(label="ユーザー名", width=300),
-                    ft.TextField(label="メールアドレス", width=300),
-                    ft.ElevatedButton("保存"),
-                ],
-                alignment=ft.MainAxisAlignment.START,
-                spacing=20,
-            )
-
-        elif destination_key == "menu":
-            return self.build_text_with_subtitle_section()
-
-        # デフォルトのコンテンツ
-        return ft.Text(f"不明なDestination: {destination_key}", size=20)
-
-    def build_text_with_subtitle_section(self):
-        """ダミーテキストを使ったTextWithSubtitleコンポーネントのセクションを構築"""
-
-        # TextWithSubtitleコンポーネントのクリックハンドラ
-        def on_item_click(e):
-            print(f"アイテムがクリックされました: {e.control.text}")
-
-        # ダミーデータを使ったTextWithSubtitleコンポーネント
-        items = [
-            TextWithSubtitle(
-                text="プロジェクト管理",
-                subtitle="タスクの追加、編集、削除ができます",
-                on_click_callback=on_item_click,
-            ),
-            TextWithSubtitle(
-                text="スケジュール",
-                subtitle="予定の確認と管理を行います",
-                on_click_callback=on_item_click,
-            ),
-            TextWithSubtitle(
-                text="設定",
-                subtitle="アプリケーションの設定を変更します",
-                on_click_callback=on_item_click,
-            ),
-            TextWithSubtitle(
-                text="ヘルプ",
-                subtitle="使い方とよくある質問",
-                on_click_callback=on_item_click,
-                enable_hover=False,
-            ),
-            TextWithSubtitle(
-                text="ログアウト",
-                subtitle="アカウントからログアウトします",
-                on_click_callback=on_item_click,
-                activate=True,
-            ),
-        ]
-
-        # 無効化されたアイテムの例
-        disabled_item = TextWithSubtitle(
-            text="メンテナンス中",
-            subtitle="この機能は現在利用できません",
-            on_click_callback=on_item_click,
-            enabled=False,
-        )
-
-        # アイテムを縦に並べるカラム
-        items_column = ft.Column(
-            spacing=AppTheme.SPACING_MD,
-            controls=items + [disabled_item],
-        )
-
-        # メインコンテナ
-        return ft.Container(
-            content=ft.Column(
-                controls=[
-                    ft.Text("メニュー", size=AppTheme.TITLE_SIZE, weight="bold"),
-                    ft.Divider(),
-                    items_column,
-                ],
-                spacing=AppTheme.SPACING_MD,
-            ),
-            padding=AppTheme.PAGE_PADDING,
-            bgcolor=AppTheme.PAGE_BGCOLOR,
-            border_radius=AppTheme.CONTAINER_BORDER_RADIUS,
-            width=400,
-        )
+    def _get_control_name(self):
+        return "main_contents"

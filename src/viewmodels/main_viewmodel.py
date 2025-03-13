@@ -11,7 +11,7 @@ class MainViewModel:
     """
 
     def __init__(self):
-        self._current_destination = "home"
+        self._current_destination = None
         self._destination_changed_callbacks = []
 
     @property
@@ -54,3 +54,12 @@ class MainViewModel:
         """登録されたすべてのコールバックを呼び出す"""
         for callback in self._destination_changed_callbacks:
             callback(self._current_destination)
+
+    def set_initial_destination(self, destination):
+        """
+        コールバックを呼ばずに初期デスティネーションを設定
+
+        Args:
+            destination (str): 設定するデスティネーション
+        """
+        self._current_destination = destination

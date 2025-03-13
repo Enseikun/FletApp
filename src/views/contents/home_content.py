@@ -10,10 +10,11 @@ class HomeContent(ft.Container):
     TextWithSubtitleコンポーネントを使用したリストを表示
     """
 
-    def __init__(self):
+    def __init__(self, contents_viewmodel):
         """初期化"""
 
         super().__init__()
+        self.contents_viewmodel = contents_viewmodel
 
         # TextWithSubtitleコンポーネントのクリックハンドラ
         def on_item_click(e):

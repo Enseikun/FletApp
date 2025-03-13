@@ -141,12 +141,13 @@ class StyleManager:
         styles[ComponentState.ERROR].padding = 8
 
         # アクティブ状態のスタイル
-        styles[ComponentState.ACTIVE].bgcolor = Colors.PRIMARY_LIGHT
-        styles[ComponentState.ACTIVE].text_color = Colors.TEXT_ON_PRIMARY
+        styles[ComponentState.ACTIVE].bgcolor = Colors.BACKGROUND
+        styles[ComponentState.ACTIVE].text_color = Colors.PRIMARY
         styles[ComponentState.ACTIVE].border_color = Colors.PRIMARY
-        styles[ComponentState.ACTIVE].border_width = 1
+        styles[ComponentState.ACTIVE].border_width = 2
         styles[ComponentState.ACTIVE].border_radius = 4
         styles[ComponentState.ACTIVE].padding = 8
+        styles[ComponentState.ACTIVE].shadow = 2
 
         return styles
 

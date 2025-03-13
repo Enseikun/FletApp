@@ -5,6 +5,7 @@
 
 import flet as ft
 
+from src.viewmodels.main_contents_viewmodel import MainContentsViewModel
 from src.views.contents.content_factory import create_content
 
 
@@ -21,17 +22,18 @@ class MainContents(ft.Container):
         Args:
             main_viewmodel (MainViewModel, optional): メインビューモデル
         """
-        # 親クラスの初期化
-        super().__init__(
-            content=ft.Text("コンテンツを読み込み中..."), expand=True, padding=10
-        )
+        super().__init__()
+        self._main_viewmodel = main_viewmodel
+        self._contents_viewmodel = MainContentsViewModel()
 
-        self.main_viewmodel = main_viewmodel
-        self.current_content = None
+        # ViewModelの監視を登録
+        self._contents_viewmodel.add_observer(self)
 
-        # ビューモデルが提供されている場合、コールバックを登録
-        if self.main_viewmodel:
-            self.main_viewmodel.add_destination_changed_callback(self.update_content)
+        # ビューモデルの変更を監視
+        if self._main_viewmodel:
+            self._main_viewmodel.add_destination_changed_callback(self.update_content)
+            # 初期状態を設定（updateは呼ばない）
+            self._main_viewmodel.set_initial_destination("HomeContent")
 
     def update_content(self, destination_key):
         """
@@ -41,11 +43,14 @@ class MainContents(ft.Container):
             destination_key (str): 表示するコンテンツのキー
         """
         # コンテンツファクトリからコンテンツを取得
-        new_content = create_content(destination_key)
+        new_content = create_content(destination_key, self._contents_viewmodel)
 
         # コンテンツを更新
         self.content = new_content
-        self.current_content = new_content
+        self.update()
+
+    def on_view_model_changed(self):
+        """ViewModelの変更通知を受け取るコールバック"""
         self.update()
 
     def create_content_for_destination(self, destination_key):

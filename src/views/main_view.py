@@ -18,6 +18,7 @@ class MainView(ft.Container):
     """
 
     def __init__(self, page=None):
+        super().__init__()
         self.page = page
 
         # UI
@@ -45,12 +46,16 @@ class MainView(ft.Container):
         # 親クラスの初期化
         super().__init__(content=content, expand=True)
 
-        # 初期表示を設定（ページがレンダリングされた後に実行）
+        # ページがある場合、ページの準備完了後に初期デスティネーションを設定
         if self.page:
-            self.page.on_load = lambda _: self.main_viewmodel.set_destination("home")
-        else:
-            # ページがない場合は直接設定
-            self.main_viewmodel.set_destination("home")
+
+            def _on_view_ready(_):
+                # コンポーネントがページに追加された後で初期デスティネーションを設定
+                self.main_viewmodel.set_destination("HomeContent")
+                # 一度限りのイベントなのでリスナーを削除
+                self.page.on_view_ready.remove(_on_view_ready)
+
+            self.page.on_view_ready.append(_on_view_ready)
 
 
 def create_main_view(page=None):

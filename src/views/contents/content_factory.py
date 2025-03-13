@@ -1,6 +1,6 @@
 """
-コンテンツファクトリー
-各種コンテンツを生成するファクトリークラスと関数
+コンテンツファクトリモジュール
+各種コンテンツの生成を担当
 """
 
 import flet as ft
@@ -37,15 +37,22 @@ class ContentFactory:
             return ft.Text(f"不明なデスティネーション: {destination_key}", size=20)
 
 
-# クラスメソッドと同じ機能を持つ関数版（利便性のため）
-def create_content(destination_key):
+def create_content(destination_key: str, contents_viewmodel) -> ft.Container:
     """
-    指定されたデスティネーションキーに対応するコンテンツを作成する
+    指定された destination_key に基づいてコンテンツを作成します
 
     Args:
-        destination_key (str): デスティネーションキー
+        destination_key: 目的地を示すキー
+        contents_viewmodel: コンテンツのビューモデル
 
     Returns:
-        ft.Control: 作成されたコンテンツ
+        ft.Container: 作成されたコンテンツ
     """
-    return ContentFactory.create_content(destination_key)
+    if destination_key == "home":
+        return HomeContent(contents_viewmodel)
+    elif destination_key == "preview":
+        return PreviewContent(contents_viewmodel)
+    elif destination_key == "settings":
+        return SettingsContent(contents_viewmodel)
+    else:
+        return HomeContent(contents_viewmodel)

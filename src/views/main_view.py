@@ -7,8 +7,8 @@ import flet as ft
 
 from src.viewmodels.main_viewmodel import MainViewModel
 from src.viewmodels.sidebar_viewmodel import SideBarViewModel
-from src.views.components.main_contents import MainContents
 from src.views.components.side_bar import SideBar
+from src.views.contents.main_contents import MainContents
 
 
 class MainView(ft.Container):

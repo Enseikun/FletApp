@@ -21,13 +21,13 @@ class MainContents(ft.Container):
         Args:
             main_viewmodel (MainViewModel, optional): メインビューモデル
         """
-        self.main_viewmodel = main_viewmodel
-        self.current_content = None
-
         # 親クラスの初期化
         super().__init__(
             content=ft.Text("コンテンツを読み込み中..."), expand=True, padding=10
         )
+
+        self.main_viewmodel = main_viewmodel
+        self.current_content = None
 
         # ビューモデルが提供されている場合、コールバックを登録
         if self.main_viewmodel:
@@ -60,6 +60,3 @@ class MainContents(ft.Container):
         """
         # コンテンツファクトリからコンテンツを取得
         return create_content(destination_key)
-
-    def _get_control_name(self):
-        return "main_contents"

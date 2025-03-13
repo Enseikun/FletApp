@@ -96,6 +96,7 @@ class StyleManager:
         styles[ComponentState.NORMAL].border_width = 1
         styles[ComponentState.NORMAL].border_radius = 4
         styles[ComponentState.NORMAL].padding = 8
+        styles[ComponentState.NORMAL].shadow = 0
 
         # ホバー状態のスタイル
         styles[ComponentState.HOVERED].bgcolor = Colors.BACKGROUND_LIGHT

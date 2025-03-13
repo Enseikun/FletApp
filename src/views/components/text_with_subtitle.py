@@ -6,46 +6,34 @@ from typing import Callable, Optional
 
 import flet as ft
 
-from src.views.components.base_component import BaseComponent
+from src.views.components.mixins.event_handling_mixin import EventHandlingMixin
+from src.views.components.mixins.state_management_mixin import StateManagementMixin
+from src.views.components.mixins.ui_component_mixin import UIComponentMixin
+from src.views.styles.style import ComponentState, ComponentStyle, StyleManager
 
 
-class TextWithSubtitle(BaseComponent):
+class TextWithSubtitle(
+    ft.Container, StateManagementMixin, UIComponentMixin, EventHandlingMixin
+):
     """
     メインテキストとサブテキストを2行で表示するコンポーネント
     クリック可能で、コールバック機能を持ちます
     """
 
-    def __init__(
-        self,
-        text: str = "",
-        subtitle: str = "",
-        on_click_callback: Optional[Callable] = None,
-        enabled: bool = True,
-        enable_hover: bool = True,
-        enable_press: bool = True,
-        activate: bool = False,
-    ):
+    def __init__(self, text: str, subtitle: str, **kwargs):
         """
         TextWithSubtitleの初期化
 
         Args:
             text: メインテキスト
             subtitle: サブテキスト
-            on_click_callback: クリック時に呼び出されるコールバック関数
-            enabled: コンポーネントが有効かどうか
-            enable_hover: ホバー効果を有効にするかどうか
-            enable_press: プレス効果を有効にするかどうか
-            activate: アクティブ状態で初期化するかどうか
+            **kwargs: その他のキーワード引数
         """
-        super().__init__(
-            text=text,
-            enabled=enabled,
-            enable_hover=enable_hover,
-            enable_press=enable_press,
-            activate=activate,
-            on_click_callback=on_click_callback,
-        )
+        super().__init__()
+        self.text = text
         self.subtitle = subtitle
+        self.init_state_management(**kwargs)
+        self._setup_container()
 
     def _create_content(self):
         """コンポーネントのコンテンツを作成"""
@@ -68,3 +56,19 @@ class TextWithSubtitle(BaseComponent):
                 ),
             ],
         )
+
+    def _setup_container(self):
+        """コンテナの設定を行う"""
+        # スタイルの適用
+        style = self._get_current_style().to_dict()
+        for key, value in style.items():
+            setattr(self, key, value)
+
+        # コンテンツの設定
+        self.content = self._create_content()
+
+        # イベントハンドラの設定
+        if self._enable_hover:
+            self.on_hover = self._on_hover
+        if self._enable_press:
+            self.on_click = self._on_click

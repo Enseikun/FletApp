@@ -1,15 +1,21 @@
+"""
+テキストを表示するためのラベルコンポーネント
+"""
+
 from typing import Optional
 
 import flet as ft
 
-from src.views.components.base_component import BaseComponent, ComponentState
+from src.views.components.mixins.event_handling_mixin import EventHandlingMixin
+from src.views.components.mixins.state_management_mixin import StateManagementMixin
+from src.views.components.mixins.ui_component_mixin import UIComponentMixin
 from src.views.styles.color import Colors
+from src.views.styles.style import ComponentState
 
 
-class Label(BaseComponent):
+class Label(ft.Container, StateManagementMixin, UIComponentMixin, EventHandlingMixin):
     """
     テキストを表示するためのラベルコンポーネント
-    BaseComponentを継承し、Fletのテキスト表示機能を提供します
     """
 
     def __init__(
@@ -18,9 +24,9 @@ class Label(BaseComponent):
         font_size: float = 14,
         bold: bool = False,
         italic: bool = False,
-        enabled: bool = True,
         text_align: str = "left",
         selectable: bool = False,
+        **kwargs,
     ):
         """
         Labelの初期化
@@ -30,42 +36,44 @@ class Label(BaseComponent):
             font_size: フォントサイズ
             bold: 太字にするかどうか
             italic: 斜体にするかどうか
-            enabled: 有効かどうか
             text_align: テキストの配置（"left", "center", "right"）
             selectable: テキストを選択可能にするかどうか
+            **kwargs: StateManagementMixinに渡す追加のパラメータ
         """
-        super().__init__(text=text, enabled=enabled)
+        super().__init__()
 
+        # プロパティの設定
+        self.text = text
         self._font_size = font_size
         self._bold = bold
         self._italic = italic
         self._text_align = text_align
         self._selectable = selectable
 
-        # ラベル用のスタイル設定
+        # 状態管理の初期化
+        self.init_state_management(**kwargs)
+
+        # スタイルのカスタマイズ
+        self._customize_styles()
+
+        # コンテナの設定
+        self._setup_container()
+
+    def _customize_styles(self):
+        """ラベル用のスタイルをカスタマイズ"""
+        # 共通のスタイル設定
         for state in ComponentState:
             self._styles[state].padding = 4
             self._styles[state].margin = 2
 
-        # 通常状態のスタイル
+        # 状態別のスタイル設定
         self._styles[ComponentState.NORMAL].text_color = Colors.TEXT
-
-        # ホバー状態のスタイル
         self._styles[ComponentState.HOVERED].text_color = Colors.TEXT_SECONDARY
-
-        # フォーカス状態のスタイル
         self._styles[ComponentState.FOCUSED].text_color = Colors.PRIMARY
-
-        # 押下状態のスタイル
         self._styles[ComponentState.PRESSED].text_color = Colors.PRIMARY_DARK
 
-    def build(self) -> ft.Control:
-        """
-        ラベルのUIを構築
-
-        Returns:
-            構築されたFletコントロール
-        """
+    def _create_content(self) -> ft.Control:
+        """ラベルのコンテンツを作成"""
         # フォントウェイトの設定
         weight = ft.FontWeight.BOLD if self._bold else ft.FontWeight.NORMAL
 
@@ -81,21 +89,21 @@ class Label(BaseComponent):
         text_align = text_align_map.get(self._text_align, ft.TextAlign.LEFT)
 
         # テキストコントロールの作成
-        text_control = ft.Text(
+        return ft.Text(
             value=self.text,
             size=self._font_size,
             weight=weight,
             italic=self._italic,
             text_align=text_align,
             selectable=self._selectable,
+            color=self._get_current_style().text_color,
         )
 
-        # スタイルを適用したコンテナに配置
-        container = ft.Container(
-            content=text_control,
-            on_hover=lambda e: self.set_state(
-                ComponentState.HOVERED if e.data == "true" else ComponentState.NORMAL
-            ),
-        )
+    def build(self) -> ft.Control:
+        """
+        ラベルのUIを構築
 
-        return self.apply_style_to_control(container)
+        Returns:
+            構築されたFletコントロール
+        """
+        return self._create_container()

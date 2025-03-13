@@ -17,7 +17,11 @@ class HomeContent(ft.Container):
 
         # TextWithSubtitleコンポーネントのクリックハンドラ
         def on_item_click(e):
-            print(f"ホームアイテムがクリックされました: {e.control.text}")
+            # TextWithSubtitleのインスタンスを取得
+            component = e.control
+            # コンポーネントのtext属性を安全に取得
+            text = getattr(component, "text", "不明なアイテム")
+            print(f"ホームアイテムがクリックされました: {text}")
 
         # ダミーのホームメニュー項目
         items = [

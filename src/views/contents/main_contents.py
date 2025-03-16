@@ -24,7 +24,8 @@ class MainContents(ft.Container):
         """
         super().__init__()
         self._main_viewmodel = main_viewmodel
-        self._contents_viewmodel = MainContentsViewModel()
+        self._contents_viewmodel = MainContentsViewModel(main_viewmodel)
+        self.expand = True
 
         # ViewModelの監視を登録
         self._contents_viewmodel.add_observer(self)
@@ -33,7 +34,7 @@ class MainContents(ft.Container):
         if self._main_viewmodel:
             self._main_viewmodel.add_destination_changed_callback(self.update_content)
             # 初期状態を設定（updateは呼ばない）
-            self._main_viewmodel.set_initial_destination("HomeContent")
+            self._main_viewmodel.set_initial_destination("home")
 
     def update_content(self, destination_key):
         """
@@ -42,6 +43,8 @@ class MainContents(ft.Container):
         Args:
             destination_key (str): 表示するコンテンツのキー
         """
+        print(f"MainContents: 表示コンテンツを更新 - {destination_key}")
+
         # コンテンツファクトリからコンテンツを取得
         new_content = create_content(destination_key, self._contents_viewmodel)
 

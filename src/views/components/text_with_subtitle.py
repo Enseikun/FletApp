@@ -20,20 +20,33 @@ class TextWithSubtitle(
     クリック可能で、コールバック機能を持ちます
     """
 
-    def __init__(self, text: str, subtitle: str, **kwargs):
+    def __init__(
+        self,
+        text: str,
+        subtitle: str,
+        on_click_callback=None,
+        text_weight="normal",
+        enable_press=False,
+        **kwargs,
+    ):
         """
         TextWithSubtitleの初期化
 
         Args:
             text: メインテキスト
             subtitle: サブテキスト
+            on_click_callback: クリック時のコールバック関数
+            text_weight: テキストの太さ
+            enable_press: クリック可能かどうか
             **kwargs: その他のキーワード引数
         """
         super().__init__()
         self.text = text
         self.subtitle = subtitle
+        on_click = kwargs.pop("on_click", None)
         self.init_state_management(**kwargs)
         self._setup_container()
+        self.expand = True
 
     def _create_content(self):
         """コンポーネントのコンテンツを作成"""
@@ -65,7 +78,10 @@ class TextWithSubtitle(
             setattr(self, key, value)
 
         # コンテンツの設定
-        self.content = self._create_content()
+        self.content = ft.Row(
+            controls=[self._create_content()],
+            expand=True,
+        )
 
         # イベントハンドラの設定
         if self._enable_hover:

@@ -4,28 +4,57 @@ from src.views.styles.style import ComponentState
 
 
 class MainContentsViewModel:
-    def __init__(self):
-        self._last_pressed_component_id: Optional[str] = None
+    """
+    メインコンテンツのビューモデル
+    コンテンツ間の連携を管理
+    """
+
+    def __init__(self, main_viewmodel=None):
+        """
+        初期化
+
+        Args:
+            main_viewmodel: メインビューモデル
+        """
+        self.main_viewmodel = main_viewmodel
+        self.current_task_id = None
         self._observers = []
 
-    @property
-    def last_pressed_component_id(self) -> Optional[str]:
-        return self._last_pressed_component_id
+    def set_current_task_id(self, task_id):
+        """現在のタスクIDを設定"""
+        self.current_task_id = task_id
+        self._notify_observers()
 
-    def set_last_pressed_component(self, component_id: str) -> None:
-        # 前回選択されていたコンポーネントの状態をリセット
-        if self._last_pressed_component_id:
-            self._notify_observers(
-                ComponentState.NORMAL, self._last_pressed_component_id
-            )
-
-        # 新しいコンポーネントを記録
-        self._last_pressed_component_id = component_id
-        self._notify_observers(ComponentState.ACTIVE, component_id)
+    def get_current_task_id(self):
+        """現在のタスクIDを取得"""
+        return self.current_task_id
 
     def add_observer(self, observer):
-        self._observers.append(observer)
+        """
+        オブザーバーを追加
 
-    def _notify_observers(self, state: ComponentState, component_id: str):
+        Args:
+            observer: 通知を受け取るオブザーバー
+        """
+        if observer not in self._observers:
+            self._observers.append(observer)
+
+    def remove_observer(self, observer):
+        """
+        オブザーバーを削除
+
+        Args:
+            observer: 削除するオブザーバー
+        """
+        if observer in self._observers:
+            self._observers.remove(observer)
+
+    def _notify_observers(self):
+        """オブザーバーに変更を通知"""
+        for observer in self._observers:
+            if hasattr(observer, "on_view_model_changed"):
+                observer.on_view_model_changed()
+
+    def _notify_observers_component(self, state: ComponentState, component_id: str):
         for observer in self._observers:
             observer.on_component_state_changed(state, component_id)

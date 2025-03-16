@@ -45,12 +45,16 @@ class SideBar(ft.NavigationRail):
         super().__init__(
             selected_index=0,
             label_type=ft.NavigationRailLabelType.ALL,
-            extended=True,
-            min_width=100,
-            min_extended_width=200,
+            extended=False,
+            min_width=60,
+            min_extended_width=100,
             destinations=destinations,
             on_change=self._on_change_internal,
         )
+
+        # ViewModelの監視を登録
+        if self.viewmodel:
+            self.update_selected_destination(self.viewmodel.get_selected_destination())
 
     def _on_change_internal(self, e):
         """
@@ -68,8 +72,12 @@ class SideBar(ft.NavigationRail):
         Args:
             destination_key (str): 選択するデスティネーションキー
         """
+        print(f"SideBar: デスティネーション更新 - {destination_key}")
         if destination_key in self.destination_keys:
             index = self.destination_keys.index(destination_key)
+            print(f"SideBar: インデックス変更 {self.selected_index} -> {index}")
             if self.selected_index != index:
                 self.selected_index = index
                 self.update()
+        else:
+            print(f"SideBar: 不明なデスティネーション - {destination_key}")

@@ -29,6 +29,9 @@ class MainView(ft.Container):
         self.main_viewmodel = MainViewModel()
         self.sidebar_viewmodel = SideBarViewModel(self.main_viewmodel)
 
+        # ここで明示的にサイドバーViewModelを設定
+        self.main_viewmodel.set_sidebar_viewmodel(self.sidebar_viewmodel)
+
         # コンポーネントの初期化（ビューモデルを渡す）
         self.side_bar = SideBar(viewmodel=self.sidebar_viewmodel)
         self.main_contents = MainContents(main_viewmodel=self.main_viewmodel)
@@ -38,7 +41,11 @@ class MainView(ft.Container):
             [
                 self.side_bar,
                 ft.VerticalDivider(width=1),
-                self.main_contents,
+                # MainContentsをColumnでラップ
+                ft.Column(
+                    [self.main_contents],
+                    expand=True,  # Columnが水平方向に拡大
+                ),
             ],
             expand=True,
         )
@@ -51,7 +58,8 @@ class MainView(ft.Container):
 
             def _on_view_ready(_):
                 # コンポーネントがページに追加された後で初期デスティネーションを設定
-                self.main_viewmodel.set_destination("HomeContent")
+                self.main_viewmodel.set_destination("home")
+                self.expand = True
                 # 一度限りのイベントなのでリスナーを削除
                 self.page.on_view_ready.remove(_on_view_ready)
 

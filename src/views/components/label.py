@@ -67,7 +67,7 @@ class Label(ft.Container, StateManagementMixin, UIComponentMixin, EventHandlingM
             self._styles[state].margin = 2
 
         # 状態別のスタイル設定
-        self._styles[ComponentState.NORMAL].text_color = Colors.TEXT
+        self._styles[ComponentState.NORMAL].text_color = Colors.TEXT_PRIMARY
         self._styles[ComponentState.HOVERED].text_color = Colors.TEXT_SECONDARY
         self._styles[ComponentState.FOCUSED].text_color = Colors.PRIMARY
         self._styles[ComponentState.PRESSED].text_color = Colors.PRIMARY_DARK
@@ -76,9 +76,6 @@ class Label(ft.Container, StateManagementMixin, UIComponentMixin, EventHandlingM
         """ラベルのコンテンツを作成"""
         # フォントウェイトの設定
         weight = ft.FontWeight.BOLD if self._bold else ft.FontWeight.NORMAL
-
-        # フォントスタイルの設定
-        style = ft.FontStyle.ITALIC if self._italic else ft.FontStyle.NORMAL
 
         # テキスト配置の設定
         text_align_map = {
@@ -98,6 +95,22 @@ class Label(ft.Container, StateManagementMixin, UIComponentMixin, EventHandlingM
             selectable=self._selectable,
             color=self._get_current_style().text_color,
         )
+
+    def _setup_container(self):
+        """コンテナの設定を行う"""
+        # スタイルの適用
+        style = self._get_current_style().to_dict()
+        for key, value in style.items():
+            setattr(self, key, value)
+
+        # コンテンツの設定
+        self.content = self._create_content()
+
+        # イベントハンドラの設定
+        if hasattr(self, "_enable_hover") and self._enable_hover:
+            self.on_hover = self._on_hover
+        if hasattr(self, "_enable_press") and self._enable_press:
+            self.on_click = self._on_click
 
     def build(self) -> ft.Control:
         """

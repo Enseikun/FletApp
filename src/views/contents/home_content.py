@@ -1,5 +1,8 @@
 import flet as ft
 
+from src.viewmodels.home_content_viewmodel import HomeContentViewModel
+from src.viewmodels.home_viewmodel import HomeViewModel
+from src.views.components.add_button import AddButton
 from src.views.components.text_with_subtitle import TextWithSubtitle
 from src.views.styles.style import AppTheme
 
@@ -16,65 +19,61 @@ class HomeContent(ft.Container):
         super().__init__()
         self.contents_viewmodel = contents_viewmodel
 
-        # TextWithSubtitleコンポーネントのクリックハンドラ
-        def on_item_click(e):
-            # TextWithSubtitleのインスタンスを取得
-            component = e.control
-            # コンポーネントのtext属性を安全に取得
-            text = getattr(component, "text", "不明なアイテム")
-            print(f"ホームアイテムがクリックされました: {text}")
+        # HomeViewModelのインスタンスを作成
+        self.home_viewmodel = HomeViewModel(contents_viewmodel)
 
-        # ダミーのホームメニュー項目
-        items = [
-            TextWithSubtitle(
-                text="最近の活動",
-                subtitle="過去7日間の活動履歴を表示します",
-                on_click_callback=on_item_click,
-            ),
-            TextWithSubtitle(
-                text="お気に入り",
-                subtitle="お気に入りに登録したコンテンツ",
-                on_click_callback=on_item_click,
-            ),
-            TextWithSubtitle(
-                text="通知",
-                subtitle="未読の通知が3件あります",
-                on_click_callback=on_item_click,
-                activate=True,
-            ),
-            TextWithSubtitle(
-                text="統計情報",
-                subtitle="利用状況の統計を表示します",
-                on_click_callback=on_item_click,
-            ),
-            TextWithSubtitle(
-                text="ヘルプとサポート",
-                subtitle="困ったときはこちら",
-                on_click_callback=on_item_click,
-            ),
-        ]
+        # タスクリストを取得
+        tasks = self.home_viewmodel.load_tasks()
 
-        # アイテムを縦に並べるカラム
-        items_column = ft.Column(
-            spacing=AppTheme.SPACING_MD,
-            controls=items,
+        # タスクリストを表示するコントロールを作成
+        task_items = []
+        for task in tasks:
+            task_item = TextWithSubtitle(
+                text=f"タスクID: {task['id']}",
+                subtitle=f"フォルダ: {task.get('from_folder_name', '未設定')}",
+                on_click=lambda e, task_id=task["id"]: self.on_task_selected(task_id),
+                enable_hover=True,
+                enable_press=True,
+            )
+            task_items.append(task_item)
+
+        # 新規タスク追加ボタン
+        add_button = AddButton(
+            on_click=self.on_add_task_click,
+            tooltip="新しいタスクを追加",
+            size=50,
         )
 
         # メインコンテンツ
-        content = ft.Column(
+        self.content = ft.Column(
             controls=[
-                ft.Text("ホーム", size=AppTheme.TITLE_SIZE, weight="bold"),
+                ft.Row(
+                    [
+                        ft.Text("利用可能なアーカイブ", size=24, weight="bold"),
+                        add_button,
+                    ],
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                ),
                 ft.Divider(),
-                ft.Text("メニュー", size=18, weight="bold"),
-                items_column,
+                ft.Column(
+                    task_items, scroll=ft.ScrollMode.AUTO, spacing=10, expand=True
+                ),
             ],
-            spacing=AppTheme.SPACING_MD,
-            scroll=ft.ScrollMode.AUTO,
+            spacing=10,
+            expand=True,
         )
-
-        # 親クラスの初期化
-        self.content = content
-        self.padding = AppTheme.PAGE_PADDING
-        self.bgcolor = AppTheme.PAGE_BGCOLOR
-        self.border_radius = AppTheme.CONTAINER_BORDER_RADIUS
+        self.padding = 20
         self.expand = True
+
+    def on_task_selected(self, task_id):
+        """タスク選択時の処理"""
+        print(f"HomeContent: タスク選択 - {task_id}")
+        # タスクIDをViewModelに設定
+        self.contents_viewmodel.set_current_task_id(task_id)
+        # プレビュー画面に遷移
+        self.contents_viewmodel.main_viewmodel.set_destination("preview")
+
+    def on_add_task_click(self, e):
+        """新規タスク追加ボタンクリック時の処理"""
+        # タスク設定画面に遷移
+        self.contents_viewmodel.main_viewmodel.set_destination("task")

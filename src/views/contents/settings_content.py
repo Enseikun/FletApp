@@ -20,64 +20,51 @@ class SettingsContent(ft.Container):
         super().__init__()
         self.contents_viewmodel = contents_viewmodel
 
-        # TextWithSubtitleコンポーネントのクリックハンドラ
-        def on_item_click(e):
-            # TextWithSubtitleのインスタンスを取得
-            component = e.control
-            # コンポーネントのtext属性を安全に取得
-            text = getattr(component, "text", "不明なアイテム")
-            print(f"設定アイテムがクリックされました: {text}")
-
-        # ダミーの設定メニュー項目
-        items = [
-            TextWithSubtitle(
-                text="アカウント設定",
-                subtitle="ユーザー情報とプロフィールの管理",
-                on_click_callback=on_item_click,
-            ),
-            TextWithSubtitle(
-                text="表示設定",
-                subtitle="テーマやレイアウトのカスタマイズ",
-                on_click_callback=on_item_click,
-            ),
-            TextWithSubtitle(
-                text="通知設定",
-                subtitle="通知の受信方法と頻度の設定",
-                on_click_callback=on_item_click,
-            ),
-            TextWithSubtitle(
-                text="プライバシー",
-                subtitle="プライバシーとセキュリティの設定",
-                on_click_callback=on_item_click,
-            ),
-            TextWithSubtitle(
-                text="ヘルプ",
-                subtitle="サポート情報とよくある質問",
-                on_click_callback=on_item_click,
-            ),
-        ]
-
-        # アイテムを縦に並べるカラム
-        items_column = ft.Column(
-            spacing=AppTheme.SPACING_MD,
-            controls=items,
-        )
-
-        # メインコンテンツ
-        content = ft.Column(
-            controls=[
-                ft.Text("設定", size=AppTheme.TITLE_SIZE, weight="bold"),
-                ft.Divider(),
-                ft.Text("設定オプション", size=18, weight="bold"),
-                items_column,
-            ],
-            spacing=AppTheme.SPACING_MD,
-            scroll=ft.ScrollMode.AUTO,
-        )
-
         # 親クラスの初期化
-        self.content = content
+        self.content = self._init_contents()
         self.padding = AppTheme.PAGE_PADDING
         self.bgcolor = AppTheme.PAGE_BGCOLOR
         self.border_radius = AppTheme.CONTAINER_BORDER_RADIUS
         self.expand = True
+
+    def _init_contents(self):
+        """コンテンツの初期化"""
+
+        def get_config_text(file_name):
+            """設定テキストを取得"""
+            with open(f"config/{file_name}.txt", "r") as file:
+                return file.read()
+
+        def save_keywords(e):
+            """keywordsテキストを保存"""
+            with open("config/keywords.txt", "w") as file:
+                file.write(e.control.value)
+
+        def save_prompt(e):
+            """promptテキストを保存"""
+            with open("config/prompt.txt", "w") as file:
+                file.write(e.control.value)
+
+        left_text_field = ft.TextField(
+            label="keywords",
+            label_style=ft.TextStyle(size=18),
+            value=get_config_text("keywords"),
+            multiline=True,
+            on_change=save_keywords,
+            expand=1,
+        )
+        right_text_field = ft.TextField(
+            label="prompt",
+            label_style=ft.TextStyle(size=18),
+            value=get_config_text("prompt"),
+            multiline=True,
+            on_change=save_prompt,
+            expand=2,
+        )
+        content = ft.Row(
+            [left_text_field, right_text_field],
+            expand=True,
+            alignment=ft.MainAxisAlignment.START,
+            vertical_alignment=ft.CrossAxisAlignment.START,
+        )
+        return content

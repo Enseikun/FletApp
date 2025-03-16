@@ -8,6 +8,7 @@ import flet as ft
 from src.views.contents.home_content import HomeContent
 from src.views.contents.preview_content import PreviewContent
 from src.views.contents.settings_content import SettingsContent
+from src.views.contents.task_content import TaskContent
 
 
 class ContentFactory:
@@ -32,21 +33,23 @@ class ContentFactory:
             return PreviewContent()
         elif destination_key == "settings":
             return SettingsContent()
+        elif destination_key == "task":
+            return TaskContent()
         else:
             # デフォルトのコンテンツ
             return ft.Text(f"不明なデスティネーション: {destination_key}", size=20)
 
 
-def create_content(destination_key: str, contents_viewmodel) -> ft.Container:
+def create_content(destination_key, contents_viewmodel):
     """
-    指定された destination_key に基づいてコンテンツを作成します
+    指定された宛先キーに基づいてコンテンツを作成する
 
     Args:
-        destination_key: 目的地を示すキー
-        contents_viewmodel: コンテンツのビューモデル
+        destination_key: 宛先キー
+        contents_viewmodel: コンテンツのViewModel
 
     Returns:
-        ft.Container: 作成されたコンテンツ
+        作成されたコンテンツ
     """
     if destination_key == "home":
         return HomeContent(contents_viewmodel)
@@ -54,5 +57,7 @@ def create_content(destination_key: str, contents_viewmodel) -> ft.Container:
         return PreviewContent(contents_viewmodel)
     elif destination_key == "settings":
         return SettingsContent(contents_viewmodel)
+    elif destination_key == "task":
+        return TaskContent(contents_viewmodel)
     else:
-        return HomeContent(contents_viewmodel)
+        return ft.Text("不明なコンテンツ")

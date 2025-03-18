@@ -22,6 +22,7 @@ class MainContentsViewModel:
         self.main_viewmodel = main_viewmodel
         self.current_task_id = None
         self._observers = []
+        self._is_loading = False
 
     def set_current_task_id(self, task_id):
         """現在のタスクIDを設定"""
@@ -32,6 +33,26 @@ class MainContentsViewModel:
     def get_current_task_id(self):
         """現在のタスクIDを取得"""
         return self.current_task_id
+
+    def set_loading(self, is_loading: bool):
+        """
+        ローディング状態を設定
+
+        Args:
+            is_loading: ローディング中かどうか
+        """
+        self._is_loading = is_loading
+        self.logger.debug(f"ローディング状態を設定: {is_loading}")
+        self._notify_observers()
+
+    def is_loading(self) -> bool:
+        """
+        ローディング状態を取得
+
+        Returns:
+            bool: ローディング中かどうか
+        """
+        return self._is_loading
 
     def add_observer(self, observer):
         """

@@ -30,6 +30,23 @@ class MainContents(ft.Container):
         self._contents_viewmodel = MainContentsViewModel(main_viewmodel)
         self.expand = True
 
+        # ローディングインジケーター
+        self._loading_indicator = ft.Column(
+            controls=[
+                ft.Container(
+                    content=ft.ProgressRing(),
+                    alignment=ft.alignment.center,
+                    expand=True,
+                )
+            ],
+            alignment=ft.MainAxisAlignment.CENTER,
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            expand=True,
+        )
+
+        # 実際のコンテンツ
+        self._actual_content = None
+
         # ViewModelの監視を登録
         self._contents_viewmodel.add_observer(self)
 
@@ -49,16 +66,28 @@ class MainContents(ft.Container):
         """
         self.logger.info(f"MainContents: 表示コンテンツを更新 - {destination_key}")
 
+        # ローディング状態を表示
+        self._contents_viewmodel.set_loading(True)
+        self.content = self._loading_indicator
+        self.update()
+
         # コンテンツファクトリからコンテンツを取得
         new_content = create_content(destination_key, self._contents_viewmodel)
+        self._actual_content = new_content
 
-        # コンテンツを更新
-        self.content = new_content
-        self.update()
+        # ローディング状態を解除
+        self._contents_viewmodel.set_loading(False)
 
     def on_view_model_changed(self):
         """ViewModelの変更通知を受け取るコールバック"""
         self.logger.debug("MainContents: ViewModelの変更を検知")
+
+        # ローディング状態に応じてコンテンツを切り替え
+        if self._contents_viewmodel.is_loading():
+            self.content = self._loading_indicator
+        else:
+            self.content = self._actual_content
+
         self.update()
 
     def create_content_for_destination(self, destination_key):
@@ -73,4 +102,4 @@ class MainContents(ft.Container):
         """
         self.logger.debug(f"コンテンツ作成: {destination_key}")
         # コンテンツファクトリからコンテンツを取得
-        return create_content(destination_key)
+        return create_content(destination_key, self._contents_viewmodel)

@@ -24,8 +24,17 @@ class HomeContent(ft.Container):
         self.logger = get_logger()
         self.logger.info("HomeContent: 初期化開始")
 
-        # HomeViewModelのインスタンスを作成
-        self.home_viewmodel = HomeViewModel(contents_viewmodel)
+        # MainViewModelへの参照を取得
+        self.main_viewmodel = None
+        if (
+            hasattr(contents_viewmodel, "main_viewmodel")
+            and contents_viewmodel.main_viewmodel
+        ):
+            self.main_viewmodel = contents_viewmodel.main_viewmodel
+            self.logger.info("HomeContent: MainViewModelを取得しました")
+
+        # HomeViewModelのインスタンスを作成（MainViewModelを渡す）
+        self.home_viewmodel = HomeViewModel(self.main_viewmodel or contents_viewmodel)
 
         # タスクリストを表示するコントロールを作成
         self.task_items_column = ft.Column(
@@ -103,29 +112,21 @@ class HomeContent(ft.Container):
 
     def on_task_selected(self, task_id):
         """タスク選択時の処理"""
-        self.logger.info("HomeContent: タスク選択", task_id=task_id)
-        # タスクIDをViewModelに設定
-        self.contents_viewmodel.set_current_task_id(task_id)
+        self.logger.info(f"HomeContent: タスク選択 - {task_id}")
 
-        # MainViewModelにも直接設定（念のため）
-        if (
-            hasattr(self.contents_viewmodel, "main_viewmodel")
-            and self.contents_viewmodel.main_viewmodel
-        ):
-            self.contents_viewmodel.main_viewmodel.set_current_task_id(task_id)
-            self.logger.debug(
-                "HomeContent: MainViewModelにタスクID設定", task_id=task_id
+        # タスクIDを設定
+        if self.main_viewmodel:
+            self.main_viewmodel.set_current_task_id(task_id)
+            self.main_viewmodel.set_destination("preview")
+            self.logger.info(
+                f"HomeContent: MainViewModelを使用して画面遷移 - {task_id}"
             )
-
-        # プレビュー画面に遷移
-        if (
-            hasattr(self.contents_viewmodel, "main_viewmodel")
-            and self.contents_viewmodel.main_viewmodel
-        ):
-            self.logger.info("HomeContent: プレビュー画面に遷移", task_id=task_id)
-            self.contents_viewmodel.main_viewmodel.set_destination("preview")
         else:
-            self.logger.error("HomeContent: main_viewmodelが見つかりません")
+            # HomeViewModelのselect_taskメソッドを使用
+            self.home_viewmodel.select_task(task_id)
+            self.logger.info(
+                f"HomeContent: HomeViewModelを使用して画面遷移 - {task_id}"
+            )
 
     def on_task_delete(self, task_id, e):
         """タスク削除時の処理"""

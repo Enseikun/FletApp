@@ -26,10 +26,28 @@ class HomeViewModel:
     def select_task(self, task_id):
         """タスクを選択する"""
         self.selected_task_id = task_id
+
+        # ログを追加して確認
+        print(
+            f"HomeViewModel.select_task: task_id={task_id}, main_viewmodel={self.main_viewmodel}"
+        )
+
         # メインViewModelに選択されたタスクIDを設定
-        self.main_viewmodel.set_current_task_id(task_id)
-        # プレビュー画面に遷移
-        self.main_viewmodel.set_destination("preview")
+        if self.main_viewmodel:
+            self.main_viewmodel.set_current_task_id(task_id)
+
+            # main_viewmodelがMainContentsViewModelの場合、そのmain_viewmodelプロパティを使用
+            if (
+                hasattr(self.main_viewmodel, "main_viewmodel")
+                and self.main_viewmodel.main_viewmodel
+            ):
+                self.main_viewmodel.main_viewmodel.set_current_task_id(task_id)
+                # プレビュー画面に遷移
+                self.main_viewmodel.main_viewmodel.set_destination("preview")
+                return
+
+            # 通常のMainViewModelの場合
+            self.main_viewmodel.set_destination("preview")
 
     def delete_task(self, task_id):
         """タスクを削除する"""

@@ -33,19 +33,8 @@ class PreviewContent(ft.Container):
         self.viewmodel = None
         self.task_id = None
 
-        # UI要素
-        self.folder_list = ft.ListView(
-            expand=1,
-            spacing=2,
-            padding=10,
-        )
-
         # メールリスト
-        self.mail_list = ft.ListView(
-            expand=1,
-            spacing=2,
-            padding=10,
-        )
+        self.mail_list = ft.Column(expand=True)
 
         # メール内容表示
         self.mail_content = ft.Column(
@@ -59,24 +48,11 @@ class PreviewContent(ft.Container):
 
     def _build(self):
         """UIを構築"""
-        # タスク情報を取得
-        task_name = "不明なタスク"  # デフォルト値
         self.logger.debug("PreviewContent: UI構築開始")
 
         # 左側のペイン（フォルダリスト＋メールリスト）
         left_pane = ft.Column(
             [
-                ft.Container(
-                    content=ft.Text("フォルダ", weight="bold"),
-                    padding=10,
-                ),
-                ft.Container(
-                    content=self.folder_list,
-                    expand=1,
-                    border=ft.border.all(1, ft.colors.BLACK12),
-                    border_radius=AppTheme.CONTAINER_BORDER_RADIUS,
-                    padding=5,
-                ),
                 ft.Container(
                     content=ft.Text("メール", weight="bold"),
                     padding=10,
@@ -96,44 +72,15 @@ class PreviewContent(ft.Container):
         # 右側のペイン（メール内容表示）
         right_pane = ft.Container(
             content=self.mail_content,
-            expand=2,
+            expand=3,
             border=ft.border.all(1, ft.colors.BLACK12),
             border_radius=AppTheme.CONTAINER_BORDER_RADIUS,
             padding=10,
         )
 
-        # 検索バー
-        self.search_field = ft.TextField(
-            label="検索",
-            prefix_icon=ft.icons.SEARCH,
-            on_submit=self.on_search,
-            expand=True,
-        )
-
-        # 戻るボタン
-        back_button = ft.IconButton(
-            icon=ft.icons.ARROW_BACK,
-            tooltip="ホーム画面に戻る",
-            on_click=self.on_back_click,
-        )
-
-        # ヘッダー
-        header = ft.Container(
-            content=ft.Row(
-                [
-                    ft.Text(f"アーカイブ: {task_name}", size=20, weight="bold"),
-                    self.search_field,
-                    back_button,
-                ],
-                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-            ),
-            padding=ft.padding.only(bottom=10),
-        )
-
         # メインコンテンツ
         self.content = ft.Column(
             [
-                header,
                 ft.Row(
                     [left_pane, right_pane],
                     spacing=10,
@@ -386,16 +333,6 @@ class PreviewContent(ft.Container):
 
         self.update()
         self.logger.info("PreviewContent: メール内容表示完了", mail_id=mail_id)
-
-    def on_back_click(self, e):
-        """戻るボタンクリック時の処理"""
-        self.logger.info("PreviewContent: 戻るボタンクリック")
-        if (
-            hasattr(self.contents_viewmodel, "main_viewmodel")
-            and self.contents_viewmodel.main_viewmodel
-        ):
-            self.contents_viewmodel.main_viewmodel.set_destination("home")
-            self.logger.debug("PreviewContent: ホーム画面に遷移")
 
     def show_error_message(self, message):
         """エラーメッセージを表示"""

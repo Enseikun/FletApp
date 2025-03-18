@@ -18,12 +18,13 @@ class ContentFactory:
     """
 
     @staticmethod
-    def create_content(destination_key):
+    def create_content(destination_key, contents_viewmodel=None):
         """
         指定されたデスティネーションキーに対応するコンテンツを作成する
 
         Args:
             destination_key (str): デスティネーションキー
+            contents_viewmodel: コンテンツのViewModel
 
         Returns:
             ft.Control: 作成されたコンテンツ
@@ -32,26 +33,36 @@ class ContentFactory:
         logger.debug(f"ContentFactory: コンテンツ作成リクエスト - {destination_key}")
 
         if destination_key == "home":
-            logger.info("HomeContentを作成")
-            return HomeContent()
+            logger.info(
+                f"HomeContentを作成 (ViewModel: {'あり' if contents_viewmodel else 'なし'})"
+            )
+            return HomeContent(contents_viewmodel)
         elif destination_key == "preview":
-            logger.info("PreviewContentを作成")
-            return PreviewContent()
+            logger.info(
+                f"PreviewContentを作成 (ViewModel: {'あり' if contents_viewmodel else 'なし'})"
+            )
+            return PreviewContent(contents_viewmodel)
         elif destination_key == "settings":
-            logger.info("SettingsContentを作成")
-            return SettingsContent()
+            logger.info(
+                f"SettingsContentを作成 (ViewModel: {'あり' if contents_viewmodel else 'なし'})"
+            )
+            return SettingsContent(contents_viewmodel)
         elif destination_key == "task":
-            logger.info("TaskContentを作成")
-            return TaskContent()
+            logger.info(
+                f"TaskContentを作成 (ViewModel: {'あり' if contents_viewmodel else 'なし'})"
+            )
+            return TaskContent(contents_viewmodel)
         else:
             # デフォルトのコンテンツ
             logger.warning(f"不明なデスティネーション: {destination_key}")
             return ft.Text(f"不明なデスティネーション: {destination_key}", size=20)
 
 
-def create_content(destination_key, contents_viewmodel):
+# 後方互換性のための関数
+def create_content(destination_key, contents_viewmodel=None):
     """
     指定された宛先キーに基づいてコンテンツを作成する
+    ContentFactoryクラスのラッパー関数
 
     Args:
         destination_key: 宛先キー
@@ -60,21 +71,4 @@ def create_content(destination_key, contents_viewmodel):
     Returns:
         作成されたコンテンツ
     """
-    logger = get_logger()
-    logger.debug(f"コンテンツ作成: {destination_key}")
-
-    if destination_key == "home":
-        logger.info(f"HomeContentを作成 (ViewModel付き)")
-        return HomeContent(contents_viewmodel)
-    elif destination_key == "preview":
-        logger.info(f"PreviewContentを作成 (ViewModel付き)")
-        return PreviewContent(contents_viewmodel)
-    elif destination_key == "settings":
-        logger.info(f"SettingsContentを作成 (ViewModel付き)")
-        return SettingsContent(contents_viewmodel)
-    elif destination_key == "task":
-        logger.info(f"TaskContentを作成 (ViewModel付き)")
-        return TaskContent(contents_viewmodel)
-    else:
-        logger.warning(f"不明なコンテンツ: {destination_key}")
-        return ft.Text("不明なコンテンツ")
+    return ContentFactory.create_content(destination_key, contents_viewmodel)

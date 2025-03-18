@@ -11,3 +11,12 @@ wheels/
 
 # Database files
 *.db
+
+# Log files
+*.log
+
+# Trash files
+trash/
+
+# Document files
+doc/

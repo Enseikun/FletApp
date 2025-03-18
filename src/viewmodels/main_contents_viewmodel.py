@@ -1,5 +1,6 @@
 from typing import Optional
 
+from src.core.logger import get_logger
 from src.views.styles.style import ComponentState
 
 
@@ -16,6 +17,8 @@ class MainContentsViewModel:
         Args:
             main_viewmodel: メインビューモデル
         """
+        self.logger = get_logger()
+        self.logger.info("MainContentsViewModel初期化")
         self.main_viewmodel = main_viewmodel
         self.current_task_id = None
         self._observers = []
@@ -23,6 +26,7 @@ class MainContentsViewModel:
     def set_current_task_id(self, task_id):
         """現在のタスクIDを設定"""
         self.current_task_id = task_id
+        self.logger.info(f"現在のタスクIDを設定: {task_id}")
         self._notify_observers()
 
     def get_current_task_id(self):
@@ -38,6 +42,7 @@ class MainContentsViewModel:
         """
         if observer not in self._observers:
             self._observers.append(observer)
+            self.logger.debug(f"オブザーバー追加: {observer.__class__.__name__}")
 
     def remove_observer(self, observer):
         """
@@ -48,13 +53,16 @@ class MainContentsViewModel:
         """
         if observer in self._observers:
             self._observers.remove(observer)
+            self.logger.debug(f"オブザーバー削除: {observer.__class__.__name__}")
 
     def _notify_observers(self):
         """オブザーバーに変更を通知"""
+        self.logger.debug(f"オブザーバー通知: {len(self._observers)}件")
         for observer in self._observers:
             if hasattr(observer, "on_view_model_changed"):
                 observer.on_view_model_changed()
 
     def _notify_observers_component(self, state: ComponentState, component_id: str):
+        self.logger.debug(f"コンポーネント状態変更通知: {component_id}, 状態: {state}")
         for observer in self._observers:
             observer.on_component_state_changed(state, component_id)

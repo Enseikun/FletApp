@@ -5,6 +5,8 @@
 
 from typing import Callable, List, Optional
 
+from src.core.logger import get_logger
+
 
 class MainViewModel:
     """
@@ -14,6 +16,8 @@ class MainViewModel:
 
     def __init__(self):
         """初期化"""
+        self.logger = get_logger()
+        self.logger.info("MainViewModel初期化")
         # 現在のデスティネーション
         self._current_destination = "home"
         # デスティネーション変更時のコールバック
@@ -25,6 +29,7 @@ class MainViewModel:
     def set_sidebar_viewmodel(self, sidebar_viewmodel):
         """サイドバーのビューモデルを設定"""
         self._sidebar_viewmodel = sidebar_viewmodel
+        self.logger.debug("サイドバーViewModelを設定")
 
     def get_current_destination(self) -> str:
         """現在のデスティネーションを取得"""
@@ -38,6 +43,9 @@ class MainViewModel:
             destination_key: デスティネーションキー
         """
         if self._current_destination != destination_key:
+            self.logger.info(
+                f"デスティネーション変更: {self._current_destination} -> {destination_key}"
+            )
             self._current_destination = destination_key
             self._notify_destination_changed()
 
@@ -52,6 +60,7 @@ class MainViewModel:
             destination_key: デスティネーションキー
         """
         self._current_destination = destination_key
+        self.logger.debug(f"初期デスティネーション設定: {destination_key}")
 
     def add_destination_changed_callback(self, callback: Callable[[str], None]) -> None:
         """
@@ -62,6 +71,7 @@ class MainViewModel:
         """
         if callback not in self._destination_changed_callbacks:
             self._destination_changed_callbacks.append(callback)
+            self.logger.debug("デスティネーション変更コールバック追加")
 
     def remove_destination_changed_callback(
         self, callback: Callable[[str], None]
@@ -74,9 +84,11 @@ class MainViewModel:
         """
         if callback in self._destination_changed_callbacks:
             self._destination_changed_callbacks.remove(callback)
+            self.logger.debug("デスティネーション変更コールバック削除")
 
     def _notify_destination_changed(self) -> None:
         """デスティネーション変更を通知"""
+        self.logger.debug(f"デスティネーション変更通知: {self._current_destination}")
         for callback in self._destination_changed_callbacks:
             callback(self._current_destination)
 
@@ -85,11 +97,11 @@ class MainViewModel:
         if self._sidebar_viewmodel:
             # デスティネーションキーをサイドバーのキーに変換
             sidebar_key = self._map_destination_to_sidebar_key(destination_key)
-            print(f"MainViewModel: サイドバー更新 - {destination_key} -> {sidebar_key}")
+            self.logger.debug(f"サイドバー更新: {destination_key} -> {sidebar_key}")
             if sidebar_key:
                 self._sidebar_viewmodel.update_selected_destination(sidebar_key)
         else:
-            print("MainViewModel: サイドバーViewModel未設定")
+            self.logger.warning("サイドバーViewModel未設定")
 
     def _map_destination_to_sidebar_key(self, destination_key: str) -> Optional[str]:
         """デスティネーションキーをサイドバーのキーに変換"""
@@ -102,10 +114,21 @@ class MainViewModel:
         }
         return mapping.get(destination_key)
 
-    def set_current_task_id(self, task_id):
-        """現在のタスクIDを設定"""
-        self.current_task_id = task_id
+    def set_current_task_id(self, task_id: str) -> None:
+        """
+        現在選択されているタスクIDを設定する
 
-    def get_current_task_id(self):
-        """現在のタスクIDを取得"""
-        return self.current_task_id
+        Args:
+            task_id: 設定するタスクID
+        """
+        self._current_task_id = task_id
+        self.logger.info(f"現在のタスクIDを設定: {task_id}")
+
+    def get_current_task_id(self) -> str:
+        """
+        現在選択されているタスクIDを取得する
+
+        Returns:
+            str: 現在のタスクID
+        """
+        return getattr(self, "_current_task_id", None)

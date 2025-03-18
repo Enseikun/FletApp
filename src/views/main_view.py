@@ -5,6 +5,7 @@ Fletを使用したAppBar、SideBar、MainContentsを表示するシングルペ
 
 import flet as ft
 
+from src.core.logger import get_logger
 from src.viewmodels.main_viewmodel import MainViewModel
 from src.viewmodels.sidebar_viewmodel import SideBarViewModel
 from src.views.components.side_bar import SideBar
@@ -20,6 +21,8 @@ class MainView(ft.Container):
     def __init__(self, page=None):
         super().__init__()
         self.page = page
+        self.logger = get_logger()
+        self.logger.info("MainView初期化開始")
 
         # UI
         if self.page is not None:
@@ -52,6 +55,7 @@ class MainView(ft.Container):
 
         # 親クラスの初期化
         super().__init__(content=content, expand=True)
+        self.logger.info("MainViewレイアウト構成完了")
 
         # ページがある場合、ページの準備完了後に初期デスティネーションを設定
         if self.page:
@@ -60,6 +64,7 @@ class MainView(ft.Container):
                 # コンポーネントがページに追加された後で初期デスティネーションを設定
                 self.main_viewmodel.set_destination("home")
                 self.expand = True
+                self.logger.info("初期デスティネーション設定: home")
                 # 一度限りのイベントなのでリスナーを削除
                 self.page.on_view_ready.remove(_on_view_ready)
 
@@ -68,4 +73,6 @@ class MainView(ft.Container):
 
 def create_main_view(page=None):
     """MainViewのインスタンスを作成して返す"""
+    logger = get_logger()
+    logger.info("MainViewインスタンス作成")
     return MainView(page)

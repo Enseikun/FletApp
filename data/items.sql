@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS folders (
 CREATE TABLE IF NOT EXISTS mail_items (
     -- メタデータ
     entry_id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL,  -- どのタスクで取得されたかを記録
     conversation_id TEXT,
     conversation_index TEXT,
     thread_id TEXT,
@@ -49,7 +50,10 @@ CREATE TABLE IF NOT EXISTS mail_items (
 
     -- 関連テーブルの外部キー
     folder_id TEXT NOT NULL,
-
+    
+    -- 処理情報
+    processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    
     FOREIGN KEY (folder_id) REFERENCES folders(entry_id),
     FOREIGN KEY (parent_entry_id) REFERENCES mail_items(entry_id)
 );
@@ -92,44 +96,68 @@ CREATE TABLE IF NOT EXISTS attachments (
     UNIQUE (mail_id, path)
 );
 
--- ダウンロード計画テーブル
-CREATE TABLE IF NOT EXISTS download_plans (
+-- タスク処理管理テーブル
+CREATE TABLE IF NOT EXISTS mail_tasks (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    target_folder_id TEXT NOT NULL,
-    status TEXT DEFAULT 'pending',
-    total_count INTEGER DEFAULT 0,
-    completed_count INTEGER DEFAULT 0,
-    FOREIGN KEY (target_folder_id) REFERENCES folders(entry_id)
+    task_id TEXT NOT NULL,  -- task_infoのidを参照
+    message_id TEXT NOT NULL,
+    mail_id TEXT UNIQUE,    -- 処理後に設定されるメールID
+    
+    -- 処理状態
+    status TEXT DEFAULT 'pending' CHECK (
+        status IN ('pending', 'processing', 'completed', 'error', 'skipped')
+    ),
+    
+    -- 処理ステップのステータス
+    mail_fetch_status TEXT DEFAULT 'pending' CHECK (
+        mail_fetch_status IN ('pending', 'processing', 'success', 'error', 'not_required')
+    ),
+    attachment_status TEXT DEFAULT 'pending' CHECK (
+        attachment_status IN ('pending', 'processing', 'success', 'error', 'not_required')
+    ),
+    ai_review_status TEXT DEFAULT 'pending' CHECK (
+        ai_review_status IN ('pending', 'processing', 'success', 'error', 'not_required')
+    ),
+    
+    -- 処理時間記録
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    started_at TIMESTAMP,
+    completed_at TIMESTAMP,
+    
+    -- 処理結果情報
+    error_message TEXT,
+    ai_review_result TEXT,
+    
+    -- インデックス用
+    UNIQUE (task_id, message_id)
 );
 
--- タスク管理テーブル
-CREATE TABLE IF NOT EXISTS download_tasks (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    mail_id TEXT UNIQUE,
-    plan_id INTEGER NOT NULL,
-    message_id TEXT NOT NULL,
-    priority INTEGER DEFAULT 0,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+-- タスク処理の進捗状況テーブル
+CREATE TABLE IF NOT EXISTS task_progress (
+    task_id TEXT PRIMARY KEY,
+    total_messages INTEGER DEFAULT 0,
+    processed_messages INTEGER DEFAULT 0,
+    successful_messages INTEGER DEFAULT 0,
+    failed_messages INTEGER DEFAULT 0,
+    skipped_messages INTEGER DEFAULT 0,
     
-    -- メール情報取得の結果
-    mail_fetch_status TEXT DEFAULT 'pending',
-    mail_fetch_at TIMESTAMP,
-
-    -- 添付ファイル取得の結果
-    attachment_status TEXT DEFAULT 'pending',
-    attachment_at TIMESTAMP,
-
-    -- AIレビューの結果
-    ai_review_status TEXT DEFAULT 'pending',
-    ai_review_at TIMESTAMP,
-
-    FOREIGN KEY (plan_id) REFERENCES download_plans(id),
-    FOREIGN KEY (mail_id) REFERENCES mail_items(entry_id)
+    -- 処理状態
+    status TEXT DEFAULT 'pending' CHECK (
+        status IN ('pending', 'processing', 'completed', 'error', 'paused')
+    ),
+    
+    -- 処理時間
+    started_at TIMESTAMP,
+    last_updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    completed_at TIMESTAMP,
+    
+    -- エラー情報
+    last_error TEXT
 );
 
 -- インデックス
 CREATE INDEX IF NOT EXISTS idx_folders_path ON folders(path);
+CREATE INDEX IF NOT EXISTS idx_mail_items_task_id ON mail_items(task_id);
 CREATE INDEX IF NOT EXISTS idx_mail_items_conversation ON mail_items(conversation_id);
 CREATE INDEX IF NOT EXISTS idx_mail_items_thread ON mail_items(thread_id);
 CREATE INDEX IF NOT EXISTS idx_mail_items_parent ON mail_items(parent_entry_id);
@@ -141,42 +169,75 @@ CREATE INDEX IF NOT EXISTS idx_attached_messages_parent ON attachments_messages(
 CREATE INDEX IF NOT EXISTS idx_participants_mail ON participants(mail_id);
 CREATE INDEX IF NOT EXISTS idx_participants_email ON participants(email);
 CREATE INDEX IF NOT EXISTS idx_attachments_mail ON attachments(mail_id);
-CREATE INDEX IF NOT EXISTS idx_download_tasks_plan ON download_tasks(plan_id);
-CREATE INDEX IF NOT EXISTS idx_download_tasks_mail_fetch ON download_tasks(mail_fetch_status);
-CREATE INDEX IF NOT EXISTS idx_download_tasks_attachment ON download_tasks(attachment_status);
-CREATE INDEX IF NOT EXISTS idx_download_tasks_ai_review ON download_tasks(ai_review_status);
-CREATE INDEX IF NOT EXISTS idx_download_plans_status ON download_plans(status);
-CREATE INDEX IF NOT EXISTS idx_download_tasks_message_id ON download_tasks(message_id);
-CREATE INDEX IF NOT EXISTS idx_download_tasks_mail_id ON download_tasks(mail_id);
+CREATE INDEX IF NOT EXISTS idx_mail_tasks_task_id ON mail_tasks(task_id);
+CREATE INDEX IF NOT EXISTS idx_mail_tasks_status ON mail_tasks(status);
+CREATE INDEX IF NOT EXISTS idx_mail_tasks_message_id ON mail_tasks(message_id);
+CREATE INDEX IF NOT EXISTS idx_mail_tasks_mail_fetch ON mail_tasks(mail_fetch_status);
+CREATE INDEX IF NOT EXISTS idx_mail_tasks_attachment ON mail_tasks(attachment_status);
+CREATE INDEX IF NOT EXISTS idx_mail_tasks_ai_review ON mail_tasks(ai_review_status);
 
 -- フォルダのitem_count更新用トリガー
 CREATE TRIGGER IF NOT EXISTS update_folder_item_count_insert AFTER INSERT ON mail_items
-    BEGIN
-        UPDATE folders
-        SET item_count = item_count + 1
-        WHERE entry_id = NEW.folder_id;
-    END;
-
-CREATE TRIGGER IF NOT EXISTS update_folder_item_count_delete AFTER DELETE ON mail_items
-    BEGIN
-        UPDATE folders
-        SET item_count = item_count - 1
-        WHERE entry_id = OLD.folder_id;
-    END;
-
--- download_plans completed_count更新用トリガー
-CREATE TRIGGER IF NOT EXISTS update_plan_completed_count_insert AFTER UPDATE ON download_tasks
-WHEN NEW.mail_fetch_status = 'success' AND OLD.mail_fetch_status != 'success'
 BEGIN
-    UPDATE download_plans
-    SET completed_count = completed_count + 1
-    WHERE id = NEW.plan_id;
+    UPDATE folders
+    SET item_count = item_count + 1
+    WHERE entry_id = NEW.folder_id;
 END;
 
-CREATE TRIGGER IF NOT EXISTS update_plan_completed_count_delete AFTER UPDATE ON download_tasks
-WHEN NEW.mail_fetch_status != 'success' AND OLD.mail_fetch_status = 'success'
+CREATE TRIGGER IF NOT EXISTS update_folder_item_count_delete AFTER DELETE ON mail_items
 BEGIN
-    UPDATE download_plans
-    SET completed_count = completed_count - 1
-    WHERE id = NEW.plan_id;
+    UPDATE folders
+    SET item_count = item_count - 1
+    WHERE entry_id = OLD.folder_id;
+END;
+
+-- タスク進捗状況の自動更新トリガー
+CREATE TRIGGER IF NOT EXISTS update_task_progress AFTER UPDATE ON mail_tasks
+BEGIN
+    UPDATE task_progress
+    SET 
+        processed_messages = (SELECT COUNT(*) FROM mail_tasks WHERE task_id = NEW.task_id AND status != 'pending'),
+        successful_messages = (SELECT COUNT(*) FROM mail_tasks WHERE task_id = NEW.task_id AND status = 'completed'),
+        failed_messages = (SELECT COUNT(*) FROM mail_tasks WHERE task_id = NEW.task_id AND status = 'error'),
+        skipped_messages = (SELECT COUNT(*) FROM mail_tasks WHERE task_id = NEW.task_id AND status = 'skipped'),
+        last_updated_at = CURRENT_TIMESTAMP,
+        status = CASE
+            WHEN (SELECT COUNT(*) FROM mail_tasks WHERE task_id = NEW.task_id AND status IN ('pending', 'processing')) = 0 THEN 'completed'
+            WHEN (SELECT COUNT(*) FROM mail_tasks WHERE task_id = NEW.task_id AND status = 'error') > 0 THEN 'error'
+            ELSE 'processing'
+        END,
+        completed_at = CASE
+            WHEN (SELECT COUNT(*) FROM mail_tasks WHERE task_id = NEW.task_id AND status IN ('pending', 'processing')) = 0 
+            THEN CURRENT_TIMESTAMP
+            ELSE completed_at
+        END
+    WHERE task_id = NEW.task_id;
+END;
+
+-- 新しいタスクが追加されたときにtask_progressを初期化するトリガー
+CREATE TRIGGER IF NOT EXISTS initialize_task_progress AFTER INSERT ON mail_tasks
+WHEN NOT EXISTS (SELECT 1 FROM task_progress WHERE task_id = NEW.task_id)
+BEGIN
+    INSERT INTO task_progress (
+        task_id, 
+        total_messages, 
+        status
+    ) VALUES (
+        NEW.task_id,
+        (SELECT COUNT(*) FROM mail_tasks WHERE task_id = NEW.task_id),
+        'pending'
+    );
+END;
+
+-- メール取得成功時にmail_idを更新するトリガー
+CREATE TRIGGER IF NOT EXISTS update_mail_id_on_success AFTER UPDATE ON mail_tasks
+WHEN NEW.mail_fetch_status = 'success' AND OLD.mail_fetch_status != 'success' AND NEW.mail_id IS NULL
+BEGIN
+    UPDATE mail_tasks
+    SET mail_id = (
+        SELECT entry_id FROM mail_items 
+        WHERE task_id = NEW.task_id 
+        ORDER BY processed_at DESC LIMIT 1
+    )
+    WHERE id = NEW.id;
 END;

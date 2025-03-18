@@ -9,4 +9,5 @@ dependencies = [
     "flet-desktop>=0.27.3",
     "flet-web>=0.27.3",
     "pytest>=8.3.5",
+    "pytz>=2025.1",
 ]

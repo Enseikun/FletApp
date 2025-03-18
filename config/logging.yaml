@@ -1,0 +1,45 @@
+version: 1
+disable_existing_loggers: false
+
+formatters:
+  detailed:
+    format: |
+      %(asctime)s - %(levelname)s
+      %(message)s
+      Location: %(location)s
+      Details: %(details)s
+      --------------------------------
+    
+handlers:
+  console:
+    class: logging.StreamHandler
+    level: ERROR
+    formatter: detailed
+    stream: ext://sys.stdout
+  
+  time_rotating_file:
+    class: logging.handlers.TimedRotatingFileHandler
+    level: INFO
+    formatter: detailed
+    filename: logs/app.log
+    when: midnight
+    interval: 1
+    backupCount: 30
+    encoding: utf-8
+    delay: true
+
+  null_handler:
+    class: logging.NullHandler
+    level: ERROR
+
+loggers:
+  app_logger:
+    level: DEBUG
+    handlers: [time_rotating_file]
+    propagate: false
+
+root:
+  level: WARNING
+  handlers: [null_handler]
+  propagate: false
+  

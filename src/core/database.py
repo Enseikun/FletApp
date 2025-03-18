@@ -1,7 +1,8 @@
-import logging
 import os
 import sqlite3
 from typing import Any, Dict, List, Optional, Tuple, Union
+
+from src.core.logger import get_logger
 
 
 class DatabaseManager:
@@ -17,6 +18,7 @@ class DatabaseManager:
         self.db_path = db_path
         self.connection = None
         self.cursor = None
+        self.logger = get_logger()
         self._initialize_db()
 
     def _initialize_db(self) -> None:
@@ -35,9 +37,9 @@ class DatabaseManager:
             # SQLスクリプトを実行してテーブルを作成
             self._execute_sql_scripts()
 
-            logging.info(f"データベース初期化完了: {self.db_path}")
+            self.logger.info(f"データベース初期化完了: {self.db_path}")
         except Exception as e:
-            logging.error(f"データベース初期化エラー: {str(e)}")
+            self.logger.error(f"データベース初期化エラー: {str(e)}")
             raise
 
     def _execute_sql_scripts(self) -> None:
@@ -55,7 +57,7 @@ class DatabaseManager:
             script_files = ["data/items.sql"]
         else:
             # デフォルトの場合は何も実行しない
-            logging.warning(f"対応するSQLファイルが見つかりません: {db_name}")
+            self.logger.warning(f"対応するSQLファイルが見つかりません: {db_name}")
             return
 
         for script_file in script_files:
@@ -64,9 +66,9 @@ class DatabaseManager:
                     sql_script = f.read()
                     self.cursor.executescript(sql_script)
                 self.connection.commit()
-                logging.info(f"SQLスクリプト実行完了: {script_file}")
+                self.logger.info(f"SQLスクリプト実行完了: {script_file}")
             except Exception as e:
-                logging.error(f"SQLスクリプト実行エラー ({script_file}): {str(e)}")
+                self.logger.error(f"SQLスクリプト実行エラー ({script_file}): {str(e)}")
                 raise
 
     def connect(self) -> None:
@@ -100,7 +102,7 @@ class DatabaseManager:
             rows = self.cursor.fetchall()
             return [dict(row) for row in rows]
         except Exception as e:
-            logging.error(
+            self.logger.error(
                 f"クエリ実行エラー: {query}, パラメータ: {params}, エラー: {str(e)}"
             )
             raise
@@ -123,7 +125,7 @@ class DatabaseManager:
             return self.cursor.rowcount
         except Exception as e:
             self.connection.rollback()
-            logging.error(
+            self.logger.error(
                 f"更新クエリ実行エラー: {query}, パラメータ: {params}, エラー: {str(e)}"
             )
             raise
@@ -146,7 +148,7 @@ class DatabaseManager:
             return self.cursor.rowcount
         except Exception as e:
             self.connection.rollback()
-            logging.error(
+            self.logger.error(
                 f"一括クエリ実行エラー: {query}, パラメータ数: {len(params_list)}, エラー: {str(e)}"
             )
             raise
@@ -169,7 +171,7 @@ class DatabaseManager:
             return self.cursor.lastrowid
         except Exception as e:
             self.connection.rollback()
-            logging.error(
+            self.logger.error(
                 f"挿入クエリ実行エラー: {query}, パラメータ: {params}, エラー: {str(e)}"
             )
             raise
@@ -191,7 +193,7 @@ class DatabaseManager:
             result = self.cursor.fetchone()
             return result[0] if result else None
         except Exception as e:
-            logging.error(
+            self.logger.error(
                 f"単一値クエリ実行エラー: {query}, パラメータ: {params}, エラー: {str(e)}"
             )
             raise
@@ -269,10 +271,10 @@ class DatabaseManager:
             # 再接続
             self.connect()
 
-            logging.info(f"データベースバックアップ完了: {backup_path}")
+            self.logger.info(f"データベースバックアップ完了: {backup_path}")
             return True
         except Exception as e:
-            logging.error(f"データベースバックアップエラー: {str(e)}")
+            self.logger.error(f"データベースバックアップエラー: {str(e)}")
             # エラー後に再接続を試みる
             try:
                 self.connect()

@@ -5,6 +5,7 @@
 
 import flet as ft
 
+from src.core.logger import get_logger
 from src.viewmodels.main_contents_viewmodel import MainContentsViewModel
 from src.views.contents.content_factory import create_content
 
@@ -23,6 +24,8 @@ class MainContents(ft.Container):
             main_viewmodel (MainViewModel, optional): メインビューモデル
         """
         super().__init__()
+        self.logger = get_logger()
+        self.logger.info("MainContents初期化開始")
         self._main_viewmodel = main_viewmodel
         self._contents_viewmodel = MainContentsViewModel(main_viewmodel)
         self.expand = True
@@ -35,6 +38,7 @@ class MainContents(ft.Container):
             self._main_viewmodel.add_destination_changed_callback(self.update_content)
             # 初期状態を設定（updateは呼ばない）
             self._main_viewmodel.set_initial_destination("home")
+            self.logger.info("MainContents初期化完了")
 
     def update_content(self, destination_key):
         """
@@ -43,7 +47,7 @@ class MainContents(ft.Container):
         Args:
             destination_key (str): 表示するコンテンツのキー
         """
-        print(f"MainContents: 表示コンテンツを更新 - {destination_key}")
+        self.logger.info(f"MainContents: 表示コンテンツを更新 - {destination_key}")
 
         # コンテンツファクトリからコンテンツを取得
         new_content = create_content(destination_key, self._contents_viewmodel)
@@ -54,6 +58,7 @@ class MainContents(ft.Container):
 
     def on_view_model_changed(self):
         """ViewModelの変更通知を受け取るコールバック"""
+        self.logger.debug("MainContents: ViewModelの変更を検知")
         self.update()
 
     def create_content_for_destination(self, destination_key):
@@ -66,5 +71,6 @@ class MainContents(ft.Container):
         Returns:
             作成されたコンテンツ
         """
+        self.logger.debug(f"コンテンツ作成: {destination_key}")
         # コンテンツファクトリからコンテンツを取得
         return create_content(destination_key)

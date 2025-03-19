@@ -37,6 +37,9 @@ class PreviewContent(ft.Container):
         # 会話ごとに集約するフラグ
         self.group_by_conversation = False
 
+        # 会話表示の時系列ソート順（True: 新しい順、False: 古い順）
+        self.conversation_sort_newest_first = True
+
         # 会話グループのコンテナを保存する辞書
         self.conversation_containers = {}
 
@@ -131,21 +134,41 @@ class PreviewContent(ft.Container):
 
         # 右側のペイン（メール内容表示）
         right_pane = ft.Container(
-            content=ft.Column(
+            content=ft.Stack(
                 [
-                    ft.Container(
-                        content=ft.Text("メールプレビュー", weight="bold", size=16),
-                        padding=ft.padding.only(left=10, top=10, right=10, bottom=10),
+                    ft.Column(
+                        [
+                            ft.Container(
+                                content=ft.Text(
+                                    "メールプレビュー", weight="bold", size=16
+                                ),
+                                padding=ft.padding.only(
+                                    left=10, top=10, right=10, bottom=10
+                                ),
+                            ),
+                            ft.Container(
+                                content=self.mail_content,
+                                expand=True,
+                                border=ft.border.all(1, ft.colors.BLACK12),
+                                border_radius=AppTheme.CONTAINER_BORDER_RADIUS,
+                                padding=10,
+                            ),
+                        ],
+                        spacing=0,
+                        expand=True,
                     ),
                     ft.Container(
-                        content=self.mail_content,
-                        expand=True,
-                        border=ft.border.all(1, ft.colors.BLACK12),
-                        border_radius=AppTheme.CONTAINER_BORDER_RADIUS,
-                        padding=10,
+                        content=ft.FloatingActionButton(
+                            icon=ft.icons.CLOSE,
+                            tooltip="終了",
+                            on_click=self.on_close_button_click,
+                            bgcolor=ft.colors.PRIMARY,
+                            mini=True,
+                        ),
+                        alignment=ft.alignment.bottom_right,
+                        padding=ft.padding.only(right=10, bottom=10),
                     ),
                 ],
-                spacing=0,
                 expand=True,
             ),
             expand=2,
@@ -168,6 +191,20 @@ class PreviewContent(ft.Container):
         self.expand = True
         self.bgcolor = ft.colors.WHITE
         self.logger.debug("PreviewContent: UI構築完了")
+
+    def on_close_button_click(self, e):
+        """終了ボタンがクリックされたときの処理"""
+        self.logger.info("PreviewContent: 終了ボタンクリック")
+
+        # コンテンツビューモデルに戻る処理を委譲
+        if hasattr(self.contents_viewmodel, "show_home"):
+            self.contents_viewmodel.show_home()
+        elif hasattr(self.contents_viewmodel, "main_viewmodel") and hasattr(
+            self.contents_viewmodel.main_viewmodel, "show_home"
+        ):
+            self.contents_viewmodel.main_viewmodel.show_home()
+        else:
+            self.logger.error("PreviewContent: ホーム画面に戻る処理が見つかりません")
 
     def did_mount(self):
         """コンポーネントがマウントされた時の処理"""
@@ -422,6 +459,7 @@ class PreviewContent(ft.Container):
         """メールアイテムを作成"""
         is_unread = mail.get("unread", 0)
         has_attachments = bool(mail.get("attachments", []))
+        is_flagged = mail.get("flagged", False)  # フラグ状態を取得
 
         return ft.Container(
             content=ft.Column(
@@ -454,6 +492,16 @@ class PreviewContent(ft.Container):
                                 color=ft.colors.GREY,
                                 expand=True,
                                 text_align=ft.TextAlign.RIGHT,
+                            ),
+                            # フラグアイコンを表示（フラグが立っている場合）
+                            (
+                                ft.Icon(
+                                    name=ft.icons.FLAG,
+                                    size=14,
+                                    color=ft.colors.RED,
+                                )
+                                if is_flagged
+                                else ft.Container(width=0)
                             ),
                             (
                                 ft.Icon(
@@ -750,10 +798,27 @@ class PreviewContent(ft.Container):
                     ft.Container(
                         content=ft.Column(
                             [
-                                ft.Text(
-                                    mail["subject"] or "(件名なし)",
-                                    size=18,
-                                    weight="bold",
+                                ft.Row(
+                                    [
+                                        ft.Text(
+                                            mail["subject"] or "(件名なし)",
+                                            size=18,
+                                            weight="bold",
+                                            expand=True,
+                                        ),
+                                        ft.IconButton(
+                                            icon=ft.icons.FLAG_OUTLINED,
+                                            tooltip="問題のあるメールとしてフラグを立てる",
+                                            icon_color=ft.colors.GREY,
+                                            on_click=lambda e, mail_id=mail[
+                                                "id"
+                                            ]: self._toggle_flag(e, mail_id),
+                                            data={
+                                                "flagged": False,
+                                                "mail_id": mail["id"],
+                                            },
+                                        ),
+                                    ],
                                 ),
                                 ft.Divider(height=1, color=ft.colors.BLACK12),
                                 ft.Row(
@@ -939,10 +1004,24 @@ class PreviewContent(ft.Container):
                 ft.Container(
                     content=ft.Column(
                         [
-                            ft.Text(
-                                mail["subject"] or "(件名なし)",
-                                size=18,
-                                weight="bold",
+                            ft.Row(
+                                [
+                                    ft.Text(
+                                        mail["subject"] or "(件名なし)",
+                                        size=18,
+                                        weight="bold",
+                                        expand=True,
+                                    ),
+                                    ft.IconButton(
+                                        icon=ft.icons.FLAG_OUTLINED,
+                                        tooltip="問題のあるメールとしてフラグを立てる",
+                                        icon_color=ft.colors.GREY,
+                                        on_click=lambda e, mail_id=mail[
+                                            "id"
+                                        ]: self._toggle_flag(e, mail_id),
+                                        data={"flagged": False, "mail_id": mail["id"]},
+                                    ),
+                                ],
                             ),
                             ft.Divider(height=1, color=ft.colors.BLACK12),
                             ft.Row(
@@ -1249,6 +1328,9 @@ class PreviewContent(ft.Container):
         # 状態を更新
         self.group_by_conversation = e.control.value
 
+        # 会話表示の時系列ソート順（True: 新しい順、False: 古い順）
+        self.conversation_sort_newest_first = e.control.value
+
         # 会話コンテナを初期化
         self.conversation_containers = {}
         self.logger.debug("PreviewContent: 会話コンテナ初期化")
@@ -1281,7 +1363,9 @@ class PreviewContent(ft.Container):
         # 各グループを日付順にソート
         for subject, group in conversation_groups.items():
             conversation_groups[subject] = sorted(
-                group, key=lambda x: x["date"], reverse=True  # 新しい順
+                group,
+                key=lambda x: x["date"],
+                reverse=self.conversation_sort_newest_first,  # 新しい順
             )
 
         # グループごとに表示
@@ -1290,6 +1374,8 @@ class PreviewContent(ft.Container):
             latest_mail = group[0]
             unread_count = sum(1 for mail in group if mail.get("unread", 0))
             has_attachments = any(mail.get("attachments") for mail in group)
+            # グループ内にフラグが立っているメールがあるか確認
+            has_flagged = any(mail.get("flagged", False) for mail in group)
 
             # 会話グループヘッダーを作成
             # グループのコピーを作成し、グループIDとして保存
@@ -1323,6 +1409,16 @@ class PreviewContent(ft.Container):
                                     weight="bold" if unread_count else "normal",
                                     expand=True,
                                     overflow=ft.TextOverflow.ELLIPSIS,
+                                ),
+                                # フラグアイコンを表示（フラグが立っている場合）
+                                (
+                                    ft.Icon(
+                                        name=ft.icons.FLAG,
+                                        size=14,
+                                        color=ft.colors.RED,
+                                    )
+                                    if has_flagged
+                                    else ft.Container(width=0)
                                 ),
                                 (
                                     ft.Icon(
@@ -1439,7 +1535,12 @@ class PreviewContent(ft.Container):
             self.logger.error("PreviewContent: 会話内容が空です")
             return
 
-        # 最新のメールを取得
+        # 時系列でソート（新しい順/古い順）
+        sorted_mails = sorted(
+            mails, key=lambda x: x["date"], reverse=self.conversation_sort_newest_first
+        )
+
+        # 最新のメールを取得（ソート前のリストから）
         latest_mail = mails[0]
 
         # 送信者情報を解析
@@ -1519,8 +1620,15 @@ class PreviewContent(ft.Container):
                                 color=ft.colors.BLUE,
                             ),
                             ft.Text("AIレビュー", weight="bold"),
+                            ft.IconButton(
+                                icon=ft.icons.REFRESH,
+                                tooltip="AIに再評価させる",
+                                icon_size=16,
+                                on_click=self._on_ai_review_refresh,
+                            ),
                         ],
                         spacing=5,
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                     ),
                     ft.Container(
                         content=ft.Column(
@@ -1587,10 +1695,27 @@ class PreviewContent(ft.Container):
         conversation_summary = ft.Container(
             content=ft.Column(
                 [
-                    ft.Text(
-                        latest_mail["subject"] or "(件名なし)",
-                        size=18,
-                        weight="bold",
+                    ft.Row(
+                        [
+                            ft.Text(
+                                latest_mail["subject"] or "(件名なし)",
+                                size=18,
+                                weight="bold",
+                                expand=True,
+                            ),
+                            ft.IconButton(
+                                icon=ft.icons.FLAG_OUTLINED,
+                                tooltip="問題のある会話としてフラグを立てる",
+                                icon_color=ft.colors.GREY,
+                                on_click=lambda e, group_id=f"group_{latest_mail['subject']}": self._toggle_conversation_flag(
+                                    e, group_id
+                                ),
+                                data={
+                                    "flagged": False,
+                                    "group_id": f"group_{latest_mail['subject']}",
+                                },
+                            ),
+                        ],
                     ),
                     ft.Divider(height=1, color=ft.colors.BLACK12),
                     ft.Row(
@@ -1643,41 +1768,45 @@ class PreviewContent(ft.Container):
             border=ft.border.all(1, ft.colors.BLACK12),
         )
 
-        # 最新のメール内容
-        latest_mail_content = ft.Container(
+        # 時系列ソート順切り替えボタン
+        sort_order_toggle = ft.Container(
+            content=ft.Row(
+                [
+                    ft.Text("表示順:", size=14),
+                    ft.TextButton(
+                        text=(
+                            "新しい順"
+                            if self.conversation_sort_newest_first
+                            else "古い順"
+                        ),
+                        icon=(
+                            ft.icons.ARROW_DOWNWARD
+                            if self.conversation_sort_newest_first
+                            else ft.icons.ARROW_UPWARD
+                        ),
+                        on_click=self._toggle_conversation_sort_order,
+                    ),
+                ],
+                alignment=ft.MainAxisAlignment.END,
+            ),
+            margin=ft.margin.only(top=10, bottom=5),
+        )
+
+        # 会話内のすべてのメールを表示
+        conversation_mails = ft.Container(
             content=ft.Column(
                 [
                     ft.Text(
-                        "最新のメール:",
+                        "会話内容:",
                         weight="bold",
                     ),
                     ft.Container(
                         content=ft.Column(
                             [
-                                ft.Row(
-                                    [
-                                        ft.Text(
-                                            "送信者:",
-                                            weight="bold",
-                                            width=80,
-                                        ),
-                                        ft.Text(f"{sender_name} <{sender_email}>"),
-                                    ],
-                                ),
-                                ft.Row(
-                                    [
-                                        ft.Text(
-                                            "日時:",
-                                            weight="bold",
-                                            width=80,
-                                        ),
-                                        ft.Text(latest_mail["date"]),
-                                    ],
-                                ),
-                                ft.Divider(height=1, color=ft.colors.BLACK12),
-                                ft.Text(latest_mail["content"]),
+                                self._create_mail_content_item(mail, index)
+                                for index, mail in enumerate(sorted_mails)
                             ],
-                            spacing=5,
+                            spacing=15,
                         ),
                         padding=10,
                         bgcolor=ft.colors.WHITE,
@@ -1698,9 +1827,453 @@ class PreviewContent(ft.Container):
                 conversation_summary,
                 ai_review_section,
                 *attachments_section,
-                latest_mail_content,
+                sort_order_toggle,
+                conversation_mails,
             ]
         )
 
         self.update()
         self.logger.info("PreviewContent: 会話内容表示完了")
+
+    def _create_mail_content_item(self, mail, index):
+        """会話内の個別メールアイテムを作成"""
+        # 送信者情報を解析
+        sender_name = mail["sender"].split("<")[0].strip()
+        sender_email = (
+            mail["sender"].split("<")[1].replace(">", "")
+            if "<" in mail["sender"]
+            else mail["sender"]
+        )
+
+        # 添付ファイルアイコン
+        attachments_icon = (
+            ft.Row(
+                [
+                    ft.Icon(
+                        name=ft.icons.ATTACH_FILE,
+                        size=14,
+                        color=ft.colors.GREY,
+                    ),
+                    ft.Text(
+                        f"{len(mail['attachments'])}個の添付ファイル",
+                        size=12,
+                        color=ft.colors.GREY,
+                    ),
+                ],
+                spacing=2,
+            )
+            if mail.get("attachments")
+            else ft.Container(width=0)
+        )
+
+        # メール本文を処理
+        content = mail["content"]
+        content_lines = content.split("\n")
+
+        # 最初は5行まで表示
+        preview_line_count = 5
+        is_truncated = len(content_lines) > preview_line_count
+
+        # メール本文のプレビュー
+        preview_text = ft.Text(
+            "\n".join(content_lines[:preview_line_count])
+            + ("..." if is_truncated else "")
+        )
+
+        # 全文
+        full_text = ft.Text(content, visible=False)
+
+        # 続きを見るボタン
+        expand_button = ft.TextButton(
+            text="続きを見る",
+            icon=ft.icons.EXPAND_MORE,
+            on_click=lambda e, t1=preview_text, t2=full_text, b=None: self._toggle_mail_content(
+                e, t1, t2, b
+            ),
+            visible=is_truncated,
+        )
+        # ボタン自身への参照を設定
+        expand_button.data = expand_button
+
+        return ft.Container(
+            content=ft.Column(
+                [
+                    ft.Row(
+                        [
+                            ft.Container(
+                                content=ft.Text(
+                                    f"#{index+1}",
+                                    color=ft.colors.WHITE,
+                                    text_align=ft.TextAlign.CENTER,
+                                    size=12,
+                                ),
+                                bgcolor=(
+                                    ft.colors.BLUE
+                                    if mail.get("unread", 0)
+                                    else ft.colors.GREY
+                                ),
+                                border_radius=15,
+                                width=30,
+                                height=20,
+                                alignment=ft.alignment.center,
+                            ),
+                            ft.Text(
+                                mail["date"],
+                                size=12,
+                                color=ft.colors.GREY,
+                            ),
+                            ft.Text(
+                                f"送信者: {sender_name}",
+                                size=12,
+                                weight="bold",
+                                expand=True,
+                            ),
+                            ft.IconButton(
+                                icon=ft.icons.FLAG_OUTLINED,
+                                tooltip="問題のあるメールとしてフラグを立てる",
+                                icon_color=ft.colors.GREY,
+                                icon_size=16,
+                                on_click=lambda e, mail_id=mail[
+                                    "id"
+                                ]: self._toggle_flag(e, mail_id),
+                                data={"flagged": False, "mail_id": mail["id"]},
+                            ),
+                            attachments_icon,
+                        ],
+                        spacing=5,
+                    ),
+                    ft.Container(
+                        content=ft.Column(
+                            [
+                                preview_text,
+                                full_text,
+                                ft.Container(
+                                    content=expand_button,
+                                    alignment=ft.alignment.center,
+                                ),
+                            ],
+                            spacing=5,
+                        ),
+                        padding=10,
+                        bgcolor=ft.colors.WHITE,
+                        border_radius=5,
+                        border=ft.border.all(1, ft.colors.BLACK12),
+                    ),
+                ],
+                spacing=5,
+            ),
+            padding=5,
+            bgcolor=ft.colors.BLUE_50 if mail.get("unread", 0) else ft.colors.WHITE,
+            border_radius=5,
+            border=ft.border.all(1, ft.colors.BLACK12),
+        )
+
+    def _toggle_mail_content(self, e, preview_text, full_text, button):
+        """メール内容の全文表示/折りたたみを切り替える"""
+        self.logger.info("PreviewContent: メール内容表示切り替え")
+
+        # ボタンを取得
+        button = e.control
+
+        # 現在の表示状態を確認
+        is_expanded = full_text.visible
+
+        if is_expanded:
+            # 折りたたむ
+            preview_text.visible = True
+            full_text.visible = False
+            button.text = "続きを見る"
+            button.icon = ft.icons.EXPAND_MORE
+        else:
+            # 展開する
+            preview_text.visible = False
+            full_text.visible = True
+            button.text = "折りたたむ"
+            button.icon = ft.icons.EXPAND_LESS
+
+        # 更新
+        self.update()
+        self.logger.info(
+            "PreviewContent: メール内容表示切り替え完了", expanded=not is_expanded
+        )
+
+    def _toggle_conversation_sort_order(self, e):
+        """会話表示の時系列ソート順を切り替える"""
+        self.logger.info(
+            "PreviewContent: 会話ソート順切り替え",
+            current_order=(
+                "新しい順" if self.conversation_sort_newest_first else "古い順"
+            ),
+        )
+
+        # ソート順を反転
+        self.conversation_sort_newest_first = not self.conversation_sort_newest_first
+
+        # 現在表示中の会話グループを再表示
+        for group_id, mails in self.conversation_containers.items():
+            # 現在選択されているグループを特定
+            for item in self.mail_list.controls:
+                if (
+                    hasattr(item, "data")
+                    and item.data == group_id
+                    and item.bgcolor == ft.colors.BLUE_50
+                ):
+                    self._show_conversation(mails)
+                    break
+
+        self.logger.info(
+            "PreviewContent: 会話ソート順切り替え完了",
+            new_order="新しい順" if self.conversation_sort_newest_first else "古い順",
+        )
+
+    def _on_ai_review_refresh(self, e):
+        """AIレビューの再評価ボタンがクリックされたときの処理"""
+        self.logger.info("PreviewContent: AIレビュー再評価リクエスト")
+
+        # 再評価中の表示
+        ai_review_section = e.control.parent.parent.parent
+        original_content = ai_review_section.content
+
+        # 読み込み中表示に切り替え
+        ai_review_section.content = ft.Column(
+            [
+                ft.Row(
+                    [
+                        ft.Icon(
+                            name=ft.icons.PSYCHOLOGY_ALT,
+                            size=16,
+                            color=ft.colors.BLUE,
+                        ),
+                        ft.Text("AIレビュー", weight="bold"),
+                        ft.ProgressRing(width=16, height=16),
+                    ],
+                    spacing=5,
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                ),
+                ft.Container(
+                    content=ft.Column(
+                        [
+                            ft.Text("AIによる再評価中...", italic=True),
+                            ft.ProgressBar(width=300),
+                        ],
+                        spacing=10,
+                        alignment=ft.MainAxisAlignment.CENTER,
+                    ),
+                    padding=20,
+                    alignment=ft.alignment.center,
+                ),
+            ],
+            spacing=5,
+        )
+        self.update()
+
+        # 実際のアプリケーションでは、ここでAI評価のAPIを呼び出す
+        # サンプルデータでは、少し待ってから新しい評価結果を表示
+
+        async def simulate_ai_review():
+            # 処理時間をシミュレート
+            await asyncio.sleep(2)
+
+            # 新しい評価結果
+            ai_review_section.content = ft.Column(
+                [
+                    ft.Row(
+                        [
+                            ft.Icon(
+                                name=ft.icons.PSYCHOLOGY_ALT,
+                                size=16,
+                                color=ft.colors.BLUE,
+                            ),
+                            ft.Text("AIレビュー (更新済み)", weight="bold"),
+                            ft.IconButton(
+                                icon=ft.icons.REFRESH,
+                                tooltip="AIに再評価させる",
+                                icon_size=16,
+                                on_click=self._on_ai_review_refresh,
+                            ),
+                        ],
+                        spacing=5,
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    ),
+                    ft.Container(
+                        content=ft.Column(
+                            [
+                                ft.Row(
+                                    [
+                                        ft.Text("リスクスコア:", weight="bold"),
+                                        ft.Container(
+                                            content=ft.Text(
+                                                "中",
+                                                color=ft.colors.WHITE,
+                                                text_align=ft.TextAlign.CENTER,
+                                            ),
+                                            bgcolor=ft.colors.ORANGE,
+                                            border_radius=5,
+                                            padding=5,
+                                            width=50,
+                                            alignment=ft.alignment.center,
+                                        ),
+                                    ],
+                                    spacing=10,
+                                ),
+                                ft.Text(
+                                    "この会話には注意が必要な項目が含まれています。期限や重要な決定事項について確認してください。",
+                                    size=14,
+                                ),
+                                ft.Row(
+                                    [
+                                        ft.Text("キーポイント:", weight="bold"),
+                                    ],
+                                ),
+                                ft.Column(
+                                    [
+                                        ft.Text(
+                                            "• 重要な期限が近づいています",
+                                            size=14,
+                                            color=ft.colors.RED,
+                                        ),
+                                        ft.Text(
+                                            "• 複数の関係者への連絡が必要です",
+                                            size=14,
+                                        ),
+                                        ft.Text(
+                                            "• 添付ファイルに重要な情報が含まれています",
+                                            size=14,
+                                            weight="bold",
+                                        ),
+                                    ],
+                                    spacing=2,
+                                ),
+                            ],
+                            spacing=10,
+                        ),
+                        padding=10,
+                    ),
+                ],
+                spacing=5,
+            )
+            self.update()
+
+        # 非同期処理を開始
+        asyncio.create_task(simulate_ai_review())
+
+    def _toggle_flag(self, e, mail_id):
+        """メールのフラグ状態を切り替える"""
+        self.logger.info("PreviewContent: メールフラグ切り替え", mail_id=mail_id)
+
+        # ボタンの状態を取得
+        button = e.control
+        is_flagged = button.data.get("flagged", False)
+
+        # フラグ状態を切り替え
+        is_flagged = not is_flagged
+        button.data["flagged"] = is_flagged
+
+        # アイコンと色を更新
+        if is_flagged:
+            button.icon = ft.icons.FLAG
+            button.icon_color = ft.colors.RED
+            button.tooltip = "フラグを解除する"
+        else:
+            button.icon = ft.icons.FLAG_OUTLINED
+            button.icon_color = ft.colors.GREY
+            button.tooltip = "問題のあるメールとしてフラグを立てる"
+
+        # サンプルデータを使用する場合
+        if self.use_sample_data:
+            # サンプルメールデータを更新
+            sample_mails = [
+                # ... existing sample mails ...
+            ]
+
+            # 該当するメールのフラグ状態を更新
+            for mail in sample_mails:
+                if mail["id"] == mail_id:
+                    mail["flagged"] = is_flagged
+                    break
+
+            # メールリストを更新して新しいフラグ状態を反映
+            self.mail_list.controls.clear()
+
+            # 会話ごとに集約する場合
+            if self.group_by_conversation:
+                self._display_grouped_mails(sample_mails)
+            else:
+                # 通常表示
+                for mail in sample_mails:
+                    mail_item = self._create_mail_item(mail)
+                    self.mail_list.controls.append(mail_item)
+        else:
+            # 実際のアプリケーションでは、ここでデータベースにフラグ状態を保存する処理を追加
+            if self.viewmodel:
+                self.viewmodel.set_mail_flag(mail_id, is_flagged)
+                # メールリストを更新
+                self.load_all_mails()
+
+        self.update()
+        self.logger.info(
+            "PreviewContent: メールフラグ切り替え完了",
+            mail_id=mail_id,
+            flagged=is_flagged,
+        )
+
+    def _toggle_conversation_flag(self, e, group_id):
+        """会話グループのフラグ状態を切り替える"""
+        self.logger.info("PreviewContent: 会話フラグ切り替え", group_id=group_id)
+
+        # ボタンの状態を取得
+        button = e.control
+        is_flagged = button.data.get("flagged", False)
+
+        # フラグ状態を切り替え
+        is_flagged = not is_flagged
+        button.data["flagged"] = is_flagged
+
+        # アイコンと色を更新
+        if is_flagged:
+            button.icon = ft.icons.FLAG
+            button.icon_color = ft.colors.RED
+            button.tooltip = "フラグを解除する"
+        else:
+            button.icon = ft.icons.FLAG_OUTLINED
+            button.icon_color = ft.colors.GREY
+            button.tooltip = "問題のある会話としてフラグを立てる"
+
+        # サンプルデータを使用する場合
+        if self.use_sample_data:
+            # 会話グループ内のすべてのメールのフラグ状態を更新
+            if group_id in self.conversation_containers:
+                mails = self.conversation_containers[group_id]
+                for mail in mails:
+                    mail["flagged"] = is_flagged
+
+                # サンプルメールデータを更新
+                sample_mails = [
+                    # ... existing sample mails ...
+                ]
+
+                # 該当する会話のすべてのメールのフラグ状態を更新
+                for mail in sample_mails:
+                    if mail["subject"].lower().replace(
+                        "re:", ""
+                    ).strip() == group_id.replace("group_", ""):
+                        mail["flagged"] = is_flagged
+
+                # メールリストを更新して新しいフラグ状態を反映
+                self.mail_list.controls.clear()
+                self._display_grouped_mails(sample_mails)
+        else:
+            # 実際のアプリケーションでは、ここでデータベースにフラグ状態を保存する処理を追加
+            if self.viewmodel and group_id in self.conversation_containers:
+                mails = self.conversation_containers[group_id]
+                for mail in mails:
+                    self.viewmodel.set_mail_flag(mail["id"], is_flagged)
+                # メールリストを更新
+                self.load_all_mails()
+
+        self.update()
+        self.logger.info(
+            "PreviewContent: 会話フラグ切り替え完了",
+            group_id=group_id,
+            flagged=is_flagged,
+        )

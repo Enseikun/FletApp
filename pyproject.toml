@@ -8,6 +8,8 @@ dependencies = [
     "flet>=0.27.1",
     "flet-desktop>=0.27.3",
     "flet-web>=0.27.3",
+    "openai>=1.67.0",
     "pytest>=8.3.5",
     "pytz>=2025.1",
+    "tiktoken>=0.9.0",
 ]

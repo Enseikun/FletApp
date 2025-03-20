@@ -14,7 +14,7 @@ class AIConfig:
     @classmethod
     def init(cls):
         return cls(
-            api="",
+            api_key="",
             api_base_url="",
             api_version="2024-02-15-preview",
             model_id="gpt-4o-mini-2024-07-18",

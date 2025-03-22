@@ -6,7 +6,7 @@ import logging.handlers
 from datetime import datetime
 from pathlib import Path
 
-import pytz  # pytzをインポート
+import pytz
 import yaml
 
 
@@ -62,7 +62,7 @@ class Applogger:
             logging.setLoggerClass(CustomLogger)
 
             project_root = Path(__file__).parent.parent.parent.absolute()
-            log_dir = project_root / "logs"
+            log_dir = project_root / "data" / "logs"
             log_dir.mkdir(parents=True, exist_ok=True)
 
             log_file_name = "app.log"

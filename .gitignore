@@ -13,7 +13,7 @@ wheels/
 *.db
 
 # Log files
-*.log
+data/logs/
 
 # Trash files
 trash/

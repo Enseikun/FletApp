@@ -11,5 +11,6 @@ dependencies = [
     "openai>=1.67.0",
     "pytest>=8.3.5",
     "pytz>=2025.1",
+    "pywin32>=310",
     "tiktoken>=0.9.0",
 ]

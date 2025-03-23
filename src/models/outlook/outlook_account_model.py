@@ -16,16 +16,49 @@ class OutlookAccountModel(OutlookBaseModel):
         super().__init__()
         self.db = DatabaseManager("data/outlook.db")
 
-    def get_accounts(self) -> list[str]:
-        """アカウントを取得する"""
-        self.logger.info("アカウントを取得します")
+    # MARK: Account
+    def get_account(self) -> str:
+        """デフォルトアカウントを取得する"""
+        self.logger.info("デフォルトアカウントを取得します")
         try:
-            accounts = self._service.get_accounts()
-            account_list = [account.DisplayName for account in accounts]
-            self.logger.info(f"アカウントを取得しました: {account_list}")
-            return account_list
+            account = self._service.get_account()
+
+            # アカウントオブジェクトの検証を追加
+            if not account:
+                raise ValueError("アカウントオブジェクトが取得できません")
+
+            # DisplayName属性の存在確認を追加
+            if not hasattr(account, "DisplayName"):
+                self.logger.error("アカウントオブジェクトにDisplayName属性がありません")
+                self.logger.debug(f"利用可能なプロパティ: {dir(account)}")
+                raise AttributeError("DisplayName属性が見つかりません")
+
+            account_name = account.DisplayName
+            self.logger.info(f"デフォルトアカウントを取得しました: {account_name}")
+            return account_name
         except Exception as e:
-            self.logger.error(f"アカウントの取得に失敗しました: {e}")
+            self.logger.error(f"デフォルトアカウントの取得に失敗しました: {e}")
+            raise
+
+    def get_root_folders(self) -> list[str]:
+        """現在のアカウントのルートフォルダを取得する"""
+        self.logger.info("アカウントのルートフォルダを取得します")
+        try:
+            # 現在のアカウントを取得
+            account = self._service.get_account()
+            root_folders = self._service.get_root_folder()
+
+            # アカウントに紐づくフォルダのみをフィルタリング
+            folder_list = [
+                folder.EntryID
+                for folder in root_folders
+                if hasattr(folder, "StoreID") and folder.StoreID == account.StoreID
+            ]
+
+            self.logger.info(f"アカウントのルートフォルダを取得しました: {folder_list}")
+            return folder_list
+        except Exception as e:
+            self.logger.error(f"アカウントのルートフォルダの取得に失敗しました: {e}")
             raise
 
     def get_folders(self, folder_id: str) -> list[str]:

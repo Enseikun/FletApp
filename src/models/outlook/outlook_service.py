@@ -36,27 +36,22 @@ class OutlookService:
             self._namespace = self._connection.namespace
             self._logger.info("Outlook接続を確立しました")
 
-    def get_accounts(self) -> CDispatch:
-        self._logger.debug("Outlookアカウントを取得します...")
+    def get_account(self) -> CDispatch:
+        """ログイン済みのデフォルトアカウントを取得する"""
+        self._logger.debug("Outlookデフォルトアカウントを取得します...")
         try:
             self._connect()
-
-            try:
-                accounts = self._namespace.Accounts
-                self._logger.info(
-                    "Outlookアカウントを取得しました", count=len(accounts)
-                )
-                return accounts
-            except AttributeError:
-                # Session.Accountsが使用できない場合はデフォルトプロファイル情報を取得
-                profile = self._namespace.CurrentUser
-                if profile:
-                    self._logger.info("アカウント一覧の取得に成功しました")
-                    return [profile]
-                else:
-                    raise RuntimeError("アカウント一覧の取得に失敗しました")
+            # デフォルトプロファイル情報を取得
+            profile = self._namespace.CurrentUser
+            if profile:
+                self._logger.info("デフォルトアカウントの取得に成功しました")
+                return profile
+            else:
+                raise RuntimeError("デフォルトアカウントの取得に失敗しました")
         except Exception as e:
-            self._logger.error("Outlookアカウントの取得に失敗しました", error=str(e))
+            self._logger.error(
+                "Outlookデフォルトアカウントの取得に失敗しました", error=str(e)
+            )
             raise
 
     def get_root_folder(self) -> CDispatch:

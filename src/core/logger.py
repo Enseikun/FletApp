@@ -48,15 +48,16 @@ class Applogger:
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super().__new__(cls)
+            # インスタンス生成時に一度だけ初期化を実行
             cls._instance._initialize()
         return cls._instance
 
-    def _initialize(self, reset_log: bool = False) -> None:
-        """ロガーの初期化を行う
+    def __init__(self):
+        # __init__では何もしない
+        pass
 
-        Args:
-            reset_log (bool): ログファイルをリセットするかどうか
-        """
+    def _initialize(self) -> None:
+        """ロガーの初期化を行う"""
         try:
             # カスタムロガークラスを設定
             logging.setLoggerClass(CustomLogger)
@@ -67,10 +68,6 @@ class Applogger:
 
             log_file_name = "app.log"
             log_file_path = log_dir / log_file_name
-
-            # ログファイルをリセットするオプション
-            if reset_log and log_file_path.exists():
-                log_file_path.unlink()
 
             config_path = project_root / "config" / "logging.yaml"
 

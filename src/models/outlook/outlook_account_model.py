@@ -52,7 +52,9 @@ class OutlookAccountModel(OutlookBaseModel):
             folder_list = [
                 folder.EntryID
                 for folder in root_folders
-                if hasattr(folder, "StoreID") and folder.StoreID == account.StoreID
+                if hasattr(folder, "Store")
+                and folder.Store.ExchangeStoreType
+                == account.DeliveryStore.ExchangeStoreType
             ]
 
             self.logger.info(f"アカウントのルートフォルダを取得しました: {folder_list}")

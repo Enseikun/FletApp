@@ -41,13 +41,14 @@ class OutlookService:
         self._logger.debug("Outlookデフォルトアカウントを取得します...")
         try:
             self._connect()
-            # デフォルトプロファイル情報を取得
-            profile = self._namespace.CurrentUser
-            if profile:
+            # アカウントコレクションから最初のアカウントを取得
+            accounts = self._namespace.Accounts
+            if accounts.Count > 0:
+                account = accounts.Item(1)  # 最初のアカウントを取得
                 self._logger.info("デフォルトアカウントの取得に成功しました")
-                return profile
+                return account
             else:
-                raise RuntimeError("デフォルトアカウントの取得に失敗しました")
+                raise RuntimeError("アカウントが見つかりません")
         except Exception as e:
             self._logger.error(
                 "Outlookデフォルトアカウントの取得に失敗しました", error=str(e)

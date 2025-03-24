@@ -55,16 +55,20 @@ class OutlookService:
             )
             raise
 
-    def get_root_folder(self) -> CDispatch:
-        """ルートフォルダを取得する"""
-        self._logger.debug("ルートフォルダを取得します...")
+    def get_root_folders(self) -> CDispatch:
+        """ルートフォルダのコレクションを取得する"""
+        self._logger.debug("ルートフォルダのコレクションを取得します...")
         try:
             self._connect()
-            root_folder = self._namespace.Folders
-            self._logger.info("ルートフォルダを取得しました", count=len(root_folder))
-            return root_folder
+            root_folders = self._namespace.Folders
+            self._logger.info(
+                "ルートフォルダのコレクションを取得しました", count=len(root_folders)
+            )
+            return root_folders
         except Exception as e:
-            self._logger.error("ルートフォルダの取得に失敗しました", error=str(e))
+            self._logger.error(
+                "ルートフォルダのコレクションの取得に失敗しました", error=str(e)
+            )
             raise
 
     def get_folders(self, root_folder: CDispatch) -> List[CDispatch]:

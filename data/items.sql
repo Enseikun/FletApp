@@ -11,7 +11,8 @@ CREATE TABLE IF NOT EXISTS folders (
         datetime(updated_at) IS NOT NULL AND
         updated_at LIKE '____-__-__ __:__:__'
     ),
-    FOREIGN KEY (parent_folder_id) REFERENCES folders(entry_id)  
+    FOREIGN KEY (parent_folder_id) REFERENCES folders(entry_id),
+    FOREIGN KEY (store_id) REFERENCES accounts(store_id)
 );
 
 -- メールアイテム
@@ -52,7 +53,10 @@ CREATE TABLE IF NOT EXISTS mail_items (
     folder_id TEXT NOT NULL,
     
     -- 処理情報
-    processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    processed_at TIMESTAMP CHECK (
+        datetime(processed_at) IS NOT NULL AND
+        processed_at LIKE '____-__-__ __:__:__'
+    ),
     
     FOREIGN KEY (folder_id) REFERENCES folders(entry_id),
     FOREIGN KEY (parent_entry_id) REFERENCES mail_items(entry_id)
@@ -120,9 +124,22 @@ CREATE TABLE IF NOT EXISTS mail_tasks (
     ),
     
     -- 処理時間記録
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    started_at TIMESTAMP,
-    completed_at TIMESTAMP,
+    created_at TIMESTAMP CHECK (
+        datetime(created_at) IS NOT NULL AND
+        created_at LIKE '____-__-__ __:__:__'
+    ),
+    started_at TIMESTAMP CHECK (
+        started_at IS NULL OR (
+            datetime(started_at) IS NOT NULL AND
+            started_at LIKE '____-__-__ __:__:__'
+        )
+    ),
+    completed_at TIMESTAMP CHECK (
+        completed_at IS NULL OR (
+            datetime(completed_at) IS NOT NULL AND
+            completed_at LIKE '____-__-__ __:__:__'
+        )
+    ),
     
     -- 処理結果情報
     error_message TEXT,
@@ -147,12 +164,51 @@ CREATE TABLE IF NOT EXISTS task_progress (
     ),
     
     -- 処理時間
-    started_at TIMESTAMP,
-    last_updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    completed_at TIMESTAMP,
+    started_at TIMESTAMP CHECK (
+        started_at IS NULL OR (
+            datetime(started_at) IS NOT NULL AND
+            started_at LIKE '____-__-__ __:__:__'
+        )
+    ),
+    last_updated_at TIMESTAMP CHECK (
+        datetime(last_updated_at) IS NOT NULL AND
+        last_updated_at LIKE '____-__-__ __:__:__'
+    ),
+    completed_at TIMESTAMP CHECK (
+        completed_at IS NULL OR (
+            datetime(completed_at) IS NOT NULL AND
+            completed_at LIKE '____-__-__ __:__:__'
+        )
+    ),
     
     -- エラー情報
     last_error TEXT
+);
+
+-- Outlookアカウントとフォルダ情報のスナップショット
+CREATE TABLE IF NOT EXISTS outlook_snapshot (
+    -- アカウント情報
+    account_id TEXT NOT NULL,
+    store_id TEXT NOT NULL,
+    email_address TEXT NOT NULL,
+    display_name TEXT NOT NULL,
+    
+    -- フォルダ情報
+    folder_id TEXT NOT NULL,
+    folder_name TEXT NOT NULL,
+    folder_path TEXT NOT NULL,
+    parent_folder_id TEXT,
+    
+    -- スナップショット管理
+    snapshot_time TIMESTAMP NOT NULL CHECK (
+        datetime(snapshot_time) IS NOT NULL AND
+        snapshot_time LIKE '____-__-__ __:__:__'
+    ),
+    
+    -- 制約
+    PRIMARY KEY (account_id, folder_id),
+    FOREIGN KEY (folder_id) REFERENCES folders(entry_id),
+    FOREIGN KEY (parent_folder_id) REFERENCES folders(entry_id)
 );
 
 -- インデックス
@@ -175,6 +231,10 @@ CREATE INDEX IF NOT EXISTS idx_mail_tasks_message_id ON mail_tasks(message_id);
 CREATE INDEX IF NOT EXISTS idx_mail_tasks_mail_fetch ON mail_tasks(mail_fetch_status);
 CREATE INDEX IF NOT EXISTS idx_mail_tasks_attachment ON mail_tasks(attachment_status);
 CREATE INDEX IF NOT EXISTS idx_mail_tasks_ai_review ON mail_tasks(ai_review_status);
+CREATE INDEX IF NOT EXISTS idx_outlook_snapshot_account ON outlook_snapshot(account_id);
+CREATE INDEX IF NOT EXISTS idx_outlook_snapshot_folder ON outlook_snapshot(folder_id);
+CREATE INDEX IF NOT EXISTS idx_outlook_snapshot_path ON outlook_snapshot(folder_path);
+CREATE INDEX IF NOT EXISTS idx_outlook_snapshot_time ON outlook_snapshot(snapshot_time);
 
 -- フォルダのitem_count更新用トリガー
 CREATE TRIGGER IF NOT EXISTS update_folder_item_count_insert AFTER INSERT ON mail_items

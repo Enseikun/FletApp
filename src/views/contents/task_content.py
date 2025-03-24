@@ -3,11 +3,11 @@
 タスクの設定と作成を行うUIを提供するクラス
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime
 
 import flet as ft
 
-from src.views.components.add_button import AddButton
+from src.viewmodels.task_content_viewmodel import TaskContentViewModel
 from src.views.components.icon_dropdown import IconDropdown
 from src.views.styles.style import AppTheme, Colors
 
@@ -22,11 +22,7 @@ class TaskContent(ft.Container):
         """初期化"""
         super().__init__()
         self.contents_viewmodel = contents_viewmodel
-
-        # 現在の日時を取得
-        now = datetime.now()
-        self.start_date = now
-        self.end_date = now + timedelta(minutes=30)
+        self.viewmodel = TaskContentViewModel()
 
         # フォームの初期化
         self._init_form()
@@ -34,13 +30,19 @@ class TaskContent(ft.Container):
         # コンテンツの初期化
         self._init_content()
 
+        # コンテナの設定
+        self.padding = AppTheme.PAGE_PADDING
+        self.bgcolor = AppTheme.PAGE_BGCOLOR
+        self.border_radius = AppTheme.CONTAINER_BORDER_RADIUS
+        self.expand = True
+
     def _init_form(self):
         """フォーム要素の初期化"""
-        # アカウント選択ドロップダウン
-        self.account_dropdown = IconDropdown(
-            icon=ft.icons.ACCOUNT_CIRCLE,
-            options=self._get_account_options(),
-            on_change=self._on_account_change,
+        # Outlook接続ボタン
+        self.outlook_connect_button = ft.ElevatedButton(
+            text="Outlook接続",
+            icon=ft.icons.SYNC,
+            on_click=self._on_outlook_connect,
         )
 
         # フォルダ選択ドロップダウン（送信元）
@@ -54,13 +56,13 @@ class TaskContent(ft.Container):
         self.to_folder_dropdown = IconDropdown(
             icon=ft.icons.FOLDER_SPECIAL,
             options=[("", "フォルダを選択")],
-            on_change=None,
+            on_change=self._on_to_folder_change,
         )
 
         # 日時選択（開始）
         self.start_date_picker = ft.TextField(
             label="開始日時",
-            value=self.start_date.strftime("%Y-%m-%d %H:%M"),
+            value=self.viewmodel.start_date.strftime("%Y-%m-%d %H:%M"),
             icon=ft.icons.CALENDAR_TODAY,
             on_change=self._on_date_change,
         )
@@ -68,26 +70,41 @@ class TaskContent(ft.Container):
         # 日時選択（終了）
         self.end_date_picker = ft.TextField(
             label="終了日時",
-            value=self.end_date.strftime("%Y-%m-%d %H:%M"),
+            value=self.viewmodel.end_date.strftime("%Y-%m-%d %H:%M"),
             icon=ft.icons.CALENDAR_TODAY,
             on_change=self._on_date_change,
         )
 
         # AIレビューのチェックボックス
         self.ai_review_checkbox = ft.Checkbox(
-            label="AIレビューを実行", value=True, on_change=None
+            label="AIレビューを実行",
+            value=self.viewmodel.ai_review,
+            on_change=self._on_ai_review_change,
         )
 
         # 添付ファイルダウンロードのチェックボックス
         self.file_download_checkbox = ft.Checkbox(
-            label="添付ファイルをダウンロード", value=True, on_change=None
+            label="添付ファイルをダウンロード",
+            value=self.viewmodel.file_download,
+            on_change=self._on_file_download_change,
+        )
+
+        # ダウンロード除外拡張子のテキストエリア
+        self.exclude_extensions_textarea = ft.TextField(
+            label="ダウンロードを除外する拡張子",
+            hint_text="例: exe, dll, bat (カンマ区切りで入力)",
+            multiline=False,
+            height=100,
+            value=self.viewmodel.exclude_extensions,
+            disabled=not self.viewmodel.file_download,
+            on_change=self._on_exclude_extensions_change,
         )
 
         # 作成ボタン
         self.create_button = ft.ElevatedButton(
             text="タスクを作成",
             icon=ft.icons.ADD_TASK,
-            on_click=None,
+            on_click=self._on_create_task,
             bgcolor=Colors.PRIMARY,
             color=Colors.TEXT_ON_PRIMARY,
         )
@@ -104,9 +121,7 @@ class TaskContent(ft.Container):
         # フォーム要素をレイアウト
         form_column = ft.Column(
             controls=[
-                ft.Text("アカウント選択", size=16, weight="bold"),
-                self.account_dropdown,
-                ft.Divider(),
+                self.outlook_connect_button,
                 ft.Text("フォルダ設定", size=16, weight="bold"),
                 ft.Text("移動元フォルダ", size=14),
                 self.from_folder_dropdown,
@@ -130,6 +145,10 @@ class TaskContent(ft.Container):
                 ft.Text("オプション", size=16, weight="bold"),
                 self.ai_review_checkbox,
                 self.file_download_checkbox,
+                ft.Container(
+                    content=self.exclude_extensions_textarea,
+                    visible=self.viewmodel.file_download,
+                ),
                 ft.Divider(),
                 ft.Container(
                     content=ft.Row(
@@ -153,258 +172,126 @@ class TaskContent(ft.Container):
             controls=[
                 ft.Text("タスク設定", size=AppTheme.TITLE_SIZE, weight="bold"),
                 ft.Divider(),
-                ft.Text("新しいタスクの設定", size=18, weight="bold"),
                 form_column,
             ],
             spacing=AppTheme.SPACING_MD,
             scroll=ft.ScrollMode.AUTO,
         )
 
-        # 親クラスの初期化
+        # コンテナのコンテンツを設定
         self.content = content
-        self.padding = AppTheme.PAGE_PADDING
-        self.bgcolor = AppTheme.PAGE_BGCOLOR
-        self.border_radius = AppTheme.CONTAINER_BORDER_RADIUS
-        self.expand = True
 
-    def _get_account_options(self):
-        """アカウントの選択肢を取得"""
-        # 実際にはViewModelからデータを取得する
-        # ダミーデータを返す
-        return [
-            ("", "アカウントを選択"),
-            ("acc_001", "山田 太郎 (yamada.taro@example.com)"),
-            ("acc_002", "佐藤 花子 (sato.hanako@example.com)"),
-            ("acc_003", "鈴木 一郎 (suzuki.ichiro@example.com)"),
-        ]
+    def _on_outlook_connect(self, e):
+        """Outlook接続ボタンクリック時の処理"""
+        self.viewmodel.connect_outlook()
 
-    def _get_folder_options(self, account_id):
-        """フォルダの選択肢を取得"""
-        # 実際にはViewModelからデータを取得する
-        # ダミーデータを返す
-        if account_id == "acc_001":
-            return [
-                ("", "フォルダを選択"),
-                ("fold_002", "受信トレイ"),
-                ("fold_003", "アーカイブ"),
-                ("fold_004", "過去メール"),
-            ]
-        elif account_id == "acc_002":
-            return [
-                ("", "フォルダを選択"),
-                ("fold_005", "仕事"),
-                ("fold_006", "重要"),
-                ("fold_007", "保管"),
-                ("fold_008", "個人"),
-                ("fold_009", "バックアップ"),
-            ]
-        elif account_id == "acc_003":
-            return [
-                ("", "フォルダを選択"),
-                ("fold_010", "重要"),
-                ("fold_011", "会議"),
-                ("fold_012", "保存"),
-            ]
-        else:
-            return [("", "フォルダを選択")]
+    def _update_folders(self):
+        """フォルダ選択肢を更新"""
+        folders = self.viewmodel.get_folders()
+        folder_options = [("", "フォルダを選択")]
+        folder_options.extend([(folder["id"], folder["name"]) for folder in folders])
 
-    def _on_account_change(self, e):
-        """アカウント選択時の処理"""
-        account_id = e.control.value
-        if account_id:
-            # フォルダ選択肢を更新
-            folder_options = self._get_folder_options(account_id)
-            self.from_folder_dropdown.update_options(folder_options)
-            self.to_folder_dropdown.update_options(folder_options)
+        self.from_folder_dropdown.update_options(folder_options)
+        self.to_folder_dropdown.update_options(folder_options)
 
-            # 値をリセット
-            self.from_folder_dropdown.set_value("")
-            self.to_folder_dropdown.set_value("")
-        else:
-            # アカウントが選択されていない場合、フォルダ選択肢をリセット
-            self.from_folder_dropdown.update_options([("", "フォルダを選択")])
-            self.to_folder_dropdown.update_options([("", "フォルダを選択")])
+        # 値をリセット
+        self.from_folder_dropdown.set_value("")
+        self.to_folder_dropdown.set_value("")
 
     def _on_from_folder_change(self, e):
         """送信元フォルダ選択時の処理"""
-        # 必要に応じて送信先フォルダの選択肢を調整
-        pass
+        self.viewmodel.from_folder_id = e.control.value
+
+    def _on_to_folder_change(self, e):
+        """送信先フォルダ選択時の処理"""
+        try:
+            self.viewmodel.to_folder_id = e.control.value
+        except ValueError as ex:
+            self.show_error(str(ex))
+            # 値を元に戻す
+            self.to_folder_dropdown.set_value("")
 
     def _on_date_change(self, e):
         """日時変更時の処理"""
         try:
             if e.control == self.start_date_picker:
-                self.start_date = datetime.strptime(e.control.value, "%Y-%m-%d %H:%M")
+                self.viewmodel.start_date = datetime.strptime(
+                    e.control.value, "%Y-%m-%d %H:%M"
+                )
                 # 終了日時が開始日時より前の場合、終了日時を調整
-                if self.end_date < self.start_date:
-                    self.end_date = self.start_date + timedelta(minutes=30)
-                    self.end_date_picker.value = self.end_date.strftime(
+                if self.viewmodel.end_date < self.viewmodel.start_date:
+                    self.end_date_picker.value = self.viewmodel.end_date.strftime(
                         "%Y-%m-%d %H:%M"
                     )
                     self.end_date_picker.update()
             elif e.control == self.end_date_picker:
-                self.end_date = datetime.strptime(e.control.value, "%Y-%m-%d %H:%M")
-                # 終了日時が開始日時より前の場合、エラーメッセージを表示
-                if self.end_date < self.start_date:
-                    # エラー表示
-                    self.show_error("終了日時は開始日時より後に設定してください")
-                    # 値を元に戻す
-                    self.end_date = self.start_date + timedelta(minutes=30)
-                    self.end_date_picker.value = self.end_date.strftime(
-                        "%Y-%m-%d %H:%M"
-                    )
-                    self.end_date_picker.update()
-        except ValueError:
-            # 日付形式が不正な場合
-            self.show_error(
-                "日付形式が正しくありません。YYYY-MM-DD HH:MM形式で入力してください"
-            )
+                self.viewmodel.end_date = datetime.strptime(
+                    e.control.value, "%Y-%m-%d %H:%M"
+                )
+        except ValueError as ex:
+            self.show_error(str(ex))
+            # 値を元に戻す
+            if e.control == self.start_date_picker:
+                e.control.value = self.viewmodel.start_date.strftime("%Y-%m-%d %H:%M")
+            else:
+                e.control.value = self.viewmodel.end_date.strftime("%Y-%m-%d %H:%M")
+            e.control.update()
+
+    def _on_ai_review_change(self, e):
+        """AIレビュー設定変更時の処理"""
+        self.viewmodel.ai_review = e.control.value
+
+    def _on_file_download_change(self, e):
+        """添付ファイルダウンロードオプション変更時の処理"""
+        self.viewmodel.file_download = e.control.value
+        # テキストエリアの表示/非表示を切り替え
+        self.exclude_extensions_textarea.disabled = not e.control.value
+        self.exclude_extensions_textarea.parent.visible = e.control.value
+        self.update()
+
+    def _on_exclude_extensions_change(self, e):
+        """除外拡張子変更時の処理"""
+        self.viewmodel.exclude_extensions = e.control.value
+
+    def _on_create_task(self, e):
+        """タスク作成ボタンクリック時の処理"""
+        try:
+            success = self.viewmodel.create_task()
+            if success:
+                self._show_success_message("タスクが正常に作成されました")
+                self._reset_form()
+            else:
+                self.show_error("タスクの作成に失敗しました")
+        except ValueError as ex:
+            self.show_error(str(ex))
 
     def show_error(self, message):
         """エラーメッセージを表示"""
         # 実際の実装ではダイアログやスナックバーでエラーを表示
         print(f"エラー: {message}")
 
-    def _on_create_task(self, e):
-        """タスク作成ボタンクリック時の処理"""
-        # 入力値の検証
-        if not self._validate_form():
-            return
-
-        # タスク情報の収集
-        task_info = {
-            "account_id": self.account_dropdown.value,
-            "folder_id": self.from_folder_dropdown.value,  # 実際には親フォルダIDを設定
-            "from_folder_id": self.from_folder_dropdown.value,
-            "from_folder_name": self._get_folder_name(self.from_folder_dropdown.value),
-            "from_folder_path": self._get_folder_path(self.from_folder_dropdown.value),
-            "to_folder_id": self.to_folder_dropdown.value,
-            "to_folder_name": self._get_folder_name(self.to_folder_dropdown.value),
-            "to_folder_path": self._get_folder_path(self.to_folder_dropdown.value),
-            "start_date": self.start_date.strftime("%Y-%m-%d %H:%M:%S"),
-            "end_date": self.end_date.strftime("%Y-%m-%d %H:%M:%S"),
-            "ai_review": 1 if self.ai_review_checkbox.value else 0,
-            "file_download": 1 if self.file_download_checkbox.value else 0,
-            "status": "created",
-        }
-
-        # タスクIDの生成（現在時刻をYYYYMMDDHHMMSS形式で）
-        task_id = datetime.now().strftime("%Y%m%d%H%M%S")
-        task_info["id"] = task_id
-
-        # ViewModelを通じてタスクを作成
-        success = self._create_task(task_info)
-
-        if success:
-            # 成功メッセージを表示
-            self._show_success_message()
-            # フォームをリセット
-            self._reset_form()
-        else:
-            # エラーメッセージを表示
-            self.show_error("タスクの作成に失敗しました")
-
-    def _validate_form(self):
-        """フォームの入力値を検証"""
-        # アカウントが選択されているか
-        if not self.account_dropdown.value:
-            self.show_error("アカウントを選択してください")
-            return False
-
-        # 送信元フォルダが選択されているか
-        if not self.from_folder_dropdown.value:
-            self.show_error("移動元フォルダを選択してください")
-            return False
-
-        # 送信先フォルダが選択されているか
-        if not self.to_folder_dropdown.value:
-            self.show_error("移動先フォルダを選択してください")
-            return False
-
-        # 送信元と送信先が同じでないか
-        if self.from_folder_dropdown.value == self.to_folder_dropdown.value:
-            self.show_error("移動元と移動先のフォルダが同じです")
-            return False
-
-        # 日時が正しく設定されているか
-        if self.end_date <= self.start_date:
-            self.show_error("終了日時は開始日時より後に設定してください")
-            return False
-
-        return True
-
-    def _get_folder_name(self, folder_id):
-        """フォルダIDからフォルダ名を取得"""
-        # 実際にはViewModelからデータを取得する
-        # ダミーデータを返す
-        folder_map = {
-            "fold_002": "受信トレイ",
-            "fold_003": "アーカイブ",
-            "fold_004": "過去メール",
-            "fold_005": "仕事",
-            "fold_006": "重要",
-            "fold_007": "保管",
-            "fold_008": "個人",
-            "fold_009": "バックアップ",
-            "fold_010": "重要",
-            "fold_011": "会議",
-            "fold_012": "保存",
-        }
-        return folder_map.get(folder_id, "不明なフォルダ")
-
-    def _get_folder_path(self, folder_id):
-        """フォルダIDからフォルダパスを取得"""
-        # 実際にはViewModelからデータを取得する
-        # ダミーデータを返す
-        folder_path_map = {
-            "fold_002": "/メールボックス/受信トレイ",
-            "fold_003": "/メールボックス/アーカイブ",
-            "fold_004": "/メールボックス/過去メール",
-            "fold_005": "/メールボックス/仕事",
-            "fold_006": "/メールボックス/仕事/重要",
-            "fold_007": "/メールボックス/保管",
-            "fold_008": "/メールボックス/個人",
-            "fold_009": "/メールボックス/バックアップ",
-            "fold_010": "/メールボックス/重要",
-            "fold_011": "/メールボックス/会議",
-            "fold_012": "/メールボックス/保存",
-        }
-        return folder_path_map.get(folder_id, "/不明なパス")
-
-    def _create_task(self, task_info):
-        """タスクを作成"""
-        # 実際にはViewModelを通じてデータベースに保存する
-        # ダミー実装
-        print(f"タスクを作成: {task_info}")
-        return True
-
-    def _show_success_message(self):
+    def _show_success_message(self, message):
         """成功メッセージを表示"""
         # 実際の実装ではダイアログやスナックバーで成功メッセージを表示
-        print("タスクが正常に作成されました")
+        print(f"成功: {message}")
 
     def _reset_form(self):
         """フォームをリセット"""
-        # アカウント選択をリセット
-        self.account_dropdown.set_value("")
+        self.viewmodel.reset_form()
 
-        # フォルダ選択をリセット
+        # UIの更新
         self.from_folder_dropdown.update_options([("", "フォルダを選択")])
         self.to_folder_dropdown.update_options([("", "フォルダを選択")])
+        self.start_date_picker.value = self.viewmodel.start_date.strftime(
+            "%Y-%m-%d %H:%M"
+        )
+        self.end_date_picker.value = self.viewmodel.end_date.strftime("%Y-%m-%d %H:%M")
+        self.ai_review_checkbox.value = self.viewmodel.ai_review
+        self.file_download_checkbox.value = self.viewmodel.file_download
+        self.exclude_extensions_textarea.value = self.viewmodel.exclude_extensions
+        self.exclude_extensions_textarea.disabled = not self.viewmodel.file_download
+        self.exclude_extensions_textarea.parent.visible = self.viewmodel.file_download
 
-        # 日時を現在時刻にリセット
-        now = datetime.now()
-        self.start_date = now
-        self.end_date = now + timedelta(minutes=30)
-
-        self.start_date_picker.value = self.start_date.strftime("%Y-%m-%d %H:%M")
-        self.end_date_picker.value = self.end_date.strftime("%Y-%m-%d %H:%M")
-
-        # チェックボックスをリセット
-        self.ai_review_checkbox.value = True
-        self.file_download_checkbox.value = True
-
-        # 更新
         self.update()
 
     def _on_cancel(self, e):

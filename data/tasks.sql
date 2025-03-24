@@ -35,11 +35,11 @@ CREATE TABLE IF NOT EXISTS task_info (
     ai_review BOOLEAN DEFAULT 1,
     file_download BOOLEAN DEFAULT 1,
 
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP CHECK (
+    created_at TIMESTAMP CHECK (
         datetime(created_at) IS NOT NULL AND
         created_at LIKE '____-__-__ __:__:__'
     ),
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP CHECK (
+    updated_at TIMESTAMP CHECK (
         datetime(updated_at) IS NOT NULL AND
         updated_at LIKE '____-__-__ __:__:__'
     ),
@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS task_info (
     error_message TEXT,
 
     -- 外部キー制約
-    FOREIGN KEY (account_id) REFERENCES accounts(entry_id),
+    FOREIGN KEY (account_id) REFERENCES accounts(store_id),
     FOREIGN KEY (folder_id) REFERENCES folders(entry_id),
     FOREIGN KEY (from_folder_id) REFERENCES folders(entry_id),
     FOREIGN KEY (to_folder_id) REFERENCES folders(entry_id)

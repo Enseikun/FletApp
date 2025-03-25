@@ -16,9 +16,9 @@ CREATE TABLE IF NOT EXISTS task_info (
     from_folder_id TEXT NOT NULL,
     from_folder_name TEXT NOT NULL,
     from_folder_path TEXT NOT NULL,
-    to_folder_id TEXT NOT NULL,
-    to_folder_name TEXT NOT NULL,
-    to_folder_path TEXT NOT NULL,
+    to_folder_id TEXT,
+    to_folder_name TEXT,
+    to_folder_path TEXT,
     
     -- TIMESTAMP型の制約を強化
     start_date TIMESTAMP NOT NULL CHECK (

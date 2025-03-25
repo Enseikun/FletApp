@@ -170,22 +170,37 @@ class TaskContentViewModel:
 
     def _create_task_info(self) -> Dict[str, Any]:
         """タスク情報の作成"""
+        # フォルダ情報を取得
+        from_folder_info = self._outlook_account_model.get_folder_info(
+            self._from_folder_id
+        )
+        to_folder_info = self._outlook_account_model.get_folder_info(self._to_folder_id)
+
+        if not from_folder_info:
+            raise ValueError("移動元フォルダの情報が取得できません")
+
+        # 現在の日時を取得
+        now = datetime.now()
+
         return {
-            "id": datetime.now().strftime("%Y%m%d%H%M%S"),
-            "account_id": self._from_folder_id,
+            "id": now.strftime("%Y%m%d%H%M%S"),
+            "account_id": from_folder_info["account_id"],
             "folder_id": self._from_folder_id,
             "from_folder_id": self._from_folder_id,
+            "from_folder_name": from_folder_info["name"],
+            "from_folder_path": from_folder_info["path"],
             "to_folder_id": self._to_folder_id,
+            "to_folder_name": to_folder_info["name"] if to_folder_info else None,
+            "to_folder_path": to_folder_info["path"] if to_folder_info else None,
             "start_date": self._start_date.strftime("%Y-%m-%d %H:%M:%S"),
             "end_date": self._end_date.strftime("%Y-%m-%d %H:%M:%S"),
+            "mail_count": 0,
             "ai_review": 1 if self._ai_review else 0,
             "file_download": 1 if self._file_download else 0,
-            "exclude_extensions": (
-                self._exclude_extensions.split(",")
-                if self._file_download and self._exclude_extensions
-                else []
-            ),
+            "created_at": now.strftime("%Y-%m-%d %H:%M:%S"),
+            "updated_at": now.strftime("%Y-%m-%d %H:%M:%S"),
             "status": "created",
+            "error_message": None,
         }
 
     def reset_form(self):

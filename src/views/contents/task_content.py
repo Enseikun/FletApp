@@ -390,6 +390,11 @@ class TaskContent(ft.Container):
         """タスク作成ボタンクリック時の処理"""
         self.logger.info("タスク作成を開始します")
         try:
+            # ボタンを無効化
+            self.create_button.disabled = True
+            self.create_button.update()
+
+            # タスクを作成
             success = self.viewmodel.create_task()
             if success:
                 self.logger.info("タスクが正常に作成されました")
@@ -401,6 +406,13 @@ class TaskContent(ft.Container):
         except ValueError as ex:
             self.logger.error(f"タスク作成でエラーが発生しました: {str(ex)}")
             self.show_error(str(ex))
+        except Exception as ex:
+            self.logger.error(f"予期せぬエラーが発生しました: {str(ex)}")
+            self.show_error("予期せぬエラーが発生しました")
+        finally:
+            # ボタンを再有効化
+            self.create_button.disabled = False
+            self.create_button.update()
 
     def show_error(self, message):
         """エラーメッセージを表示"""

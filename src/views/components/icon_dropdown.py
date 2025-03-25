@@ -60,10 +60,12 @@ class IconDropdown(
         for option in self.options:
             if isinstance(option, tuple) and len(option) == 2:
                 # (値, 表示名)の形式
-                dropdown_options.append(ft.dropdown.Option(option[0], option[1]))
+                dropdown_options.append(
+                    ft.dropdownm2.Option(key=option[0], text=option[1])
+                )
             else:
                 # 文字列の形式
-                dropdown_options.append(ft.dropdown.Option(option))
+                dropdown_options.append(ft.dropdownm2.Option(key=option, text=option))
 
         return dropdown_options
 
@@ -98,6 +100,12 @@ class IconDropdown(
             disabled=not self._enabled,
             expand=True,
             color=style.text_color,
+            filled=True,
+            border_radius=8,
+            content_padding=10,
+            hint_text="選択してください",
+            label_style=ft.TextStyle(size=14),
+            text_style=ft.TextStyle(size=14),
         )
 
         # 行レイアウトでアイコンとドロップダウンを配置

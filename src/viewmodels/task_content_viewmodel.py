@@ -120,14 +120,26 @@ class TaskContentViewModel:
         self._exclude_extensions = value
 
     # OutlookAccountModelとのデータ受け渡し
-    def connect_outlook(self) -> bool:
+    async def connect_outlook(self) -> bool:
         """Outlookに接続してフォルダ一覧を取得"""
-        return self._outlook_account_model.save_account_folders()
+        try:
+            # アカウント情報を保存
+            success = self._outlook_account_model.save_account_folders()
+            if not success:
+                return False
 
-    def get_folders(self) -> List[Dict[str, Any]]:
-        """フォルダ一覧を取得"""
+            # フォルダ一覧を更新
+            self._folders = self._outlook_account_model.get_folder_paths()
+            return True
+
+        except Exception as e:
+            print(f"Outlook接続エラー: {str(e)}")
+            return False
+
+    def get_folder_paths(self) -> List[str]:
+        """フォルダパスの一覧を取得"""
         if not self._folders:
-            self._folders = self._outlook_account_model.get_folders()
+            self._folders = self._outlook_account_model.get_folder_paths()
         return self._folders
 
     # TaskContentModelとのデータ受け渡し

@@ -1,5 +1,6 @@
 import os
 import sqlite3
+import threading
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from src.core.logger import get_logger
@@ -16,10 +17,23 @@ class DatabaseManager:
             db_path: データベースファイルのパス
         """
         self.db_path = db_path
-        self.connection = None
-        self.cursor = None
+        self._local = threading.local()
         self.logger = get_logger()
         self._initialize_db()
+
+    def _get_connection(self) -> sqlite3.Connection:
+        """スレッドローカルなデータベース接続を取得する"""
+        if not hasattr(self._local, "connection"):
+            self._local.connection = sqlite3.connect(self.db_path)
+            self._local.connection.row_factory = sqlite3.Row
+            self._local.cursor = self._local.connection.cursor()
+        return self._local.connection
+
+    def _get_cursor(self) -> sqlite3.Cursor:
+        """スレッドローカルなカーソルを取得する"""
+        if not hasattr(self._local, "cursor"):
+            self._get_connection()
+        return self._local.cursor
 
     def _initialize_db(self) -> None:
         """データベースの初期化を行う"""
@@ -29,10 +43,8 @@ class DatabaseManager:
             if not os.path.exists(db_dir):
                 os.makedirs(db_dir)
 
-            # データベースに接続
-            self.connection = sqlite3.connect(self.db_path)
-            self.connection.row_factory = sqlite3.Row
-            self.cursor = self.connection.cursor()
+            # 初期接続を作成
+            self._get_connection()
 
             # SQLスクリプトを実行してテーブルを作成
             self._execute_sql_scripts()
@@ -64,8 +76,8 @@ class DatabaseManager:
             try:
                 with open(script_file, "r", encoding="utf-8") as f:
                     sql_script = f.read()
-                    self.cursor.executescript(sql_script)
-                self.connection.commit()
+                    self._get_cursor().executescript(sql_script)
+                self._get_connection().commit()
                 self.logger.info(f"SQLスクリプト実行完了: {script_file}")
             except Exception as e:
                 self.logger.error(f"SQLスクリプト実行エラー ({script_file}): {str(e)}")
@@ -73,17 +85,14 @@ class DatabaseManager:
 
     def connect(self) -> None:
         """データベースに接続する"""
-        if self.connection is None:
-            self.connection = sqlite3.connect(self.db_path)
-            self.connection.row_factory = sqlite3.Row
-            self.cursor = self.connection.cursor()
+        self._get_connection()
 
     def disconnect(self) -> None:
         """データベース接続を閉じる"""
-        if self.connection:
-            self.connection.close()
-            self.connection = None
-            self.cursor = None
+        if hasattr(self._local, "connection"):
+            self._local.connection.close()
+            del self._local.connection
+            del self._local.cursor
 
     def execute_query(self, query: str, params: tuple = ()) -> List[Dict[str, Any]]:
         """
@@ -98,8 +107,8 @@ class DatabaseManager:
         """
         try:
             self.connect()
-            self.cursor.execute(query, params)
-            rows = self.cursor.fetchall()
+            self._get_cursor().execute(query, params)
+            rows = self._get_cursor().fetchall()
             return [dict(row) for row in rows]
         except Exception as e:
             self.logger.error(
@@ -120,11 +129,11 @@ class DatabaseManager:
         """
         try:
             self.connect()
-            self.cursor.execute(query, params)
-            self.connection.commit()
-            return self.cursor.rowcount
+            self._get_cursor().execute(query, params)
+            self._get_connection().commit()
+            return self._get_cursor().rowcount
         except Exception as e:
-            self.connection.rollback()
+            self._get_connection().rollback()
             self.logger.error(
                 f"更新クエリ実行エラー: {query}, パラメータ: {params}, エラー: {str(e)}"
             )
@@ -143,11 +152,11 @@ class DatabaseManager:
         """
         try:
             self.connect()
-            self.cursor.executemany(query, params_list)
-            self.connection.commit()
-            return self.cursor.rowcount
+            self._get_cursor().executemany(query, params_list)
+            self._get_connection().commit()
+            return self._get_cursor().rowcount
         except Exception as e:
-            self.connection.rollback()
+            self._get_connection().rollback()
             self.logger.error(
                 f"一括クエリ実行エラー: {query}, パラメータ数: {len(params_list)}, エラー: {str(e)}"
             )
@@ -166,11 +175,11 @@ class DatabaseManager:
         """
         try:
             self.connect()
-            self.cursor.execute(query, params)
-            self.connection.commit()
-            return self.cursor.lastrowid
+            self._get_cursor().execute(query, params)
+            self._get_connection().commit()
+            return self._get_cursor().lastrowid
         except Exception as e:
-            self.connection.rollback()
+            self._get_connection().rollback()
             self.logger.error(
                 f"挿入クエリ実行エラー: {query}, パラメータ: {params}, エラー: {str(e)}"
             )
@@ -189,8 +198,8 @@ class DatabaseManager:
         """
         try:
             self.connect()
-            self.cursor.execute(query, params)
-            result = self.cursor.fetchone()
+            self._get_cursor().execute(query, params)
+            result = self._get_cursor().fetchone()
             return result[0] if result else None
         except Exception as e:
             self.logger.error(
@@ -201,17 +210,17 @@ class DatabaseManager:
     def begin_transaction(self) -> None:
         """トランザクションを開始する"""
         self.connect()
-        self.connection.execute("BEGIN TRANSACTION")
+        self._get_connection().execute("BEGIN TRANSACTION")
 
     def commit(self) -> None:
         """トランザクションをコミットする"""
-        if self.connection:
-            self.connection.commit()
+        if hasattr(self._local, "connection"):
+            self._get_connection().commit()
 
     def rollback(self) -> None:
         """トランザクションをロールバックする"""
-        if self.connection:
-            self.connection.rollback()
+        if hasattr(self._local, "connection"):
+            self._get_connection().rollback()
 
     def table_exists(self, table_name: str) -> bool:
         """

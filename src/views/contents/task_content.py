@@ -7,9 +7,9 @@ from datetime import datetime
 
 import flet as ft
 
+from src.core.logger import get_logger
 from src.viewmodels.task_content_viewmodel import TaskContentViewModel
-from src.views.components.icon_dropdown import IconDropdown
-from src.views.components.progress_dialog import ProgressDialog
+from src.views.components.simple_dropdown import SimpleDropdown
 from src.views.styles.style import AppTheme, Colors
 
 
@@ -24,7 +24,7 @@ class TaskContent(ft.Container):
         super().__init__()
         self.contents_viewmodel = contents_viewmodel
         self.viewmodel = TaskContentViewModel()
-        self.progress_dialog = ProgressDialog()
+        self.logger = get_logger()
 
         # フォームの初期化
         self._init_form()
@@ -38,24 +38,26 @@ class TaskContent(ft.Container):
         self.border_radius = AppTheme.CONTAINER_BORDER_RADIUS
         self.expand = True
 
+        self.logger.info("TaskContentの初期化が完了しました")
+
     def _init_form(self):
         """フォーム要素の初期化"""
         # Outlook接続ボタン
         self.outlook_connect_button = ft.ElevatedButton(
             text="Outlook接続",
             icon=ft.icons.SYNC,
-            on_click=lambda e: self.page.run_async(self._on_outlook_connect(e)),
+            on_click=self._on_outlook_connect,
         )
 
         # フォルダ選択ドロップダウン（送信元）
-        self.from_folder_dropdown = IconDropdown(
+        self.from_folder_dropdown = SimpleDropdown(
             icon=ft.icons.FOLDER_OPEN,
             options=[("", "フォルダを選択")],
             on_change=self._on_from_folder_change,
         )
 
         # フォルダ選択ドロップダウン（送信先）
-        self.to_folder_dropdown = IconDropdown(
+        self.to_folder_dropdown = SimpleDropdown(
             icon=ft.icons.FOLDER_SPECIAL,
             options=[("", "フォルダを選択")],
             on_change=self._on_to_folder_change,
@@ -66,7 +68,8 @@ class TaskContent(ft.Container):
             label="開始日時",
             value=self.viewmodel.start_date.strftime("%Y-%m-%d %H:%M"),
             icon=ft.icons.CALENDAR_TODAY,
-            on_change=self._on_date_change,
+            on_submit=self._on_date_submit,
+            on_blur=self._on_date_blur,
         )
 
         # 日時選択（終了）
@@ -74,7 +77,8 @@ class TaskContent(ft.Container):
             label="終了日時",
             value=self.viewmodel.end_date.strftime("%Y-%m-%d %H:%M"),
             icon=ft.icons.CALENDAR_TODAY,
-            on_change=self._on_date_change,
+            on_submit=self._on_date_submit,
+            on_blur=self._on_date_blur,
         )
 
         # AIレビューのチェックボックス
@@ -118,63 +122,81 @@ class TaskContent(ft.Container):
             on_click=self._on_cancel,
         )
 
-    def _init_content(self):
-        """コンテンツの初期化"""
-        # フォーム要素をレイアウト
-        form_column = ft.Column(
-            controls=[
-                self.outlook_connect_button,
-                ft.Text("フォルダ設定", size=16, weight="bold"),
-                ft.Text("移動元フォルダ", size=14),
-                self.from_folder_dropdown,
-                ft.Text("移動先フォルダ", size=14),
-                self.to_folder_dropdown,
-                ft.Divider(),
-                ft.Text("期間設定", size=16, weight="bold"),
-                ft.Row(
-                    [
-                        ft.Column(
-                            [ft.Text("開始日時", size=14), self.start_date_picker],
-                            expand=1,
-                        ),
-                        ft.Column(
-                            [ft.Text("終了日時", size=14), self.end_date_picker],
-                            expand=1,
-                        ),
-                    ]
-                ),
-                ft.Divider(),
-                ft.Text("オプション", size=16, weight="bold"),
-                self.ai_review_checkbox,
-                self.file_download_checkbox,
-                ft.Container(
-                    content=self.exclude_extensions_textarea,
-                    visible=self.viewmodel.file_download,
-                ),
-                ft.Divider(),
-                ft.Container(
-                    content=ft.Row(
+        # フォームコンテナ
+        self.form_container = ft.Container(
+            content=ft.Column(
+                controls=[
+                    ft.Text("フォルダ設定", size=16, weight="bold"),
+                    ft.Text("移動元フォルダ", size=14),
+                    self.from_folder_dropdown,
+                    ft.Text("移動先フォルダ", size=14),
+                    self.to_folder_dropdown,
+                    ft.Divider(),
+                    ft.Text("期間設定", size=16, weight="bold"),
+                    ft.Row(
                         [
-                            self.cancel_button,
-                            ft.Container(width=10),  # スペーサー
-                            self.create_button,
-                        ],
-                        alignment=ft.MainAxisAlignment.CENTER,
+                            ft.Column(
+                                [ft.Text("開始日時", size=14), self.start_date_picker],
+                                expand=1,
+                            ),
+                            ft.Column(
+                                [ft.Text("終了日時", size=14), self.end_date_picker],
+                                expand=1,
+                            ),
+                        ]
                     ),
-                    alignment=ft.alignment.center,
-                    margin=ft.margin.only(top=20),
-                ),
-            ],
-            spacing=AppTheme.SPACING_MD,
-            scroll=ft.ScrollMode.AUTO,
+                    ft.Divider(),
+                    ft.Text("オプション", size=16, weight="bold"),
+                    self.ai_review_checkbox,
+                    self.file_download_checkbox,
+                    ft.Container(
+                        content=self.exclude_extensions_textarea,
+                        visible=self.viewmodel.file_download,
+                    ),
+                    ft.Divider(),
+                    ft.Container(
+                        content=ft.Row(
+                            [
+                                self.cancel_button,
+                                ft.Container(width=10),  # スペーサー
+                                self.create_button,
+                            ],
+                            alignment=ft.MainAxisAlignment.CENTER,
+                        ),
+                        alignment=ft.alignment.center,
+                        margin=ft.margin.only(top=20),
+                    ),
+                ],
+                spacing=AppTheme.SPACING_MD,
+                scroll=ft.ScrollMode.AUTO,
+            ),
+            visible=False,  # 初期状態では非表示
         )
 
+    def _init_content(self):
+        """コンテンツの初期化"""
         # メインコンテンツ
         content = ft.Column(
             controls=[
                 ft.Text("タスク設定", size=AppTheme.TITLE_SIZE, weight="bold"),
                 ft.Divider(),
-                form_column,
+                ft.Container(
+                    content=ft.Column(
+                        controls=[
+                            self.outlook_connect_button,
+                            ft.Container(
+                                content=ft.Row(
+                                    [self.cancel_button],
+                                    alignment=ft.MainAxisAlignment.CENTER,
+                                ),
+                                alignment=ft.alignment.center,
+                                margin=ft.margin.only(top=20),
+                            ),
+                        ],
+                        spacing=AppTheme.SPACING_MD,
+                    ),
+                ),
+                self.form_container,
             ],
             spacing=AppTheme.SPACING_MD,
             scroll=ft.ScrollMode.AUTO,
@@ -183,61 +205,165 @@ class TaskContent(ft.Container):
         # コンテナのコンテンツを設定
         self.content = content
 
-    async def _on_outlook_connect(self, e):
-        """Outlook接続ボタンクリック時の処理"""
-        await self.progress_dialog.show_async(
-            "接続中", "Outlookに接続しています...", max_value=0
-        )  # Indeterminate mode
-        self.viewmodel.connect_outlook()
-        self._update_folders()
-        await self.progress_dialog.close_async()  # 接続完了後にダイアログを閉じる
+        # 最初のキャンセルボタンのコンテナを保持
+        self.initial_cancel_container = content.controls[2].content.controls[1]
 
-    def _update_folders(self):
+    async def _update_folders(self):
         """フォルダ選択肢を更新"""
-        folders = self.viewmodel.get_folders()
-        folder_options = [("", "フォルダを選択")]
-        folder_options.extend([(folder["id"], folder["name"]) for folder in folders])
+        paths = self.viewmodel.get_folder_paths()
+        # フォルダパスをドロップダウン用の形式に変換
+        from_options = [(path, path) for path in paths]
+        to_options = [(path, path) for path in paths]
 
-        self.from_folder_dropdown.update_options(folder_options)
-        self.to_folder_dropdown.update_options(folder_options)
+        # デフォルトオプションを追加
+        from_options.insert(0, ("", "フォルダを選択"))
+        to_options.insert(0, ("", "フォルダを選択"))
+
+        # ドロップダウンの選択肢を更新
+        self.from_folder_dropdown.update_options(from_options)
+        self.to_folder_dropdown.update_options(to_options)
 
         # 値をリセット
         self.from_folder_dropdown.set_value("")
         self.to_folder_dropdown.set_value("")
 
+    async def _on_outlook_connect(self, e):
+        """Outlook接続ボタンクリック時の処理"""
+        self.logger.info("Outlook接続を開始します")
+        try:
+            # ボタンを無効化
+            self.outlook_connect_button.disabled = True
+            self.outlook_connect_button.update()
+
+            # Outlook接続を実行
+            success = await self.viewmodel.connect_outlook()
+            if success:
+                await self._update_folders()
+                # フォームを表示
+                self.form_container.visible = True
+                self.form_container.update()
+                # 最初のキャンセルボタンを削除
+                self.initial_cancel_container.parent.controls.remove(
+                    self.initial_cancel_container
+                )
+                self.initial_cancel_container.parent.update()
+                self.logger.info("Outlook接続が成功しました")
+            else:
+                self.logger.error("Outlook接続に失敗しました")
+        except Exception as ex:
+            self.logger.error(f"Outlook接続中にエラーが発生しました: {str(ex)}")
+        finally:
+            # ボタンを再有効化
+            self.outlook_connect_button.disabled = False
+            self.outlook_connect_button.update()
+
     def _on_from_folder_change(self, e):
-        """送信元フォルダ選択時の処理"""
+        """送信元フォルダ変更時の処理"""
         self.viewmodel.from_folder_id = e.control.value
 
     def _on_to_folder_change(self, e):
-        """送信先フォルダ選択時の処理"""
-        try:
-            self.viewmodel.to_folder_id = e.control.value
-        except ValueError as ex:
-            self.show_error(str(ex))
-            # 値を元に戻す
-            self.to_folder_dropdown.set_value("")
+        """送信先フォルダ変更時の処理"""
+        self.viewmodel.to_folder_id = e.control.value
 
-    def _on_date_change(self, e):
-        """日時変更時の処理"""
+    def _validate_date(self, value):
+        """日時のバリデーション"""
         try:
+            value = value.strip()
+            if not value:  # 空の場合はスキップ
+                return None
+
+            # 日付部分と時刻部分を分離
+            parts = value.split()
+            if len(parts) == 1:  # 日付のみの場合
+                date_str = parts[0]
+                time_str = "00:00"  # デフォルト時刻
+            else:  # 日付と時刻がある場合
+                date_str, time_str = parts
+
+            # 日付のバリデーション
+            try:
+                date_parts = date_str.split("-")
+                if len(date_parts) != 3:
+                    raise ValueError("日付形式が不正です")
+                year = int(date_parts[0])
+                month = int(date_parts[1])
+                day = int(date_parts[2])
+                if not (1900 <= year <= 2100 and 1 <= month <= 12 and 1 <= day <= 31):
+                    raise ValueError("日付が範囲外です")
+            except (ValueError, IndexError):
+                raise ValueError("日付形式が不正です")
+
+            # 時刻のバリデーション
+            try:
+                time_parts = time_str.split(":")
+                if len(time_parts) != 2:
+                    raise ValueError("時刻形式が不正です")
+                hour = int(time_parts[0])
+                minute = int(time_parts[1])
+                if not (0 <= hour <= 23 and 0 <= minute <= 59):
+                    raise ValueError("時刻が範囲外です")
+            except (ValueError, IndexError):
+                raise ValueError("時刻形式が不正です")
+
+            # 日時オブジェクトの作成
+            return datetime(year, month, day, hour, minute)
+
+        except ValueError as ex:
+            self.logger.warning(f"日時バリデーションでエラーが発生しました: {str(ex)}")
+            self.show_error(str(ex))
+            return None
+
+    def _on_date_submit(self, e):
+        """日時入力確定時の処理"""
+        new_date = self._validate_date(e.control.value)
+        if new_date:
             if e.control == self.start_date_picker:
-                self.viewmodel.start_date = datetime.strptime(
-                    e.control.value, "%Y-%m-%d %H:%M"
-                )
-                # 終了日時が開始日時より前の場合、終了日時を調整
-                if self.viewmodel.end_date < self.viewmodel.start_date:
-                    self.end_date_picker.value = self.viewmodel.end_date.strftime(
+                # 終了日時が開始日時より前の場合、エラーを表示
+                if self.viewmodel.end_date < new_date:
+                    self.show_error("終了日時は開始日時より前の日時を指定できません")
+                    # 値を元に戻す
+                    e.control.value = self.viewmodel.start_date.strftime(
                         "%Y-%m-%d %H:%M"
                     )
-                    self.end_date_picker.update()
+                    e.control.update()
+                    return
+                self.viewmodel.start_date = new_date
             elif e.control == self.end_date_picker:
-                self.viewmodel.end_date = datetime.strptime(
-                    e.control.value, "%Y-%m-%d %H:%M"
-                )
-        except ValueError as ex:
-            self.show_error(str(ex))
-            # 値を元に戻す
+                # 終了日時が開始日時より前の場合、エラーを表示
+                if new_date < self.viewmodel.start_date:
+                    self.show_error("終了日時は開始日時より前の日時を指定できません")
+                    # 値を元に戻す
+                    e.control.value = self.viewmodel.end_date.strftime("%Y-%m-%d %H:%M")
+                    e.control.update()
+                    return
+                self.viewmodel.end_date = new_date
+
+    def _on_date_blur(self, e):
+        """日時入力フィールドからフォーカスが外れた時の処理"""
+        new_date = self._validate_date(e.control.value)
+        if new_date:
+            if e.control == self.start_date_picker:
+                # 終了日時が開始日時より前の場合、エラーを表示
+                if self.viewmodel.end_date < new_date:
+                    self.show_error("終了日時は開始日時より前の日時を指定できません")
+                    # 値を元に戻す
+                    e.control.value = self.viewmodel.start_date.strftime(
+                        "%Y-%m-%d %H:%M"
+                    )
+                    e.control.update()
+                    return
+                self.viewmodel.start_date = new_date
+            elif e.control == self.end_date_picker:
+                # 終了日時が開始日時より前の場合、エラーを表示
+                if new_date < self.viewmodel.start_date:
+                    self.show_error("終了日時は開始日時より前の日時を指定できません")
+                    # 値を元に戻す
+                    e.control.value = self.viewmodel.end_date.strftime("%Y-%m-%d %H:%M")
+                    e.control.update()
+                    return
+                self.viewmodel.end_date = new_date
+        else:
+            # バリデーションエラーの場合、値を元に戻す
             if e.control == self.start_date_picker:
                 e.control.value = self.viewmodel.start_date.strftime("%Y-%m-%d %H:%M")
             else:
@@ -262,23 +388,29 @@ class TaskContent(ft.Container):
 
     def _on_create_task(self, e):
         """タスク作成ボタンクリック時の処理"""
+        self.logger.info("タスク作成を開始します")
         try:
             success = self.viewmodel.create_task()
             if success:
+                self.logger.info("タスクが正常に作成されました")
                 self._show_success_message("タスクが正常に作成されました")
                 self._reset_form()
             else:
+                self.logger.error("タスクの作成に失敗しました")
                 self.show_error("タスクの作成に失敗しました")
         except ValueError as ex:
+            self.logger.error(f"タスク作成でエラーが発生しました: {str(ex)}")
             self.show_error(str(ex))
 
     def show_error(self, message):
         """エラーメッセージを表示"""
+        self.logger.error(f"エラーメッセージを表示: {message}")
         # 実際の実装ではダイアログやスナックバーでエラーを表示
         print(f"エラー: {message}")
 
     def _show_success_message(self, message):
         """成功メッセージを表示"""
+        self.logger.info(f"成功メッセージを表示: {message}")
         # 実際の実装ではダイアログやスナックバーで成功メッセージを表示
         print(f"成功: {message}")
 
@@ -303,6 +435,7 @@ class TaskContent(ft.Container):
 
     def _on_cancel(self, e):
         """キャンセルボタンクリック時の処理"""
+        self.logger.info("キャンセルボタンがクリックされました")
         # ホーム画面に戻る
         if self.contents_viewmodel and hasattr(
             self.contents_viewmodel, "main_viewmodel"

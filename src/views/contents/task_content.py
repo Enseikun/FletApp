@@ -9,6 +9,7 @@ import flet as ft
 
 from src.viewmodels.task_content_viewmodel import TaskContentViewModel
 from src.views.components.icon_dropdown import IconDropdown
+from src.views.components.progress_dialog import ProgressDialog
 from src.views.styles.style import AppTheme, Colors
 
 
@@ -23,6 +24,7 @@ class TaskContent(ft.Container):
         super().__init__()
         self.contents_viewmodel = contents_viewmodel
         self.viewmodel = TaskContentViewModel()
+        self.progress_dialog = ProgressDialog()
 
         # フォームの初期化
         self._init_form()
@@ -42,7 +44,7 @@ class TaskContent(ft.Container):
         self.outlook_connect_button = ft.ElevatedButton(
             text="Outlook接続",
             icon=ft.icons.SYNC,
-            on_click=self._on_outlook_connect,
+            on_click=lambda e: self.page.run_async(self._on_outlook_connect(e)),
         )
 
         # フォルダ選択ドロップダウン（送信元）
@@ -181,9 +183,14 @@ class TaskContent(ft.Container):
         # コンテナのコンテンツを設定
         self.content = content
 
-    def _on_outlook_connect(self, e):
+    async def _on_outlook_connect(self, e):
         """Outlook接続ボタンクリック時の処理"""
+        await self.progress_dialog.show_async(
+            "接続中", "Outlookに接続しています...", max_value=0
+        )  # Indeterminate mode
         self.viewmodel.connect_outlook()
+        self._update_folders()
+        await self.progress_dialog.close_async()  # 接続完了後にダイアログを閉じる
 
     def _update_folders(self):
         """フォルダ選択肢を更新"""

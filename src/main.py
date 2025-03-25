@@ -5,6 +5,7 @@
 import flet as ft
 
 from src.core.logger import get_logger
+from src.views.components.progress_dialog import ProgressDialog
 from src.views.main_view import create_main_view
 
 
@@ -18,6 +19,11 @@ def main(page: ft.Page):
 
     # ページの設定
     page.title = "TestApp"
+
+    # ProgressDialogの初期化
+    progress_dialog = ProgressDialog()
+    progress_dialog.initialize(page)
+    logger.info("ProgressDialog初期化完了")
 
     # MainViewにページを渡す
     main_view = create_main_view(page)

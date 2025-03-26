@@ -210,10 +210,14 @@ class TaskContent(ft.Container):
 
     async def _update_folders(self):
         """フォルダ選択肢を更新"""
-        paths = self.viewmodel.get_folder_paths()
+        # フォルダ情報を取得
+        folders = self.viewmodel.get_folder_info()
+        if not folders:
+            return
+
         # フォルダパスをドロップダウン用の形式に変換
-        from_options = [(path, path) for path in paths]
-        to_options = [(path, path) for path in paths]
+        from_options = [(folder["entry_id"], folder["path"]) for folder in folders]
+        to_options = [(folder["entry_id"], folder["path"]) for folder in folders]
 
         # デフォルトオプションを追加
         from_options.insert(0, ("", "フォルダを選択"))
@@ -259,11 +263,35 @@ class TaskContent(ft.Container):
 
     def _on_from_folder_change(self, e):
         """送信元フォルダ変更時の処理"""
-        self.viewmodel.from_folder_path = e.control.value
+        selected_value = e.control.value
+        # 選択されたフォルダの情報を取得
+        folder_info = next(
+            (
+                f
+                for f in self.viewmodel.get_folder_info()
+                if f["entry_id"] == selected_value
+            ),
+            None,
+        )
+        if folder_info:
+            self.viewmodel.from_folder_id = folder_info["entry_id"]
+            self.viewmodel.from_folder_path = folder_info["path"]
 
     def _on_to_folder_change(self, e):
         """送信先フォルダ変更時の処理"""
-        self.viewmodel.to_folder_path = e.control.value
+        selected_value = e.control.value
+        # 選択されたフォルダの情報を取得
+        folder_info = next(
+            (
+                f
+                for f in self.viewmodel.get_folder_info()
+                if f["entry_id"] == selected_value
+            ),
+            None,
+        )
+        if folder_info:
+            self.viewmodel.to_folder_id = folder_info["entry_id"]
+            self.viewmodel.to_folder_path = folder_info["path"]
 
     def _validate_date(self, value):
         """日時のバリデーション"""
@@ -413,6 +441,11 @@ class TaskContent(ft.Container):
             # ボタンを再有効化
             self.create_button.disabled = False
             self.create_button.update()
+            # ホーム画面に戻る
+            if self.contents_viewmodel and hasattr(
+                self.contents_viewmodel, "main_viewmodel"
+            ):
+                self.contents_viewmodel.main_viewmodel.set_destination("home")
 
     def show_error(self, message):
         """エラーメッセージを表示"""

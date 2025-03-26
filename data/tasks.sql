@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS task_info (
     mail_count INTEGER DEFAULT 0 CHECK (mail_count >= 0),
     ai_review BOOLEAN DEFAULT 1,
     file_download BOOLEAN DEFAULT 1,
+    exclude_extensions TEXT,
 
     created_at TIMESTAMP CHECK (
         datetime(created_at) IS NOT NULL AND

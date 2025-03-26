@@ -1,6 +1,7 @@
 # Outlookアカウント・フォルダ管理モデル
 
 from datetime import datetime
+from typing import Any
 
 from win32com.client import CDispatch
 
@@ -418,4 +419,33 @@ class OutlookAccountModel(OutlookBaseModel):
             return paths
         except Exception as e:
             self.logger.error(f"フォルダパスの取得に失敗しました: {str(e)}")
+            return []
+
+    def get_folder_info(self) -> list[dict[str, Any]]:
+        """
+        データベースに保存されているすべてのフォルダ情報を取得する
+
+        Returns:
+            list[dict[str, Any]]: フォルダ情報のリスト
+        """
+        try:
+            # フォルダ情報を取得するクエリを実行
+            query = """
+            SELECT 
+                entry_id,
+                store_id,
+                name,
+                path,
+                item_count,
+                unread_count,
+                parent_folder_id
+            FROM folders 
+            ORDER BY path
+            """
+            results = self.db.execute_query(query)
+
+            self.logger.info(f"フォルダ情報を取得しました: {len(results)}件")
+            return results
+        except Exception as e:
+            self.logger.error(f"フォルダ情報の取得に失敗しました: {str(e)}")
             return []

@@ -2,19 +2,10 @@
 テキストとサブテキストを2行で表示するコンポーネント
 """
 
-from typing import Callable, Optional
-
 import flet as ft
 
-from src.views.components.mixins.event_handling_mixin import EventHandlingMixin
-from src.views.components.mixins.state_management_mixin import StateManagementMixin
-from src.views.components.mixins.ui_component_mixin import UIComponentMixin
-from src.views.styles.style import ComponentState, ComponentStyle, StyleManager
 
-
-class TextWithSubtitle(
-    ft.Container, StateManagementMixin, UIComponentMixin, EventHandlingMixin
-):
+class TextWithSubtitle(ft.Container):
     """
     メインテキストとサブテキストを2行で表示するコンポーネント
     クリック可能で、コールバック機能を持ちます
@@ -24,9 +15,8 @@ class TextWithSubtitle(
         self,
         text: str,
         subtitle: str,
-        on_click_callback=None,
+        on_click=None,
         text_weight="normal",
-        enable_press=False,
         **kwargs,
     ):
         """
@@ -35,56 +25,50 @@ class TextWithSubtitle(
         Args:
             text: メインテキスト
             subtitle: サブテキスト
-            on_click_callback: クリック時のコールバック関数
+            on_click: クリック時のコールバック関数
             text_weight: テキストの太さ
-            enable_press: クリック可能かどうか
             **kwargs: その他のキーワード引数
         """
-        super().__init__()
-        self.text = text
-        self.subtitle = subtitle
-        on_click = kwargs.pop("on_click", None)
-        self.init_state_management(**kwargs)
-        self._setup_container()
-        self.expand = True
-
-    def _create_content(self):
-        """コンポーネントのコンテンツを作成"""
-        style = self._get_current_style()
-
-        return ft.Column(
-            spacing=4,
-            controls=[
-                ft.Text(
-                    self.text,
-                    color=style.text_color,
-                    size=16,
-                    weight="bold",
-                ),
-                ft.Text(
-                    self.subtitle,
-                    color=style.text_color,
-                    size=14,
-                    opacity=0.8,
-                ),
-            ],
-        )
-
-    def _setup_container(self):
-        """コンテナの設定を行う"""
-        # スタイルの適用
-        style = self._get_current_style().to_dict()
-        for key, value in style.items():
-            setattr(self, key, value)
-
-        # コンテンツの設定
-        self.content = ft.Row(
-            controls=[self._create_content()],
+        super().__init__(
+            content=ft.Column(
+                spacing=4,
+                controls=[
+                    ft.Text(
+                        text,
+                        size=16,
+                        weight="bold",
+                    ),
+                    ft.Text(
+                        subtitle,
+                        size=14,
+                        opacity=0.8,
+                    ),
+                ],
+            ),
+            padding=8,
+            border_radius=4,
+            border=ft.border.all(1, ft.colors.OUTLINE),
+            bgcolor=ft.colors.SURFACE,
+            on_click=on_click,
+            on_hover=self._on_hover,
             expand=True,
+            **kwargs,
         )
 
-        # イベントハンドラの設定
-        if self._enable_hover:
-            self.on_hover = self._on_hover
-        if self._enable_press:
-            self.on_click = self._on_click
+    def _on_hover(self, e):
+        """ホバー時の処理"""
+        if e.data == "true":
+            # ホバー時のスタイル
+            self.bgcolor = ft.colors.SURFACE_VARIANT
+            self.border = ft.border.all(1, ft.colors.PRIMARY)
+            self.shadow = ft.BoxShadow(
+                spread_radius=1,
+                blur_radius=4,
+                color=ft.colors.with_opacity(0.3, ft.colors.BLACK),
+            )
+        else:
+            # 通常時のスタイル
+            self.bgcolor = ft.colors.SURFACE
+            self.border = ft.border.all(1, ft.colors.OUTLINE)
+            self.shadow = None
+        self.update()

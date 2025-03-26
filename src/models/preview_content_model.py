@@ -25,7 +25,7 @@ class PreviewContentModel:
 
         # task_idがNoneの場合はデータベース接続を行わない
         if task_id is not None:
-            self.main_db_path = os.path.join("data", "archives", task_id, "items.db")
+            self.main_db_path = os.path.join("data", "tasks", task_id, "items.db")
             self._connect_db()
         else:
             self.main_db_path = None

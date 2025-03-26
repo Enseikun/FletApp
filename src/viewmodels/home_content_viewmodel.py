@@ -80,3 +80,54 @@ class HomeContentViewModel:
             "HomeContentViewModel: 現在のタスクIDを取得", task_id=self.current_task_id
         )
         return self.current_task_id
+
+    def create_task_directory_and_database(self, task_id: str) -> bool:
+        """
+        タスクフォルダとデータベースを作成する
+
+        Args:
+            task_id: タスクID
+
+        Returns:
+            bool: 作成が成功したかどうか
+        """
+        self.logger.info(
+            "HomeContentViewModel: タスクフォルダとデータベースの作成開始",
+            task_id=task_id,
+        )
+        result = self.model.create_task_directory_and_database(task_id)
+        if result:
+            self.logger.info(
+                "HomeContentViewModel: タスクフォルダとデータベースの作成成功",
+                task_id=task_id,
+            )
+        else:
+            self.logger.error(
+                "HomeContentViewModel: タスクフォルダとデータベースの作成失敗",
+                task_id=task_id,
+            )
+        return result
+
+    def create_outlook_snapshot(self, task_id: str) -> bool:
+        """
+        outlook.dbのfoldersテーブルの状態をitems.dbのoutlook_snapshotテーブルに記録する
+
+        Args:
+            task_id: タスクID
+
+        Returns:
+            bool: 記録が成功したかどうか
+        """
+        self.logger.info(
+            "HomeContentViewModel: Outlookスナップショット作成開始", task_id=task_id
+        )
+        result = self.model.create_outlook_snapshot(task_id)
+        if result:
+            self.logger.info(
+                "HomeContentViewModel: Outlookスナップショット作成成功", task_id=task_id
+            )
+        else:
+            self.logger.error(
+                "HomeContentViewModel: Outlookスナップショット作成失敗", task_id=task_id
+            )
+        return result

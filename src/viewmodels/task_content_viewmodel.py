@@ -6,6 +6,7 @@
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
+from src.core.logger import get_logger
 from src.models.outlook.outlook_account_model import OutlookAccountModel
 from src.models.task_content_model import TaskContentModel
 
@@ -15,12 +16,17 @@ class TaskContentViewModel:
 
     def __init__(self):
         """初期化"""
+        self.logger = get_logger()
+        self.logger.info("TaskContentViewModel: 初期化開始")
+
         # Modelの初期化
         self._outlook_account_model = OutlookAccountModel()
         self._task_content_model = TaskContentModel()
 
         # 入力データの初期化
         self._init_input_data()
+
+        self.logger.info("TaskContentViewModel: 初期化完了")
 
     def _init_input_data(self):
         """入力データの初期化"""
@@ -30,7 +36,9 @@ class TaskContentViewModel:
         self._end_date = now + timedelta(minutes=30)
 
         # フォルダ選択の状態
+        self._from_folder_id: str = ""
         self._from_folder_path: str = ""
+        self._to_folder_id: str = ""
         self._to_folder_path: str = ""
 
         # オプション設定
@@ -68,6 +76,28 @@ class TaskContentViewModel:
         self._end_date = value
 
     @property
+    def from_folder_id(self) -> str:
+        """送信元フォルダIDを取得"""
+        return self._from_folder_id
+
+    @from_folder_id.setter
+    def from_folder_id(self, value: str):
+        """送信元フォルダIDを設定"""
+        self._from_folder_id = value
+
+    @property
+    def to_folder_id(self) -> str:
+        """送信先フォルダIDを取得"""
+        return self._to_folder_id
+
+    @to_folder_id.setter
+    def to_folder_id(self, value: str):
+        """送信先フォルダIDを設定"""
+        if value == self._from_folder_id:
+            raise ValueError("移動元と移動先のフォルダが同じです")
+        self._to_folder_id = value
+
+    @property
     def from_folder_path(self) -> str:
         """送信元フォルダパスを取得"""
         return self._from_folder_path
@@ -85,8 +115,6 @@ class TaskContentViewModel:
     @to_folder_path.setter
     def to_folder_path(self, value: str):
         """送信先フォルダパスを設定"""
-        if value == self._from_folder_path:
-            raise ValueError("移動元と移動先のフォルダが同じです")
         self._to_folder_path = value
 
     @property
@@ -142,6 +170,10 @@ class TaskContentViewModel:
             self._folders = self._outlook_account_model.get_folder_paths()
         return self._folders
 
+    def get_folder_info(self) -> List[Dict[str, Any]]:
+        """フォルダ情報の一覧を取得"""
+        return self._outlook_account_model.get_folder_info()
+
     # TaskContentModelとのデータ受け渡し
     def create_task(self) -> bool:
         """タスクを作成"""
@@ -152,7 +184,23 @@ class TaskContentViewModel:
         task_info = self._create_task_info()
 
         # タスクを作成
-        return self._task_content_model.create_task(task_info)
+        success = self._task_content_model.create_task(task_info)
+        if success:
+            # タスクフォルダとデータベースを作成
+            success = self._task_content_model.create_task_directory_and_database(
+                task_info["id"]
+            )
+            if not success:
+                self.logger.error("タスクフォルダとデータベースの作成に失敗しました")
+                return False
+
+            # Outlookスナップショットを作成
+            success = self._task_content_model.create_outlook_snapshot(task_info["id"])
+            if not success:
+                self.logger.error("Outlookスナップショットの作成に失敗しました")
+                return False
+
+        return success
 
     def _validate_task_data(self):
         """タスクデータの検証"""
@@ -170,18 +218,31 @@ class TaskContentViewModel:
 
     def _create_task_info(self) -> Dict[str, Any]:
         """タスク情報の作成"""
+        # フォルダ情報を取得
+        folder_info = self._outlook_account_model.get_folder_info()
+        from_folder = next(
+            (f for f in folder_info if f["entry_id"] == self._from_folder_id), None
+        )
+        to_folder = next(
+            (f for f in folder_info if f["entry_id"] == self._to_folder_id), None
+        )
+
+        if not from_folder or not to_folder:
+            raise ValueError("フォルダ情報が見つかりません")
+
+        # 現在時刻を取得
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
         return {
             "id": datetime.now().strftime("%Y%m%d%H%M%S"),
-            "account_id": self._from_folder_path,  # アカウントIDは後で設定
-            "folder_id": self._from_folder_path,  # フォルダIDは後で設定
-            "from_folder_id": self._from_folder_path,  # フォルダIDは後で設定
-            "from_folder_name": self._from_folder_path.split("/")[
-                -1
-            ],  # フォルダ名を取得
-            "from_folder_path": self._from_folder_path,
-            "to_folder_id": self._to_folder_path,  # フォルダIDは後で設定
-            "to_folder_name": self._to_folder_path.split("/")[-1],  # フォルダ名を取得
-            "to_folder_path": self._to_folder_path,
+            "account_id": from_folder["store_id"],
+            "folder_id": self._from_folder_id,
+            "from_folder_id": self._from_folder_id,
+            "from_folder_name": from_folder["name"],
+            "from_folder_path": from_folder["path"],
+            "to_folder_id": self._to_folder_id,
+            "to_folder_name": to_folder["name"],
+            "to_folder_path": to_folder["path"],
             "start_date": self._start_date.strftime("%Y-%m-%d %H:%M:%S"),
             "end_date": self._end_date.strftime("%Y-%m-%d %H:%M:%S"),
             "ai_review": 1 if self._ai_review else 0,
@@ -192,6 +253,8 @@ class TaskContentViewModel:
                 else []
             ),
             "status": "created",
+            "created_at": now,
+            "updated_at": now,
         }
 
     def reset_form(self):

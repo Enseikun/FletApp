@@ -1,3 +1,5 @@
+import os
+
 import flet as ft
 
 from src.core.logger import get_logger
@@ -20,7 +22,8 @@ class HomeContent(ft.Container):
         """初期化"""
 
         super().__init__()
-        self.contents_viewmodel = contents_viewmodel
+        # HomeContentViewModelのインスタンスを作成
+        self.contents_viewmodel = HomeContentViewModel()
         self.logger = get_logger()
         self.logger.info("HomeContent: 初期化開始")
 
@@ -32,9 +35,13 @@ class HomeContent(ft.Container):
         ):
             self.main_viewmodel = contents_viewmodel.main_viewmodel
             self.logger.info("HomeContent: MainViewModelを取得しました")
+            # HomeContentViewModelにMainViewModelを設定
+            self.contents_viewmodel.main_viewmodel = self.main_viewmodel
 
         # HomeViewModelのインスタンスを作成（MainViewModelを渡す）
-        self.home_viewmodel = HomeViewModel(self.main_viewmodel or contents_viewmodel)
+        self.home_viewmodel = HomeViewModel(
+            self.main_viewmodel or self.contents_viewmodel
+        )
 
         # タスクリストを表示するコントロールを作成
         self.task_items_column = ft.Column(
@@ -65,7 +72,7 @@ class HomeContent(ft.Container):
         # メインコンテンツ
         self.content = ft.Column(
             controls=[
-                ft.Text("利用可能なアーカイブ", size=24, weight="bold"),
+                ft.Text("タスク一覧", size=24, weight="bold"),
                 ft.Divider(),
                 self.task_items_column,
             ],
@@ -77,7 +84,7 @@ class HomeContent(ft.Container):
         self.logger.info("HomeContent: 初期化完了")
 
     def _create_task_list(self, tasks):
-        """タスクリストを作成する（内部メソッド）"""
+        """タスクリストを作成する"""
         self.logger.debug("HomeContent: タスクリスト作成開始", task_count=len(tasks))
         self.task_items_column.controls.clear()
 
@@ -85,14 +92,12 @@ class HomeContent(ft.Container):
             task_item = TextWithSubtitleWithDeleteIcon(
                 text=f"タスクID: {task['id']}",
                 subtitle=f"フォルダ: {task.get('name', '未設定')}",
-                on_click_callback=lambda e, task_id=task["id"]: self.on_task_selected(
-                    task_id
-                ),
-                on_delete_callback=lambda e, task_id=task["id"]: self.on_task_delete(
-                    task_id, e
-                ),
-                enable_hover=True,
-                enable_press=True,
+                on_click=lambda e, task_id=task["id"]: self.on_task_selected(task_id),
+                on_delete=lambda e, task_id=task["id"]: self.on_task_delete(task_id, e),
+            )
+            # クリックイベントを直接設定
+            task_item.on_click = lambda e, task_id=task["id"]: self.on_task_selected(
+                task_id
             )
             self.task_items_column.controls.append(task_item)
 
@@ -113,19 +118,32 @@ class HomeContent(ft.Container):
     def on_task_selected(self, task_id):
         """タスク選択時の処理"""
         self.logger.info(f"HomeContent: タスク選択 - {task_id}")
+        self.logger.debug(
+            "HomeContent: contents_viewmodelの状態確認",
+            has_contents_viewmodel=self.contents_viewmodel is not None,
+        )
 
         # タスクIDを設定
-        if self.main_viewmodel:
-            self.main_viewmodel.set_current_task_id(task_id)
-            self.main_viewmodel.set_destination("preview")
-            self.logger.info(
-                f"HomeContent: MainViewModelを使用して画面遷移 - {task_id}"
+        try:
+            self.logger.debug(
+                "HomeContent: main_viewmodelの状態確認",
+                has_main_viewmodel=self.main_viewmodel is not None,
             )
-        else:
-            # HomeViewModelのselect_taskメソッドを使用
-            self.home_viewmodel.select_task(task_id)
-            self.logger.info(
-                f"HomeContent: HomeViewModelを使用して画面遷移 - {task_id}"
+            if self.main_viewmodel:
+                self.main_viewmodel.set_current_task_id(task_id)
+                self.main_viewmodel.set_destination("preview")
+                self.logger.info(
+                    f"HomeContent: MainViewModelを使用して画面遷移 - {task_id}"
+                )
+            else:
+                # HomeViewModelのselect_taskメソッドを使用
+                self.home_viewmodel.select_task(task_id)
+                self.logger.info(
+                    f"HomeContent: HomeViewModelを使用して画面遷移 - {task_id}"
+                )
+        except Exception as e:
+            self.logger.error(
+                "HomeContent: タスクID設定または画面遷移でエラー発生", error=str(e)
             )
 
     def on_task_delete(self, task_id, e):
@@ -136,31 +154,48 @@ class HomeContent(ft.Container):
         def confirm_delete(e):
             if e.control.data == "yes":
                 self.logger.info("HomeContent: タスク削除確認", task_id=task_id)
-                # タスクを削除
-                success = self.home_viewmodel.delete_task(task_id)
-                if success:
-                    # タスクリストを再取得して更新
-                    tasks = self.home_viewmodel.load_tasks()
-                    self.update_task_list(tasks)
-                    # 成功メッセージを表示
+                try:
+                    # タスクを削除
+                    success = self.home_viewmodel.delete_task(task_id)
+                    if success:
+                        # タスクリストを再取得して更新
+                        tasks = self.home_viewmodel.load_tasks()
+                        self.update_task_list(tasks)
+                        # 成功メッセージを表示
+                        self.page.snack_bar = ft.SnackBar(
+                            content=ft.Text(f"タスクID: {task_id} が削除されました"),
+                            action="閉じる",
+                        )
+                        self.page.snack_bar.open = True
+                        self.logger.info("HomeContent: タスク削除成功", task_id=task_id)
+                    else:
+                        # エラーメッセージを表示
+                        self.page.snack_bar = ft.SnackBar(
+                            content=ft.Text(
+                                f"タスクID: {task_id} の削除に失敗しました。ファイルが使用中または権限が不足している可能性があります。"
+                            ),
+                            action="閉じる",
+                        )
+                        self.page.snack_bar.open = True
+                        self.logger.error(
+                            "HomeContent: タスク削除失敗", task_id=task_id
+                        )
+                except Exception as ex:
+                    # 予期せぬエラーメッセージを表示
                     self.page.snack_bar = ft.SnackBar(
-                        content=ft.Text(f"タスクID: {task_id} が削除されました"),
+                        content=ft.Text(
+                            f"タスクID: {task_id} の削除中にエラーが発生しました: {str(ex)}"
+                        ),
                         action="閉じる",
                     )
                     self.page.snack_bar.open = True
-                    self.logger.info("HomeContent: タスク削除成功", task_id=task_id)
-                else:
-                    # エラーメッセージを表示
-                    self.page.snack_bar = ft.SnackBar(
-                        content=ft.Text(f"タスクID: {task_id} の削除に失敗しました"),
-                        action="閉じる",
+                    self.logger.error(
+                        "HomeContent: タスク削除中にエラー発生",
+                        task_id=task_id,
+                        error=str(ex),
                     )
-                    self.page.snack_bar.open = True
-                    self.logger.error("HomeContent: タスク削除失敗", task_id=task_id)
             else:
                 self.logger.info("HomeContent: タスク削除キャンセル", task_id=task_id)
-            # ダイアログを閉じる
-            self.page.close(dialog)
 
         # 確認ダイアログを作成
         dialog = ft.AlertDialog(
@@ -189,4 +224,7 @@ class HomeContent(ft.Container):
         """新規タスク追加ボタンクリック時の処理"""
         self.logger.info("HomeContent: 新規タスク追加ボタンクリック")
         # タスク設定画面に遷移
-        self.contents_viewmodel.main_viewmodel.set_destination("task")
+        if self.main_viewmodel:
+            self.main_viewmodel.set_destination("task")
+        else:
+            self.home_viewmodel.set_destination("task")

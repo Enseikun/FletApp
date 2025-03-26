@@ -53,8 +53,14 @@ class MainContents(ft.Container):
         # ビューモデルの変更を監視
         if self._main_viewmodel:
             self._main_viewmodel.add_destination_changed_callback(self.update_content)
-            # 初期状態を設定（updateは呼ばない）
-            self._main_viewmodel.set_initial_destination("home")
+            # 初期状態を設定
+            initial_destination = self._main_viewmodel.get_current_destination()
+            self._main_viewmodel.set_initial_destination(initial_destination)
+            # 初期コンテンツを設定
+            self._actual_content = create_content(
+                initial_destination, self._contents_viewmodel
+            )
+            self.content = self._actual_content
             self.logger.info("MainContents初期化完了")
 
     def update_content(self, destination_key):

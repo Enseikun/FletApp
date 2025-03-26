@@ -259,11 +259,11 @@ class TaskContent(ft.Container):
 
     def _on_from_folder_change(self, e):
         """送信元フォルダ変更時の処理"""
-        self.viewmodel.from_folder_id = e.control.value
+        self.viewmodel.from_folder_path = e.control.value
 
     def _on_to_folder_change(self, e):
         """送信先フォルダ変更時の処理"""
-        self.viewmodel.to_folder_id = e.control.value
+        self.viewmodel.to_folder_path = e.control.value
 
     def _validate_date(self, value):
         """日時のバリデーション"""

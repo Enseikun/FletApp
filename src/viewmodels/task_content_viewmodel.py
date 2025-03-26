@@ -30,8 +30,8 @@ class TaskContentViewModel:
         self._end_date = now + timedelta(minutes=30)
 
         # フォルダ選択の状態
-        self._from_folder_id: str = ""
-        self._to_folder_id: str = ""
+        self._from_folder_path: str = ""
+        self._to_folder_path: str = ""
 
         # オプション設定
         self._ai_review: bool = True
@@ -68,26 +68,26 @@ class TaskContentViewModel:
         self._end_date = value
 
     @property
-    def from_folder_id(self) -> str:
-        """送信元フォルダIDを取得"""
-        return self._from_folder_id
+    def from_folder_path(self) -> str:
+        """送信元フォルダパスを取得"""
+        return self._from_folder_path
 
-    @from_folder_id.setter
-    def from_folder_id(self, value: str):
-        """送信元フォルダIDを設定"""
-        self._from_folder_id = value
+    @from_folder_path.setter
+    def from_folder_path(self, value: str):
+        """送信元フォルダパスを設定"""
+        self._from_folder_path = value
 
     @property
-    def to_folder_id(self) -> str:
-        """送信先フォルダIDを取得"""
-        return self._to_folder_id
+    def to_folder_path(self) -> str:
+        """送信先フォルダパスを取得"""
+        return self._to_folder_path
 
-    @to_folder_id.setter
-    def to_folder_id(self, value: str):
-        """送信先フォルダIDを設定"""
-        if value == self._from_folder_id:
+    @to_folder_path.setter
+    def to_folder_path(self, value: str):
+        """送信先フォルダパスを設定"""
+        if value == self._from_folder_path:
             raise ValueError("移動元と移動先のフォルダが同じです")
-        self._to_folder_id = value
+        self._to_folder_path = value
 
     @property
     def ai_review(self) -> bool:
@@ -156,13 +156,13 @@ class TaskContentViewModel:
 
     def _validate_task_data(self):
         """タスクデータの検証"""
-        if not self._from_folder_id:
+        if not self._from_folder_path:
             raise ValueError("移動元フォルダを選択してください")
 
-        if not self._to_folder_id:
+        if not self._to_folder_path:
             raise ValueError("移動先フォルダを選択してください")
 
-        if self._from_folder_id == self._to_folder_id:
+        if self._from_folder_path == self._to_folder_path:
             raise ValueError("移動元と移動先のフォルダが同じです")
 
         if self._end_date <= self._start_date:
@@ -170,37 +170,28 @@ class TaskContentViewModel:
 
     def _create_task_info(self) -> Dict[str, Any]:
         """タスク情報の作成"""
-        # フォルダ情報を取得
-        from_folder_info = self._outlook_account_model.get_folder_info(
-            self._from_folder_id
-        )
-        to_folder_info = self._outlook_account_model.get_folder_info(self._to_folder_id)
-
-        if not from_folder_info:
-            raise ValueError("移動元フォルダの情報が取得できません")
-
-        # 現在の日時を取得
-        now = datetime.now()
-
         return {
-            "id": now.strftime("%Y%m%d%H%M%S"),
-            "account_id": from_folder_info["account_id"],
-            "folder_id": self._from_folder_id,
-            "from_folder_id": self._from_folder_id,
-            "from_folder_name": from_folder_info["name"],
-            "from_folder_path": from_folder_info["path"],
-            "to_folder_id": self._to_folder_id,
-            "to_folder_name": to_folder_info["name"] if to_folder_info else None,
-            "to_folder_path": to_folder_info["path"] if to_folder_info else None,
+            "id": datetime.now().strftime("%Y%m%d%H%M%S"),
+            "account_id": self._from_folder_path,  # アカウントIDは後で設定
+            "folder_id": self._from_folder_path,  # フォルダIDは後で設定
+            "from_folder_id": self._from_folder_path,  # フォルダIDは後で設定
+            "from_folder_name": self._from_folder_path.split("/")[
+                -1
+            ],  # フォルダ名を取得
+            "from_folder_path": self._from_folder_path,
+            "to_folder_id": self._to_folder_path,  # フォルダIDは後で設定
+            "to_folder_name": self._to_folder_path.split("/")[-1],  # フォルダ名を取得
+            "to_folder_path": self._to_folder_path,
             "start_date": self._start_date.strftime("%Y-%m-%d %H:%M:%S"),
             "end_date": self._end_date.strftime("%Y-%m-%d %H:%M:%S"),
-            "mail_count": 0,
             "ai_review": 1 if self._ai_review else 0,
             "file_download": 1 if self._file_download else 0,
-            "created_at": now.strftime("%Y-%m-%d %H:%M:%S"),
-            "updated_at": now.strftime("%Y-%m-%d %H:%M:%S"),
+            "exclude_extensions": (
+                self._exclude_extensions.split(",")
+                if self._file_download and self._exclude_extensions
+                else []
+            ),
             "status": "created",
-            "error_message": None,
         }
 
     def reset_form(self):

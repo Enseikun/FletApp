@@ -1,4 +1,5 @@
 import os
+import shutil
 from typing import List, Optional, Tuple
 
 from src.core.database import DatabaseManager
@@ -123,8 +124,6 @@ class HomeContentModel:
             # タスクディレクトリとその中身を削除
             task_dir = os.path.join("data", "tasks", str(task_id))
             if os.path.exists(task_dir):
-                import shutil
-
                 shutil.rmtree(task_dir)
                 self.logger.info(
                     f"HomeContentModel: タスクディレクトリを削除しました - {task_dir}"
@@ -170,20 +169,21 @@ class HomeContentModel:
             for folder in folders_data:
                 query = """
                 INSERT INTO outlook_snapshot (
-                    folder_id, folder_name, parent_folder_id, folder_path,
-                    folder_type, folder_class, total_items, unread_items,
-                    created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                    entry_id, store_id, name, path, parent_folder_id,
+                    folder_type, folder_class, item_count, unread_count,
+                    snapshot_time
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
                 """
                 params = (
-                    folder["id"],
+                    folder["entry_id"],
+                    folder["store_id"],
                     folder["name"],
+                    folder["path"],
                     folder["parent_folder_id"],
-                    folder["folder_path"],
-                    folder["folder_type"],
-                    folder["folder_class"],
-                    folder["total_items"],
-                    folder["unread_items"],
+                    folder.get("folder_type"),  # オプショナルなフィールド
+                    folder.get("folder_class"),  # オプショナルなフィールド
+                    folder["item_count"],
+                    folder["unread_count"],
                 )
                 items_db.execute_update(query, params)
 

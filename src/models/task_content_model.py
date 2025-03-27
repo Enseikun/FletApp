@@ -67,12 +67,11 @@ class TaskContentModel:
         try:
             query = """
             SELECT 
-                f.entry_id as folder_id,
-                f.name as folder_name,
-                f.path as folder_path,
-                a.store_id as account_id
+                f.entry_id,
+                f.name,
+                f.path,
+                f.store_id
             FROM folders f
-            JOIN accounts a ON f.store_id = a.store_id
             WHERE f.entry_id = ?
             """
             result = self._outlook_db.execute_query(query, (entry_id,))
@@ -160,61 +159,5 @@ class TaskContentModel:
         except Exception as e:
             self.logger.error(
                 f"TaskContentModel: タスクフォルダまたはデータベースの作成に失敗しました - {e}"
-            )
-            return False
-
-    def create_outlook_snapshot(self, task_id: str) -> bool:
-        """
-        outlook.dbのfoldersテーブルの状態をitems.dbのoutlook_snapshotテーブルに記録する
-
-        Args:
-            task_id: タスクID
-
-        Returns:
-            bool: 記録が成功したかどうか
-        """
-        try:
-            self.logger.info(
-                "TaskContentModel: Outlookスナップショット作成開始", task_id=task_id
-            )
-
-            # items.dbのパスを設定
-            items_db_path = os.path.join("data", "tasks", str(task_id), "items.db")
-            items_db = DatabaseManager(items_db_path)
-
-            # outlook.dbからfoldersテーブルのデータを取得
-            folders_data = self._outlook_db.execute_query("SELECT * FROM folders")
-
-            # outlook_snapshotテーブルにデータを挿入
-            for folder in folders_data:
-                query = """
-                INSERT INTO outlook_snapshot (
-                    folder_id, folder_name, parent_folder_id, folder_path,
-                    folder_type, folder_class, total_items, unread_items,
-                    created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-                """
-                params = (
-                    folder["entry_id"],
-                    folder["name"],
-                    folder["parent_folder_id"],
-                    folder["path"],
-                    folder["folder_type"],
-                    folder["folder_class"],
-                    folder["item_count"],
-                    folder["unread_count"],
-                )
-                items_db.execute_update(query, params)
-
-            self.logger.info(
-                "TaskContentModel: Outlookスナップショット作成成功", task_id=task_id
-            )
-            return True
-
-        except Exception as e:
-            self.logger.error(
-                "TaskContentModel: Outlookスナップショット作成エラー",
-                task_id=task_id,
-                error=str(e),
             )
             return False

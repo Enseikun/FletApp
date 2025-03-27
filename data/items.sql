@@ -1,33 +1,49 @@
--- フォルダ一覧
-CREATE TABLE IF NOT EXISTS folders (
+/*
+Outlookのメールアイテムとデータ抽出の進捗状況を保存するテーブル
+outlook_snapshot: タスク作成時点のOutlookアカウントとフォルダ情報のスナップショット
+mail_items: メールアイテム
+participants: 会話参加者(to, cc, bcc)
+attachments: 添付ファイル()
+mail_tasks: メール取得の進捗状況
+task_progress: タスクの進捗状況
+*/
+
+-- タスク作成時点のOutlookアカウントとフォルダ情報のスナップショット
+CREATE TABLE IF NOT EXISTS outlook_snapshot (
+    -- フォルダ情報
     entry_id TEXT PRIMARY KEY,
     store_id TEXT NOT NULL,
     name TEXT NOT NULL,
     path TEXT NOT NULL,
+    parent_folder_id TEXT,
+    folder_type TEXT,
+    folder_class TEXT,
     item_count INTEGER DEFAULT 0,
     unread_count INTEGER DEFAULT 0,
-    parent_folder_id TEXT,
-    updated_at TIMESTAMP NOT NULL CHECK (
-        datetime(updated_at) IS NOT NULL AND
-        updated_at LIKE '____-__-__ __:__:__'
+    
+    -- スナップショット管理
+    snapshot_time TIMESTAMP NOT NULL CHECK (
+        datetime(snapshot_time) IS NOT NULL AND
+        snapshot_time LIKE '____-__-__ __:__:__'
     ),
-    FOREIGN KEY (parent_folder_id) REFERENCES folders(entry_id),
-    FOREIGN KEY (store_id) REFERENCES accounts(store_id)
+    
+    -- 制約
+    FOREIGN KEY (parent_folder_id) REFERENCES outlook_snapshot(entry_id),
+    FOREIGN KEY (store_id) REFERENCES accounts(store_id),
+    UNIQUE (store_id, entry_id)
 );
 
 -- メールアイテム
 CREATE TABLE IF NOT EXISTS mail_items (
     -- メタデータ
     entry_id TEXT PRIMARY KEY,
-    task_id TEXT NOT NULL,  -- どのタスクで取得されたかを記録
-    conversation_id TEXT,
-    conversation_index TEXT,
-    thread_id TEXT,
-    thread_depth INTEGER DEFAULT 0,
+    store_id TEXT NOT NULL,
+    folder_id TEXT NOT NULL,
+    conversation_id TEXT, -- OutlookのConversationID
+    thread_id TEXT, -- このアプリケーションで付与
     message_type TEXT CHECK (message_type IN ('email', 'meeting', 'task')),
-    parent_entry_id TEXT,
-    parent_folder_name TEXT,
-    destination TEXT,
+    parent_entry_id TEXT, -- 自身が添付ファイルの場合, 元メッセージのentry_id
+    parent_folder_name TEXT, -- 自身が添付ファイルの場合, 元メッセージのフォルダ名
     message_size INTEGER DEFAULT 0,
     unread INTEGER DEFAULT 0,
 
@@ -43,50 +59,53 @@ CREATE TABLE IF NOT EXISTS mail_items (
         length(received_time) = 19 AND
         received_time LIKE '____-__-__ __:__:__'
     ),
-    importance INTEGER,
 
     -- コンテンツ関連
     body TEXT,
-    attachments_count INTEGER DEFAULT 0,
-
-    -- 関連テーブルの外部キー
-    folder_id TEXT NOT NULL,
     
     -- 処理情報
+    process_type TEXT, -- 特別な処理を行うためのタイプ判定（GUARDIAN）
     processed_at TIMESTAMP CHECK (
         datetime(processed_at) IS NOT NULL AND
         processed_at LIKE '____-__-__ __:__:__'
     ),
     
-    FOREIGN KEY (folder_id) REFERENCES folders(entry_id),
-    FOREIGN KEY (parent_entry_id) REFERENCES mail_items(entry_id)
+    -- 制約
+    FOREIGN KEY (parent_entry_id) REFERENCES mail_items(entry_id),
+    FOREIGN KEY (store_id) REFERENCES accounts(store_id),
+    FOREIGN KEY (folder_id) REFERENCES outlook_snapshot(entry_id),
+    UNIQUE (store_id, entry_id)
 );
 
--- 添付メッセージ
-CREATE TABLE IF NOT EXISTS attachments_messages (
+-- ユーザー情報
+CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    parent_mail_id TEXT NOT NULL,
-    message_entry_id TEXT NOT NULL,
-    FOREIGN KEY (parent_mail_id) REFERENCES mail_items(entry_id),
-    FOREIGN KEY (message_entry_id) REFERENCES mail_items(entry_id),
-    UNIQUE (parent_mail_id, message_entry_id)
-);
-
--- 参加者
-CREATE TABLE IF NOT EXISTS participants (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    mail_id TEXT NOT NULL,
+    email TEXT UNIQUE NOT NULL,
     name TEXT NOT NULL,
-    email TEXT NOT NULL,
-    participant_type TEXT NOT NULL,
-    address_type TEXT,
     display_name TEXT,
-    alias TEXT,
     company TEXT,
     office_location TEXT,
     smtp_address TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP CHECK (
+        datetime(created_at) IS NOT NULL AND
+        created_at LIKE '____-__-__ __:__:__'
+    ),
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP CHECK (
+        datetime(updated_at) IS NOT NULL AND
+        updated_at LIKE '____-__-__ __:__:__'
+    )
+);
+
+-- 会話参加者
+CREATE TABLE IF NOT EXISTS participants (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    mail_id TEXT NOT NULL,
+    user_id INTEGER NOT NULL,
+    participant_type TEXT NOT NULL,
+    address_type TEXT,
     FOREIGN KEY (mail_id) REFERENCES mail_items(entry_id),
-    UNIQUE (mail_id, email, participant_type)
+    FOREIGN KEY (user_id) REFERENCES users(id),
+    UNIQUE (mail_id, user_id, participant_type)
 );
 
 -- 添付ファイル
@@ -100,7 +119,33 @@ CREATE TABLE IF NOT EXISTS attachments (
     UNIQUE (mail_id, path)
 );
 
--- タスク処理管理テーブル
+-- AI評価（conversation単位）
+CREATE TABLE IF NOT EXISTS ai_reviews (
+    conversation_id TEXT PRIMARY KEY,
+    summary TEXT, -- 会話要約
+    score INTEGER DEFAULT 0, -- 評価スコア
+    score_detail TEXT, -- 評価詳細
+    FOREIGN KEY (conversation_id) REFERENCES mail_items(conversation_id)
+);
+
+-- styled_body（本文中のキーワードを装飾）
+CREATE TABLE IF NOT EXISTS styled_body (
+    entry_id TEXT PRIMARY KEY,
+    styled_body TEXT,
+    keywords TEXT, -- キーワード
+    keyword_count INTEGER DEFAULT 0, -- キーワード数
+    FOREIGN KEY (entry_id) REFERENCES mail_items(entry_id)
+);
+
+-- Chat View（会話のチャット形式表示）
+CREATE TABLE IF NOT EXISTS chat_view (
+    conversation_id TEXT PRIMARY KEY,
+    chat_view JSON,
+    FOREIGN KEY (conversation_id) REFERENCES mail_items(conversation_id)
+);
+
+
+-- メールごとの処理状況
 CREATE TABLE IF NOT EXISTS mail_tasks (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     task_id TEXT NOT NULL,  -- task_infoのidを参照
@@ -143,13 +188,12 @@ CREATE TABLE IF NOT EXISTS mail_tasks (
     
     -- 処理結果情報
     error_message TEXT,
-    ai_review_result TEXT,
     
     -- インデックス用
     UNIQUE (task_id, message_id)
 );
 
--- タスク処理の進捗状況テーブル
+-- タスク処理全体の進捗状況
 CREATE TABLE IF NOT EXISTS task_progress (
     task_id TEXT PRIMARY KEY,
     total_messages INTEGER DEFAULT 0,
@@ -185,45 +229,22 @@ CREATE TABLE IF NOT EXISTS task_progress (
     last_error TEXT
 );
 
--- Outlookアカウントとフォルダ情報のスナップショット
-CREATE TABLE IF NOT EXISTS outlook_snapshot (
-    -- アカウント情報
-    account_id TEXT NOT NULL,
-    store_id TEXT NOT NULL,
-    email_address TEXT NOT NULL,
-    display_name TEXT NOT NULL,
-    
-    -- フォルダ情報
-    folder_id TEXT NOT NULL,
-    folder_name TEXT NOT NULL,
-    folder_path TEXT NOT NULL,
-    parent_folder_id TEXT,
-    
-    -- スナップショット管理
-    snapshot_time TIMESTAMP NOT NULL CHECK (
-        datetime(snapshot_time) IS NOT NULL AND
-        snapshot_time LIKE '____-__-__ __:__:__'
-    ),
-    
-    -- 制約
-    PRIMARY KEY (account_id, folder_id),
-    FOREIGN KEY (folder_id) REFERENCES folders(entry_id),
-    FOREIGN KEY (parent_folder_id) REFERENCES folders(entry_id)
-);
 
 -- インデックス
-CREATE INDEX IF NOT EXISTS idx_folders_path ON folders(path);
-CREATE INDEX IF NOT EXISTS idx_mail_items_task_id ON mail_items(task_id);
+CREATE INDEX IF NOT EXISTS idx_outlook_snapshot_store ON outlook_snapshot(store_id);
+CREATE INDEX IF NOT EXISTS idx_outlook_snapshot_parent ON outlook_snapshot(parent_folder_id);
+CREATE INDEX IF NOT EXISTS idx_outlook_snapshot_path ON outlook_snapshot(path);
+CREATE INDEX IF NOT EXISTS idx_outlook_snapshot_time ON outlook_snapshot(snapshot_time);
+CREATE INDEX IF NOT EXISTS idx_mail_items_store ON mail_items(store_id);
+CREATE INDEX IF NOT EXISTS idx_mail_items_folder ON mail_items(folder_id);
 CREATE INDEX IF NOT EXISTS idx_mail_items_conversation ON mail_items(conversation_id);
 CREATE INDEX IF NOT EXISTS idx_mail_items_thread ON mail_items(thread_id);
 CREATE INDEX IF NOT EXISTS idx_mail_items_parent ON mail_items(parent_entry_id);
-CREATE INDEX IF NOT EXISTS idx_mail_items_folder ON mail_items(folder_id);
 CREATE INDEX IF NOT EXISTS idx_mail_items_sent_time ON mail_items(sent_time);
 CREATE INDEX IF NOT EXISTS idx_mail_items_received_time ON mail_items(received_time);
 CREATE INDEX IF NOT EXISTS idx_mail_items_subject ON mail_items(subject);
-CREATE INDEX IF NOT EXISTS idx_attached_messages_parent ON attachments_messages(parent_mail_id);
-CREATE INDEX IF NOT EXISTS idx_participants_mail ON participants(mail_id);
-CREATE INDEX IF NOT EXISTS idx_participants_email ON participants(email);
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+CREATE INDEX IF NOT EXISTS idx_participants_user ON participants(user_id);
 CREATE INDEX IF NOT EXISTS idx_attachments_mail ON attachments(mail_id);
 CREATE INDEX IF NOT EXISTS idx_mail_tasks_task_id ON mail_tasks(task_id);
 CREATE INDEX IF NOT EXISTS idx_mail_tasks_status ON mail_tasks(status);
@@ -231,22 +252,18 @@ CREATE INDEX IF NOT EXISTS idx_mail_tasks_message_id ON mail_tasks(message_id);
 CREATE INDEX IF NOT EXISTS idx_mail_tasks_mail_fetch ON mail_tasks(mail_fetch_status);
 CREATE INDEX IF NOT EXISTS idx_mail_tasks_attachment ON mail_tasks(attachment_status);
 CREATE INDEX IF NOT EXISTS idx_mail_tasks_ai_review ON mail_tasks(ai_review_status);
-CREATE INDEX IF NOT EXISTS idx_outlook_snapshot_account ON outlook_snapshot(account_id);
-CREATE INDEX IF NOT EXISTS idx_outlook_snapshot_folder ON outlook_snapshot(folder_id);
-CREATE INDEX IF NOT EXISTS idx_outlook_snapshot_path ON outlook_snapshot(folder_path);
-CREATE INDEX IF NOT EXISTS idx_outlook_snapshot_time ON outlook_snapshot(snapshot_time);
 
 -- フォルダのitem_count更新用トリガー
 CREATE TRIGGER IF NOT EXISTS update_folder_item_count_insert AFTER INSERT ON mail_items
 BEGIN
-    UPDATE folders
+    UPDATE outlook_snapshot
     SET item_count = item_count + 1
     WHERE entry_id = NEW.folder_id;
 END;
 
 CREATE TRIGGER IF NOT EXISTS update_folder_item_count_delete AFTER DELETE ON mail_items
 BEGIN
-    UPDATE folders
+    UPDATE outlook_snapshot
     SET item_count = item_count - 1
     WHERE entry_id = OLD.folder_id;
 END;

@@ -20,3 +20,4 @@ trash/
 
 # Document files
 doc/
+*.md

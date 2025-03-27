@@ -276,6 +276,8 @@ class TaskContent(ft.Container):
         if folder_info:
             self.viewmodel.from_folder_id = folder_info["entry_id"]
             self.viewmodel.from_folder_path = folder_info["path"]
+            self.viewmodel.from_folder_name = folder_info["name"]
+            self.viewmodel.store_id = folder_info["store_id"]
 
     def _on_to_folder_change(self, e):
         """送信先フォルダ変更時の処理"""

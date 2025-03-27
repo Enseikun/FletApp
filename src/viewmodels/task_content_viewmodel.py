@@ -194,13 +194,7 @@ class TaskContentViewModel:
                 self.logger.error("タスクフォルダとデータベースの作成に失敗しました")
                 return False
 
-            # Outlookスナップショットを作成
-            success = self._task_content_model.create_outlook_snapshot(task_info["id"])
-            if not success:
-                self.logger.error("Outlookスナップショットの作成に失敗しました")
-                return False
-
-        return success
+            return True
 
     def _validate_task_data(self):
         """タスクデータの検証"""

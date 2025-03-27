@@ -62,6 +62,15 @@ class HomeContentViewModel:
         self.current_task_id = task_id
         self.logger.info("HomeContentViewModel: 現在のタスクIDを設定", task_id=task_id)
 
+        # スナップショットを作成
+        if task_id:
+            success = self.create_outlook_snapshot(task_id)
+            if not success:
+                self.logger.error(
+                    "HomeContentViewModel: スナップショットの作成に失敗しました",
+                    task_id=task_id,
+                )
+
         # MainViewModelが設定されている場合、そちらにも通知する
         if self.main_viewmodel:
             self.main_viewmodel.set_current_task_id(task_id)

@@ -1,3 +1,20 @@
+"""
+Outlook関連のモデルの基底クラス
+
+責務:
+- Outlook関連モデルの共通機能の提供
+- ロギング機能の提供
+- OutlookServiceのインスタンス管理
+- 日付フィルタの生成
+
+主なメソッド:
+- _create_date_filter: 日付範囲に基づくフィルタ条件の生成
+
+連携:
+- OutlookService: Outlook APIとの通信機能の提供
+- 子クラス: OutlookItemModel, OutlookTaskModel, OutlookAccountModel
+"""
+
 # Outlook関連のモデルの基底クラス
 
 from datetime import datetime

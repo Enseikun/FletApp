@@ -114,7 +114,6 @@ CREATE TABLE IF NOT EXISTS attachments (
     mail_id TEXT NOT NULL,
     name TEXT NOT NULL,
     path TEXT NOT NULL,
-    size INTEGER NOT NULL,
     FOREIGN KEY (mail_id) REFERENCES mail_items(entry_id),
     UNIQUE (mail_id, path)
 );
@@ -122,9 +121,7 @@ CREATE TABLE IF NOT EXISTS attachments (
 -- AI評価（conversation単位）
 CREATE TABLE IF NOT EXISTS ai_reviews (
     conversation_id TEXT PRIMARY KEY,
-    summary TEXT, -- 会話要約
-    score INTEGER DEFAULT 0, -- 評価スコア
-    score_detail TEXT, -- 評価詳細
+    result JSON,
     FOREIGN KEY (conversation_id) REFERENCES mail_items(conversation_id)
 );
 
@@ -133,7 +130,6 @@ CREATE TABLE IF NOT EXISTS styled_body (
     entry_id TEXT PRIMARY KEY,
     styled_body TEXT,
     keywords TEXT, -- キーワード
-    keyword_count INTEGER DEFAULT 0, -- キーワード数
     FOREIGN KEY (entry_id) REFERENCES mail_items(entry_id)
 );
 
@@ -151,6 +147,15 @@ CREATE TABLE IF NOT EXISTS mail_tasks (
     task_id TEXT NOT NULL,  -- task_infoのidを参照
     message_id TEXT NOT NULL,
     mail_id TEXT UNIQUE,    -- 処理後に設定されるメールID
+    
+    -- メール情報
+    subject TEXT,
+    sent_time TEXT CHECK (
+        sent_time IS NULL OR (
+            datetime(sent_time) IS NOT NULL AND
+            sent_time LIKE '____-__-__ __:__:__'
+        )
+    ),
     
     -- 処理状態
     status TEXT DEFAULT 'pending' CHECK (
@@ -229,6 +234,28 @@ CREATE TABLE IF NOT EXISTS task_progress (
     last_error TEXT
 );
 
+-- 抽出条件
+CREATE TABLE IF NOT EXISTS extraction_conditions (
+    task_id TEXT PRIMARY KEY,
+    from_folder_id TEXT NOT NULL,
+    from_folder_name TEXT NOT NULL,
+    start_date TIMESTAMP NOT NULL CHECK (
+        datetime(start_date) IS NOT NULL AND
+        start_date LIKE '____-__-__ __:__:__'
+    ),
+    end_date TIMESTAMP NOT NULL CHECK (
+        datetime(end_date) IS NOT NULL AND
+        end_date LIKE '____-__-__ __:__:__' AND
+        end_date >= start_date
+    ),
+    exclude_extensions TEXT,
+    created_at TIMESTAMP NOT NULL CHECK (
+        datetime(created_at) IS NOT NULL AND
+        created_at LIKE '____-__-__ __:__:__'
+    ),
+    FOREIGN KEY (task_id) REFERENCES task_info(id),
+    FOREIGN KEY (from_folder_id) REFERENCES outlook_snapshot(entry_id)
+);
 
 -- インデックス
 CREATE INDEX IF NOT EXISTS idx_outlook_snapshot_store ON outlook_snapshot(store_id);
@@ -252,6 +279,8 @@ CREATE INDEX IF NOT EXISTS idx_mail_tasks_message_id ON mail_tasks(message_id);
 CREATE INDEX IF NOT EXISTS idx_mail_tasks_mail_fetch ON mail_tasks(mail_fetch_status);
 CREATE INDEX IF NOT EXISTS idx_mail_tasks_attachment ON mail_tasks(attachment_status);
 CREATE INDEX IF NOT EXISTS idx_mail_tasks_ai_review ON mail_tasks(ai_review_status);
+CREATE INDEX IF NOT EXISTS idx_extraction_conditions_folder ON extraction_conditions(from_folder_id);
+CREATE INDEX IF NOT EXISTS idx_extraction_conditions_dates ON extraction_conditions(start_date, end_date);
 
 -- フォルダのitem_count更新用トリガー
 CREATE TRIGGER IF NOT EXISTS update_folder_item_count_insert AFTER INSERT ON mail_items

@@ -18,7 +18,8 @@ class HomeViewModel:
 
         # タスクデータを整形
         self.tasks = [
-            {"id": task_id, "name": folder_name} for task_id, folder_name in task_data
+            {"id": task_id, "from_folder_name": folder_name}
+            for task_id, folder_name in task_data
         ]
 
         return self.tasks

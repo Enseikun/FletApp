@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional
 
 from src.core.database import DatabaseManager
 from src.core.logger import get_logger
+from src.util.object_util import get_safe
 
 
 class TaskContentModel:
@@ -24,7 +25,7 @@ class TaskContentModel:
         """タスクを作成"""
         try:
             # OutlookDBからフォルダ情報を取得
-            folder_info = self._get_folder_info(task_info["from_folder_id"])
+            folder_info = self._get_folder_info(get_safe(task_info, "from_folder_id"))
             if not folder_info:
                 self.logger.error("フォルダ情報の取得に失敗しました")
                 return False
@@ -32,25 +33,27 @@ class TaskContentModel:
             # ViewModelで未設定のタスク情報を更新
             task_info.update(
                 {
-                    "account_id": folder_info["account_id"],
-                    "folder_id": folder_info["folder_id"],
-                    "from_folder_id": folder_info["folder_id"],
-                    "from_folder_name": folder_info["folder_name"],
-                    "from_folder_path": folder_info["folder_path"],
+                    "account_id": get_safe(folder_info, "store_id"),
+                    "folder_id": get_safe(folder_info, "entry_id"),
+                    "from_folder_id": get_safe(folder_info, "entry_id"),
+                    "from_folder_name": get_safe(folder_info, "name"),
+                    "from_folder_path": get_safe(folder_info, "path"),
                     "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                     "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 }
             )
 
             # 移動先フォルダの情報も取得
-            if task_info["to_folder_id"]:
-                to_folder_info = self._get_folder_info(task_info["to_folder_id"])
+            if get_safe(task_info, "to_folder_id"):
+                to_folder_info = self._get_folder_info(
+                    get_safe(task_info, "to_folder_id")
+                )
                 if to_folder_info:
                     task_info.update(
                         {
-                            "to_folder_id": to_folder_info["folder_id"],
-                            "to_folder_name": to_folder_info["folder_name"],
-                            "to_folder_path": to_folder_info["folder_path"],
+                            "to_folder_id": get_safe(to_folder_info, "entry_id"),
+                            "to_folder_name": get_safe(to_folder_info, "name"),
+                            "to_folder_path": get_safe(to_folder_info, "path"),
                         }
                     )
 
@@ -98,23 +101,23 @@ class TaskContentModel:
             )
             """
             params = (
-                task_info["id"],
-                task_info["account_id"],
-                task_info["folder_id"],
-                task_info["from_folder_id"],
-                task_info["from_folder_name"],
-                task_info["from_folder_path"],
-                task_info.get("to_folder_id"),
-                task_info.get("to_folder_name"),
-                task_info.get("to_folder_path"),
-                task_info["start_date"],
-                task_info["end_date"],
-                task_info["ai_review"],
-                task_info["file_download"],
-                ",".join(task_info["exclude_extensions"]),
-                task_info["status"],
-                task_info["created_at"],
-                task_info["updated_at"],
+                get_safe(task_info, "id"),
+                get_safe(task_info, "account_id"),
+                get_safe(task_info, "folder_id"),
+                get_safe(task_info, "from_folder_id"),
+                get_safe(task_info, "from_folder_name"),
+                get_safe(task_info, "from_folder_path"),
+                get_safe(task_info, "to_folder_id"),
+                get_safe(task_info, "to_folder_name"),
+                get_safe(task_info, "to_folder_path"),
+                get_safe(task_info, "start_date"),
+                get_safe(task_info, "end_date"),
+                get_safe(task_info, "ai_review"),
+                get_safe(task_info, "file_download"),
+                ",".join(get_safe(task_info, "exclude_extensions", [])),
+                get_safe(task_info, "status"),
+                get_safe(task_info, "created_at"),
+                get_safe(task_info, "updated_at"),
             )
             self._tasks_db.execute_update(query, params)
 

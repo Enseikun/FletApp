@@ -1,3 +1,31 @@
+"""
+Outlook操作サービス
+
+責務:
+- Outlook操作の高レベルインターフェース提供
+- フォルダ操作の抽象化
+- メール操作の抽象化
+- エラーハンドリングの統一
+
+主なメソッド:
+- get_folder_by_id: フォルダ情報の取得
+- get_mail_by_id: メールデータの取得
+- get_folder_items: フォルダ内アイテムの取得
+- search_items: アイテムの検索
+
+連携:
+上流:
+- OutlookBaseModel: 共通機能の提供
+- OutlookItemModel: メールデータの操作要求
+
+下流:
+- OutlookClient: 低レベルなAPI通信
+  - メールデータの取得
+  - フォルダ情報の取得
+  - アイテムの移動
+  - フラグの設定
+"""
+
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 

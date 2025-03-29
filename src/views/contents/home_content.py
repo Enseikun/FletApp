@@ -1,4 +1,5 @@
 import os
+from datetime import datetime
 
 import flet as ft
 
@@ -6,6 +7,7 @@ from src.core.logger import get_logger
 from src.viewmodels.home_content_viewmodel import HomeContentViewModel
 from src.viewmodels.home_viewmodel import HomeViewModel
 from src.views.components.add_button import AddButton
+from src.views.components.task_list_item import TaskListItem
 from src.views.components.text_with_subtitle_with_delete_icon import (
     TextWithSubtitleWithDeleteIcon,
 )
@@ -89,21 +91,44 @@ class HomeContent(ft.Container):
         self.task_items_column.controls.clear()
 
         for task in tasks:
-            task_item = TextWithSubtitleWithDeleteIcon(
-                text=f"タスクID: {task['id']}",
-                subtitle=f"フォルダ: {task.get('name', '未設定')}",
-                on_click=lambda e, task_id=task["id"]: self.on_task_selected(task_id),
-                on_delete=lambda e, task_id=task["id"]: self.on_task_delete(task_id, e),
-            )
-            # クリックイベントを直接設定
-            task_item.on_click = lambda e, task_id=task["id"]: self.on_task_selected(
-                task_id
-            )
-            self.task_items_column.controls.append(task_item)
+            try:
+                # タスクデータの内容をログ出力
+                self.logger.debug(
+                    "HomeContent: タスクデータ処理開始",
+                    task_id=task.get("id"),
+                    task_data=task,
+                )
 
-        # タスクリストの最後に追加ボタンを配置
+                # TextWithSubtitleWithDeleteIconを使用してタスクアイテムを作成
+                task_item = TextWithSubtitleWithDeleteIcon(
+                    text=f"タスクID: {task.get('id', '')}",
+                    subtitle=task.get("from_folder_name", "未設定"),
+                    on_click=lambda e, task_id=task.get("id"): self.on_task_selected(
+                        task_id
+                    ),
+                    on_delete=lambda e, task_id=task.get("id"): self.on_task_delete(
+                        task_id, e
+                    ),
+                )
+
+                self.task_items_column.controls.append(task_item)
+                self.logger.debug(
+                    "HomeContent: タスクアイテム追加完了", task_id=task.get("id")
+                )
+            except Exception as e:
+                self.logger.error(
+                    "HomeContent: タスクアイテムの作成中にエラー発生",
+                    task_id=task.get("id", "unknown"),
+                    error=str(e),
+                    task_data=task,
+                )
+                continue
+
         self.task_items_column.controls.append(self.add_button_container)
-        self.logger.debug("HomeContent: タスクリスト作成完了")
+        self.logger.debug(
+            "HomeContent: タスクリスト作成完了",
+            total_items=len(self.task_items_column.controls),
+        )
 
     def update_task_list(self, tasks):
         """タスクリストを更新する（ページに追加された後に呼び出す）"""
@@ -129,6 +154,19 @@ class HomeContent(ft.Container):
                 "HomeContent: main_viewmodelの状態確認",
                 has_main_viewmodel=self.main_viewmodel is not None,
             )
+
+            # Outlookのスナップショットを作成
+            if self.contents_viewmodel:
+                success = self.contents_viewmodel.create_outlook_snapshot(task_id)
+                if success:
+                    self.logger.info(
+                        f"HomeContent: Outlookスナップショット作成成功 - {task_id}"
+                    )
+                else:
+                    self.logger.error(
+                        f"HomeContent: Outlookスナップショット作成失敗 - {task_id}"
+                    )
+
             if self.main_viewmodel:
                 self.main_viewmodel.set_current_task_id(task_id)
                 self.main_viewmodel.set_destination("preview")

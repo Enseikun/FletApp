@@ -21,3 +21,6 @@ trash/
 # Document files
 doc/
 *.md
+
+# Test files
+tests/

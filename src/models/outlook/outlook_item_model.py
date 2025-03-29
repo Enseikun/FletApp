@@ -1,11 +1,19 @@
-# Outlookメールアイテム管理モデル
+"""
+Outlookメールアイテム管理モデル
+
+責務:
+- メールアイテムのデータ取得
+- 添付ファイルの取得と保存
+- 参加者情報の取得
+"""
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Generator, List, Optional
 
 from src.core.database import DatabaseManager
 from src.models.outlook.outlook_base_model import OutlookBaseModel
 from src.models.outlook.outlook_service import OutlookService
+from src.util.object_util import get_safe
 
 
 class OutlookItemModel(OutlookBaseModel):
@@ -13,71 +21,89 @@ class OutlookItemModel(OutlookBaseModel):
 
     def __init__(self):
         super().__init__()
-        self.db = DatabaseManager("data/items.db")
         self.service = OutlookService()
+        self._chunk_size = None  # 計算済みのチャンクサイズを保持
 
     def get_mail_items(
-        self, folder_id: str, filter_criteria: Optional[str] = None
-    ) -> List[Dict[str, Any]]:
+        self,
+        folder_id: str,
+        filter_criteria: Optional[str] = None,
+        chunk_size: Optional[int] = None,
+    ) -> Generator[List[Dict[str, Any]], None, None]:
         """
         指定したフォルダのメールアイテムを取得する
-
-            - メール取得に専念しデータベースへの保存は行わない
-            - 保存前にダウンロード計画を作成
 
         Args:
             folder_id: フォルダID
             filter_criteria: フィルタ条件
+            chunk_size: バッチ処理のチャンクサイズ（指定がない場合は自動計算）
 
-        Returns:
-            メールアイテムのリスト
+        Yields:
+            List[Dict[str, Any]]: メールアイテムのリスト（チャンク単位）
         """
+        # チャンクサイズの決定
+        if chunk_size is None:
+            if self._chunk_size is None:
+                self._chunk_size = self._calculate_chunk_size()
+            chunk_size = self._chunk_size
+
         self.logger.info(
             "メールアイテムを取得します",
             folder_id=folder_id,
             filter_criteria=filter_criteria,
+            chunk_size=chunk_size,
         )
 
         try:
             folder = self.service.get_folder_by_id(folder_id)
             if not folder:
                 self.logger.error(f"フォルダが見つかりません: {folder_id}")
-                return []
+                return
 
             # フォルダ内のメールアイテムを取得
             mail_items = folder.Items
             if filter_criteria:
                 mail_items = mail_items.Restrict(filter_criteria)
 
+            # メールアイテムをチャンクごとに処理
+            current_chunk = []
+            total_processed = 0
+
+            for item in mail_items:
+                mail_data = {
+                    "EntryID": get_safe(item, "EntryID"),
+                    "Subject": get_safe(item, "Subject"),
+                    "ReceivedTime": get_safe(item, "ReceivedTime"),
+                    "SenderName": get_safe(item, "SenderName"),
+                    "UnRead": get_safe(item, "UnRead", False),
+                    "HasAttachments": get_safe(item, "HasAttachments", False),
+                    "Size": get_safe(item, "Size", 0),
+                    "Categories": get_safe(item, "Categories", ""),
+                }
+                current_chunk.append(mail_data)
+
+                # チャンクサイズに達したらyield
+                if len(current_chunk) >= chunk_size:
+                    total_processed += len(current_chunk)
+                    self.logger.info(
+                        f"チャンクを取得しました: {len(current_chunk)}件 (合計: {total_processed}件)"
+                    )
+                    yield current_chunk
+                    current_chunk = []
+
+            # 残りのアイテムをyield
+            if current_chunk:
+                total_processed += len(current_chunk)
+                self.logger.info(
+                    f"最後のチャンクを取得しました: {len(current_chunk)}件 (合計: {total_processed}件)"
+                )
+                yield current_chunk
+
+            self.logger.info(f"メールアイテムの取得が完了しました: {total_processed}件")
+
         except Exception as e:
             self.logger.error(f"メールアイテムの取得に失敗しました: {e}")
-            return []
-
-    def save_mail_to_db(self, mail_item) -> bool:
-        """
-        メールアイテムをデータベースに保存する
-
-        Args:
-            mail_item: メールアイテム
-
-        Returns:
-            保存が成功した場合はTrue
-        """
-        # 未実装
-        pass
-
-    def get_mail_by_id(self, mail_id: str):
-        """
-        指定したIDのメールアイテムを取得する
-
-        Args:
-            mail_id: メールID
-
-        Returns:
-            メールアイテム
-        """
-        # 未実装
-        pass
+            return
 
     def get_attachments(self, mail_id: str) -> List[Dict[str, Any]]:
         """
@@ -87,34 +113,165 @@ class OutlookItemModel(OutlookBaseModel):
             mail_id: メールID
 
         Returns:
-            添付ファイル情報のリスト
+            List[Dict[str, Any]]: 添付ファイル情報のリスト
         """
-        # 未実装
-        pass
+        try:
+            mail_item = self.service.get_mail_by_id(mail_id)
+            if not mail_item:
+                return []
 
-    def save_attachment(self, attachment, save_path: str) -> bool:
+            attachments = []
+            for attachment in mail_item.Attachments:
+                attachment_info = {
+                    "FileName": get_safe(attachment, "FileName"),
+                    "Size": get_safe(attachment, "Size"),
+                    "FilePath": None,  # 保存時に設定
+                }
+                attachments.append(attachment_info)
+
+            return attachments
+
+        except Exception as e:
+            self.logger.error(f"添付ファイル情報の取得に失敗しました: {e}")
+            return []
+
+    def save_attachment(self, attachment: Dict[str, Any], save_path: str) -> bool:
         """
         添付ファイルを保存する
 
         Args:
-            attachment: 添付ファイルオブジェクト
+            attachment: 添付ファイル情報
             save_path: 保存先パス
 
         Returns:
-            保存が成功した場合はTrue
+            bool: 保存が成功したかどうか
         """
-        # 未実装
-        pass
+        try:
+            mail_item = self.service.get_mail_by_id(attachment["MailID"])
+            if not mail_item:
+                return False
 
-    def search_mail(self, search_criteria: str) -> List[Dict[str, Any]]:
+            for outlook_attachment in mail_item.Attachments:
+                if outlook_attachment.FileName == attachment["FileName"]:
+                    file_path = f"{save_path}/{attachment['FileName']}"
+                    outlook_attachment.SaveAsFile(file_path)
+                    attachment["FilePath"] = file_path
+                    return True
+
+            return False
+
+        except Exception as e:
+            self.logger.error(f"添付ファイルの保存に失敗しました: {e}")
+            return False
+
+    def get_participants(self, mail_id: str) -> List[Dict[str, Any]]:
         """
-        メールを検索する
+        指定したメールの参加者情報を取得する
 
         Args:
-            search_criteria: 検索条件
+            mail_id: メールID
 
         Returns:
-            検索結果のメールリスト
+            List[Dict[str, Any]]: 参加者情報のリスト
         """
-        # 未実装
-        pass
+        try:
+            mail_item = self.service.get_mail_by_id(mail_id)
+            if not mail_item:
+                return []
+
+            participants = []
+
+            # 送信者
+            if mail_item.Sender:
+                participants.append(
+                    {
+                        "EmailAddress": get_safe(mail_item.Sender, "Address"),
+                        "DisplayName": get_safe(mail_item.Sender, "Name"),
+                        "Type": "sender",
+                    }
+                )
+
+            # 受信者
+            for recipient in mail_item.Recipients:
+                participants.append(
+                    {
+                        "EmailAddress": get_safe(recipient, "Address"),
+                        "DisplayName": get_safe(recipient, "Name"),
+                        "Type": "recipient",
+                    }
+                )
+
+            return participants
+
+        except Exception as e:
+            self.logger.error(f"参加者情報の取得に失敗しました: {e}")
+            return []
+
+    def _calculate_chunk_size(self) -> int:
+        """
+        システムリソースとメールデータの特性に基づいて最適なチャンクサイズを計算する
+
+        Returns:
+            int: 計算されたチャンクサイズ
+        """
+        try:
+            import sys
+
+            import psutil
+
+            # システムリソースの取得
+            available_memory = psutil.virtual_memory().available  # バイト単位
+            cpu_count = psutil.cpu_count()
+
+            # メールデータの推定サイズ（バイト単位）
+            # ヘッダー情報: 2KB, 本文: 20KB, 添付ファイル情報: 1KB
+            MAIL_DATA_SIZE = 23 * 1024  # 23KB
+
+            # 安全係数（メモリ使用率の制限）
+            SAFETY_FACTOR = 0.3  # 利用可能メモリの30%まで使用
+
+            # データベースのバッファサイズ（経験則）
+            DB_BUFFER_SIZE = 10 * 1024 * 1024  # 10MB
+
+            # 最小・最大チャンクサイズ
+            MIN_CHUNK_SIZE = 50
+            MAX_CHUNK_SIZE = 1000
+
+            # メモリ量に応じて安全係数とバッファサイズを調整
+            memory_gb = available_memory / (1024 * 1024 * 1024)  # GBに変換
+            if memory_gb < 2:  # 2GB未満の場合
+                SAFETY_FACTOR = 0.1  # 安全係数を下げる
+                DB_BUFFER_SIZE = 2 * 1024 * 1024  # バッファサイズを2MBに下げる
+            elif memory_gb < 4:  # 4GB未満の場合
+                SAFETY_FACTOR = 0.2  # 安全係数を少し下げる
+                DB_BUFFER_SIZE = 5 * 1024 * 1024  # バッファサイズを5MBに下げる
+
+            memory_based_size = int(
+                (available_memory * SAFETY_FACTOR) / (MAIL_DATA_SIZE * cpu_count * 2)
+            )
+
+            # データベースバッファベースの計算
+            db_based_size = int(DB_BUFFER_SIZE / MAIL_DATA_SIZE)
+
+            # 最終的なチャンクサイズの決定
+            chunk_size = min(memory_based_size, db_based_size)
+
+            # 最小・最大値の制限を適用
+            chunk_size = max(MIN_CHUNK_SIZE, min(chunk_size, MAX_CHUNK_SIZE))
+
+            self.logger.info(
+                "チャンクサイズを計算しました",
+                available_memory=available_memory,
+                cpu_count=cpu_count,
+                calculated_size=chunk_size,
+                memory_gb=memory_gb,
+                safety_factor=SAFETY_FACTOR,
+                db_buffer_size=DB_BUFFER_SIZE,
+            )
+
+            return chunk_size
+
+        except Exception as e:
+            self.logger.error(f"チャンクサイズの計算に失敗しました: {e}")
+            # エラー時は安全なデフォルト値を返す
+            return 25

@@ -1,4 +1,23 @@
-# Outlookタスク管理モデル
+"""
+Outlookタスク管理モデル
+
+責務:
+- メール抽出タスクの作成と管理
+- タスクの実行制御
+- タスク情報の永続化
+- タスクの状態管理
+
+主なメソッド:
+- create_task: 新規タスクの作成
+- execute_task: タスクの実行
+- update_task: タスク情報の更新
+- get_tasks: タスク一覧の取得
+- get_task_by_id: 特定タスクの取得
+
+連携:
+- OutlookExtractionService: タスク実行時のメール抽出処理
+- データベース: tasks.db（task_infoテーブル）
+"""
 
 from typing import Any, Dict, List, Optional
 

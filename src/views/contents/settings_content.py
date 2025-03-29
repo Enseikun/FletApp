@@ -3,6 +3,8 @@
 設定画面のコンテンツを提供するクラス
 """
 
+import os
+
 import flet as ft
 
 from src.views.components.text_with_subtitle import TextWithSubtitle
@@ -32,18 +34,49 @@ class SettingsContent(ft.Container):
 
         def get_config_text(file_name):
             """設定テキストを取得"""
-            with open(f"config/{file_name}.txt", "r") as file:
-                return file.read()
+            config_path = os.path.join(
+                os.path.dirname(
+                    os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+                ),
+                "config",
+                f"{file_name}.txt",
+            )
+            try:
+                with open(config_path, "r", encoding="utf-8") as file:
+                    return file.read()
+            except Exception as e:
+                print(f"Error reading {file_name}.txt: {e}")
+                return ""
 
         def save_keywords(e):
             """keywordsテキストを保存"""
-            with open("config/keywords.txt", "w") as file:
-                file.write(e.control.value)
+            config_path = os.path.join(
+                os.path.dirname(
+                    os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+                ),
+                "config",
+                "keywords.txt",
+            )
+            try:
+                with open(config_path, "w", encoding="utf-8") as file:
+                    file.write(e.control.value)
+            except Exception as e:
+                print(f"Error saving keywords.txt: {e}")
 
         def save_prompt(e):
             """promptテキストを保存"""
-            with open("config/prompt.txt", "w") as file:
-                file.write(e.control.value)
+            config_path = os.path.join(
+                os.path.dirname(
+                    os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+                ),
+                "config",
+                "prompt.txt",
+            )
+            try:
+                with open(config_path, "w", encoding="utf-8") as file:
+                    file.write(e.control.value)
+            except Exception as e:
+                print(f"Error saving prompt.txt: {e}")
 
         left_text_field = ft.TextField(
             label="keywords",

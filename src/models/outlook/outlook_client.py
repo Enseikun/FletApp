@@ -1,3 +1,30 @@
+"""
+Outlook APIクライアント
+
+責務:
+- Outlook APIとの直接通信
+- メールデータの取得
+- フォルダ情報の取得
+- 認証管理
+
+主なメソッド:
+- get_folder: フォルダ情報の取得
+- get_mail: メールデータの取得
+- get_attachments: 添付ファイルの取得
+- authenticate: 認証処理
+
+連携:
+上流:
+- OutlookService: 高レベルなOutlook操作の提供
+- OutlookExtractionService: メールデータの取得要求
+
+下流:
+- Outlook API: Microsoft Graph API
+  - メールデータの取得
+  - フォルダ情報の取得
+  - 認証処理
+"""
+
 import time
 from dataclasses import dataclass
 from typing import Any

@@ -7,6 +7,7 @@ from win32com.client import CDispatch
 
 from src.core.database import DatabaseManager
 from src.models.outlook.outlook_base_model import OutlookBaseModel
+from src.util.object_util import get_safe
 
 
 class OutlookAccountModel(OutlookBaseModel):
@@ -18,32 +19,6 @@ class OutlookAccountModel(OutlookBaseModel):
     def __init__(self):
         super().__init__()
         self.db = DatabaseManager("data/outlook.db")
-
-    def get_safe(
-        self, obj: CDispatch, property_name: str, default_value: any = None
-    ) -> any:
-        """
-        Outlookオブジェクトのプロパティを安全に取得する
-
-        Args:
-            obj (CDispatch): Outlookオブジェクト
-            property_name (str): 取得するプロパティ名
-            default_value (any, optional): プロパティが存在しない場合のデフォルト値. Defaults to None.
-
-        Returns:
-            any: プロパティの値。存在しない場合はデフォルト値
-        """
-        try:
-            if not hasattr(obj, property_name):
-                return default_value
-
-            value = getattr(obj, property_name)
-            return value if value is not None else default_value
-        except Exception as e:
-            self.logger.warning(
-                f"プロパティ '{property_name}' の取得に失敗しました: {str(e)}"
-            )
-            return default_value
 
     # MARK: - Private Methods
     def _get_timestamp(self) -> str:
@@ -76,20 +51,20 @@ class OutlookAccountModel(OutlookBaseModel):
         }
 
         try:
-            folder_id = self.get_safe(folder, "EntryID")
+            folder_id = get_safe(folder, "EntryID")
             current_time = self._get_timestamp()
 
             # 親フォルダIDを取得
             parent_folder_id = None
-            parent = self.get_safe(folder, "Parent")
+            parent = get_safe(folder, "Parent")
             if parent:
-                parent_folder_id = self.get_safe(parent, "EntryID")
+                parent_folder_id = get_safe(parent, "EntryID")
 
             # フォルダ名とパスを取得
-            folder_name = self.get_safe(folder, "Name", "unknown")
-            folder_path = self.get_safe(folder, "FolderPath", "\\" + folder_name)
-            item_count = self.get_safe(folder, "Items", {}).Count
-            unread_count = self.get_safe(folder, "UnReadItemCount", 0)
+            folder_name = get_safe(folder, "Name", "unknown")
+            folder_path = get_safe(folder, "FolderPath", "\\" + folder_name)
+            item_count = get_safe(folder, "Items", {}).Count
+            unread_count = get_safe(folder, "UnReadItemCount", 0)
 
             # ログ用の情報を更新
             folder_info.update(
@@ -171,7 +146,7 @@ class OutlookAccountModel(OutlookBaseModel):
             subfolders = self._service.get_folders(parent_folder)
             # EntryIDを持つフォルダのみをフィルタリング
             valid_subfolders = [
-                folder for folder in subfolders if self.get_safe(folder, "EntryID")
+                folder for folder in subfolders if get_safe(folder, "EntryID")
             ]
             for subfolder in valid_subfolders:
                 self._save_folder(account_id, subfolder)
@@ -198,14 +173,14 @@ class OutlookAccountModel(OutlookBaseModel):
             current_time = self._get_timestamp()
 
             # StoreIDを主キーとして使用
-            delivery_store = self.get_safe(account, "DeliveryStore")
-            store_id = self.get_safe(delivery_store, "StoreID")
+            delivery_store = get_safe(account, "DeliveryStore")
+            store_id = get_safe(delivery_store, "StoreID")
 
             # ログ用のアカウント情報を作成（文字列値のみ）
             account_info = {
                 "store_id": store_id,
-                "display_name": self.get_safe(account, "DisplayName"),
-                "email_address": self.get_safe(account, "SmtpAddress"),
+                "display_name": get_safe(account, "DisplayName"),
+                "email_address": get_safe(account, "SmtpAddress"),
             }
 
             self.logger.info(f"アカウント情報を保存します: {account_info}")
@@ -224,8 +199,8 @@ class OutlookAccountModel(OutlookBaseModel):
                     WHERE store_id = ?
                     """,
                     (
-                        self.get_safe(account, "DisplayName"),
-                        self.get_safe(account, "SmtpAddress"),
+                        get_safe(account, "DisplayName"),
+                        get_safe(account, "SmtpAddress"),
                         current_time,
                         current_time,
                         store_id,
@@ -241,8 +216,8 @@ class OutlookAccountModel(OutlookBaseModel):
                     """,
                     (
                         store_id,
-                        self.get_safe(account, "DisplayName"),
-                        self.get_safe(account, "SmtpAddress"),
+                        get_safe(account, "DisplayName"),
+                        get_safe(account, "SmtpAddress"),
                         current_time,
                         current_time,
                         current_time,
@@ -272,7 +247,7 @@ class OutlookAccountModel(OutlookBaseModel):
             folder_list = [
                 folder
                 for folder in root_folders
-                if self.get_safe(folder, "EntryID")  # EntryIDの存在のみをチェック
+                if get_safe(folder, "EntryID")  # EntryIDの存在のみをチェック
             ]
 
             if not folder_list:
@@ -280,7 +255,7 @@ class OutlookAccountModel(OutlookBaseModel):
                 return False
 
             # ログ用のフォルダ名リストを作成（文字列値のみ）
-            folder_names = [self.get_safe(f, "Name", "unknown") for f in folder_list]
+            folder_names = [get_safe(f, "Name", "unknown") for f in folder_list]
             self.logger.info(
                 f"アカウントのルートフォルダを取得しました: {folder_names}"
             )
@@ -358,9 +333,7 @@ class OutlookAccountModel(OutlookBaseModel):
                 self.logger.error("アカウント情報の保存に失敗しました")
                 return False
 
-            account_id = self.get_safe(
-                self.get_safe(account, "DeliveryStore"), "StoreID"
-            )
+            account_id = get_safe(get_safe(account, "DeliveryStore"), "StoreID")
 
             # アカウントのルートフォルダを取得
             root_folders = self._service.get_root_folders()
@@ -372,7 +345,7 @@ class OutlookAccountModel(OutlookBaseModel):
             folder_list = [
                 folder
                 for folder in root_folders
-                if self.get_safe(folder, "EntryID")  # EntryIDの存在のみをチェック
+                if get_safe(folder, "EntryID")  # EntryIDの存在のみをチェック
             ]
 
             if not folder_list:

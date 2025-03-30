@@ -292,6 +292,21 @@ class HomeContentModel:
             # まずスナップショットと抽出計画の状態を確認
             status = self.check_snapshot_and_extraction_plan(task_id)
 
+            # 既に抽出が完了している場合は成功として返す
+            if status["extraction_completed"]:
+                self.logger.info(
+                    "HomeContentModel: メール抽出は既に完了しています",
+                    task_id=task_id,
+                )
+                return True
+
+            # 抽出が進行中の場合も成功として返す
+            if status["extraction_in_progress"]:
+                self.logger.info(
+                    "HomeContentModel: メール抽出は既に進行中です", task_id=task_id
+                )
+                return True
+
             # OutlookExtractionServiceを使用して抽出を開始
             extraction_service = OutlookExtractionService(task_id)
 
@@ -304,22 +319,7 @@ class HomeContentModel:
                 return False
 
             try:
-                # 既に抽出が完了している場合は成功として返す
-                if status["extraction_completed"]:
-                    self.logger.info(
-                        "HomeContentModel: メール抽出は既に完了しています",
-                        task_id=task_id,
-                    )
-                    return True
-
-                # 抽出が進行中の場合も成功として返す
-                if status["extraction_in_progress"]:
-                    self.logger.info(
-                        "HomeContentModel: メール抽出は既に進行中です", task_id=task_id
-                    )
-                    return True
-
-                # 抽出作業を開始
+                # 抽出作業を開始（このメソッド内でスナップショットの重複チェックを行う）
                 success = extraction_service.start_extraction()
                 return success
             except Exception as e:
@@ -336,127 +336,5 @@ class HomeContentModel:
         except Exception as e:
             self.logger.error(
                 "HomeContentModel: メール抽出作業エラー", task_id=task_id, error=str(e)
-            )
-            return False
-
-    def _create_extraction_plan(
-        self, task_id: str, items_db: DatabaseManager, outlook_db: DatabaseManager
-    ) -> bool:
-        """
-        メールアイテムの抽出計画を作成する
-
-        Args:
-            task_id: タスクID
-            items_db: items.dbのDatabaseManagerインスタンス
-            outlook_db: outlook.dbのDatabaseManagerインスタンス
-
-        Returns:
-            bool: 作成が成功したかどうか
-        """
-        try:
-            self.logger.info("HomeContentModel: 抽出計画作成開始", task_id=task_id)
-
-            # task_infoテーブルからタスク情報を取得
-            task_info = outlook_db.execute_query(
-                "SELECT * FROM task_info WHERE id = ?", (task_id,)
-            )
-            if not task_info:
-                self.logger.error(
-                    "HomeContentModel: タスク情報が見つかりません", task_id=task_id
-                )
-                return False
-
-            task = task_info[0]
-            from_folder_id = get_safe(task, "from_folder_id")
-            from_folder_name = get_safe(task, "from_folder_name")
-            start_date = get_safe(task, "start_date")
-            end_date = get_safe(task, "end_date")
-            exclude_extensions = get_safe(task, "exclude_extensions")
-
-            # 対象フォルダのメールアイテムを取得
-            mail_items_query = """
-            SELECT entry_id, subject, sent_time, received_time
-            FROM mail_items
-            WHERE folder_id = ?
-            AND sent_time BETWEEN ? AND ?
-            ORDER BY sent_time ASC
-            """
-            mail_items = outlook_db.execute_query(
-                mail_items_query, (from_folder_id, start_date, end_date)
-            )
-            total_messages = len(mail_items)
-
-            if total_messages == 0:
-                self.logger.warning(
-                    "HomeContentModel: 対象メールがありません",
-                    task_id=task_id,
-                    from_folder=from_folder_name,
-                    start_date=start_date,
-                    end_date=end_date,
-                )
-                return False
-
-            # 抽出条件を記録
-            extraction_conditions_query = """
-            INSERT INTO extraction_conditions (
-                task_id, from_folder_id, from_folder_name,
-                start_date, end_date, exclude_extensions,
-                created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
-            """
-            items_db.execute_update(
-                extraction_conditions_query,
-                (
-                    task_id,
-                    from_folder_id,
-                    from_folder_name,
-                    start_date,
-                    end_date,
-                    exclude_extensions,
-                ),
-            )
-
-            # mail_tasksテーブルに各メールアイテムの抽出計画を記録
-            mail_tasks_query = """
-            INSERT INTO mail_tasks (
-                task_id, message_id, subject, sent_time,
-                status, mail_fetch_status, attachment_status,
-                ai_review_status, created_at
-            ) VALUES (?, ?, ?, ?, 'pending', 'pending', 'pending', 'pending', datetime('now'))
-            """
-            for mail_item in mail_items:
-                items_db.execute_update(
-                    mail_tasks_query,
-                    (
-                        task_id,
-                        get_safe(mail_item, "entry_id"),
-                        get_safe(mail_item, "subject"),
-                        get_safe(mail_item, "sent_time"),
-                    ),
-                )
-
-            # task_progressテーブルに進捗状況を記録
-            task_progress_query = """
-            INSERT INTO task_progress (
-                task_id, total_messages, processed_messages,
-                successful_messages, failed_messages, skipped_messages,
-                status, last_updated_at
-            ) VALUES (?, ?, 0, 0, 0, 0, 'pending', datetime('now'))
-            """
-            items_db.execute_update(task_progress_query, (task_id, total_messages))
-
-            self.logger.info(
-                "HomeContentModel: 抽出計画作成成功",
-                task_id=task_id,
-                total_messages=total_messages,
-                from_folder=from_folder_name,
-                start_date=start_date,
-                end_date=end_date,
-            )
-            return True
-
-        except Exception as e:
-            self.logger.error(
-                "HomeContentModel: 抽出計画作成エラー", task_id=task_id, error=str(e)
             )
             return False

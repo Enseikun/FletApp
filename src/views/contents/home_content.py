@@ -40,6 +40,18 @@ class HomeContent(ft.Container):
             # HomeContentViewModelにMainViewModelを設定
             self.contents_viewmodel.main_viewmodel = self.main_viewmodel
 
+        # 抽出確認コールバックを設定
+        self.contents_viewmodel.set_extraction_confirmation_callback(
+            self.show_extraction_confirmation_dialog
+        )
+        self.logger.info("HomeContent: 抽出確認コールバックを設定しました")
+
+        # 抽出完了コールバックを設定
+        self.contents_viewmodel.set_extraction_completed_callback(
+            self.show_extraction_completed_dialog
+        )
+        self.logger.info("HomeContent: 抽出完了コールバックを設定しました")
+
         # HomeViewModelのインスタンスを作成（MainViewModelを渡す）
         self.home_viewmodel = HomeViewModel(
             self.main_viewmodel or self.contents_viewmodel
@@ -140,6 +152,210 @@ class HomeContent(ft.Container):
             self.update()
             self.logger.debug("HomeContent: UI更新完了")
 
+    def show_extraction_confirmation_dialog(self, task_id, status):
+        """
+        メール抽出確認ダイアログを表示する
+
+        Args:
+            task_id: タスクID
+            status: スナップショットと抽出計画の状態
+        """
+        self.logger.info(
+            "HomeContent: メール抽出確認ダイアログ表示", task_id=task_id, status=status
+        )
+
+        def on_dialog_result(e):
+            if e.control.data == "yes":
+                self.logger.info("HomeContent: メール抽出承認", task_id=task_id)
+                # ViewModelに確認結果を伝え、抽出処理を実行
+                success = self.contents_viewmodel.handle_extraction_confirmation(
+                    task_id, True
+                )
+                if success:
+                    # 抽出開始メッセージを表示
+                    self.page.snack_bar = ft.SnackBar(
+                        content=ft.Text(
+                            "メール抽出処理を開始しました。完了までしばらくお待ちください。"
+                        ),
+                        action="閉じる",
+                    )
+                    self.page.snack_bar.open = True
+                    self.page.update()
+
+                    # 画面遷移を行う
+                    if self.main_viewmodel:
+                        self.main_viewmodel.set_current_task_id(task_id)
+                        self.main_viewmodel.set_destination("preview")
+                    else:
+                        self.home_viewmodel.select_task(task_id)
+            else:
+                self.logger.info("HomeContent: メール抽出キャンセル", task_id=task_id)
+                # ViewModelにキャンセルを伝える
+                self.contents_viewmodel.handle_extraction_confirmation(task_id, False)
+
+                # キャンセルメッセージを表示
+                self.page.snack_bar = ft.SnackBar(
+                    content=ft.Text("メール抽出をキャンセルしました。"),
+                    action="閉じる",
+                )
+                self.page.snack_bar.open = True
+                self.page.update()
+
+                # キャンセル時は画面遷移しない
+
+        # 確認ダイアログを作成
+        dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("メール抽出の確認"),
+            content=ft.Column(
+                [
+                    ft.Text("抽出計画が設定されました。"),
+                    ft.Text("メールの抽出処理を開始しますか？"),
+                    ft.Text(
+                        "※処理には時間がかかる場合があります", size=12, italic=True
+                    ),
+                ],
+                spacing=10,
+                tight=True,
+            ),
+            actions=[
+                ft.TextButton(
+                    "キャンセル",
+                    on_click=lambda e: (on_dialog_result(e), self.page.close(dialog)),
+                    data="no",
+                ),
+                ft.TextButton(
+                    "OK",
+                    on_click=lambda e: (on_dialog_result(e), self.page.close(dialog)),
+                    data="yes",
+                ),
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+            shape=ft.RoundedRectangleBorder(radius=AppTheme.CONTAINER_BORDER_RADIUS),
+        )
+
+        # ダイアログを表示
+        if hasattr(self, "page") and self.page:
+            self.page.open(dialog)
+            self.logger.debug(
+                "HomeContent: メール抽出確認ダイアログ表示完了", task_id=task_id
+            )
+
+    def show_extraction_completed_dialog(self, task_id, status):
+        """
+        メール抽出完了ダイアログを表示する
+
+        Args:
+            task_id: タスクID
+            status: スナップショットと抽出計画の状態
+        """
+        self.logger.info(
+            "HomeContent: メール抽出完了ダイアログ表示", task_id=task_id, status=status
+        )
+
+        # ステータスからメッセージを決定
+        task_status = status.get("task_status", "")
+        task_message = status.get("task_message", "")
+
+        # タイトルとメッセージを設定
+        if task_status == "completed":
+            dialog_title = "メール抽出完了"
+            dialog_messages = [
+                "メールの抽出処理が完了しました。",
+                "抽出されたデータを確認できます。",
+            ]
+        elif task_status == "error":
+            dialog_title = "メール抽出エラー"
+            dialog_messages = [
+                "メールの抽出処理中にエラーが発生しました。",
+                f"エラー: {task_message}",
+                "一部のメールやデータが取得できていない可能性があります。",
+            ]
+        else:
+            dialog_title = "メール抽出結果"
+            dialog_messages = [
+                "メールの抽出処理が終了しました。",
+                "抽出されたデータを確認できます。",
+            ]
+
+        # 完了ダイアログを作成
+        dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Text(dialog_title),
+            content=ft.Column(
+                [ft.Text(msg) for msg in dialog_messages],
+                spacing=10,
+                tight=True,
+            ),
+            actions=[
+                ft.TextButton(
+                    "OK",
+                    on_click=lambda e: (
+                        self.page.close(dialog),
+                        self.logger.info("HomeContent: 抽出完了確認", task_id=task_id),
+                        self.page.update(),
+                        (
+                            self.navigate_to_preview(task_id, task_status)
+                            if task_status != "error"
+                            else None
+                        ),
+                    ),
+                ),
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+            shape=ft.RoundedRectangleBorder(radius=AppTheme.CONTAINER_BORDER_RADIUS),
+        )
+
+        # ダイアログを表示
+        if hasattr(self, "page") and self.page:
+            self.page.open(dialog)
+            self.logger.debug(
+                "HomeContent: メール抽出完了ダイアログ表示完了", task_id=task_id
+            )
+
+    def navigate_to_preview(self, task_id, task_status):
+        """プレビュー画面に遷移する"""
+        self.logger.info(
+            f"HomeContent: プレビュー画面への遷移開始 - {task_id}, ステータス: {task_status}"
+        )
+        # エラーでない場合のみ画面遷移
+        if task_status != "error":
+            try:
+                if self.main_viewmodel:
+                    self.main_viewmodel.set_current_task_id(task_id)
+                    self.main_viewmodel.set_destination("preview")
+                    self.logger.info(
+                        f"HomeContent: MainViewModelを使用して画面遷移 - {task_id}"
+                    )
+                    # 確実に更新されるようにページ更新を追加
+                    if hasattr(self, "page") and self.page:
+                        self.page.update()
+                else:
+                    # HomeViewModelのselect_taskメソッドを使用
+                    result = self.home_viewmodel.select_task(task_id)
+                    self.logger.info(
+                        f"HomeContent: HomeViewModelを使用して画面遷移 - {task_id}, 結果: {result}"
+                    )
+                    # 確実に更新されるようにページ更新を追加
+                    if hasattr(self, "page") and self.page:
+                        self.page.update()
+            except Exception as e:
+                self.logger.error(
+                    "HomeContent: プレビュー画面への遷移でエラー発生",
+                    task_id=task_id,
+                    error=str(e),
+                )
+                # エラーメッセージを表示
+                if hasattr(self, "page") and self.page:
+                    self.page.snack_bar = ft.SnackBar(
+                        content=ft.Text(
+                            "プレビュー画面への遷移中にエラーが発生しました。"
+                        ),
+                        action="閉じる",
+                    )
+                    self.page.snack_bar.open = True
+                    self.page.update()
+
     def on_task_selected(self, task_id):
         """タスク選択時の処理"""
         self.logger.info(f"HomeContent: タスク選択 - {task_id}")
@@ -155,82 +371,69 @@ class HomeContent(ft.Container):
                 has_main_viewmodel=self.main_viewmodel is not None,
             )
 
-            # スナップショットの確認と抽出プロセスの開始は、ViewModelに委譲する
-            # ViewModelのset_current_task_idメソッド内でスナップショットと抽出処理が実行される
-            if self.contents_viewmodel:
-                # 現在の状態を確認
-                status_before = (
-                    self.contents_viewmodel.check_snapshot_and_extraction_plan(task_id)
-                )
+            # タスクID設定（この中でスナップショット作成と抽出確認ダイアログの表示が行われる）
+            result = self.contents_viewmodel.set_current_task_id(task_id)
 
-                # タスクID設定（この中でスナップショット作成と抽出処理が行われる）
-                self.contents_viewmodel.set_current_task_id(task_id)
-
-                # 処理後の状態を確認
-                status_after = (
-                    self.contents_viewmodel.check_snapshot_and_extraction_plan(task_id)
-                )
-
-                # 適切なユーザーフィードバックを表示
+            if not result:
+                self.logger.error(f"HomeContent: タスクID設定に失敗 - {task_id}")
                 if hasattr(self, "page") and self.page:
-                    # 抽出が開始された場合
-                    if (
-                        not status_before["extraction_in_progress"]
-                        and status_after["extraction_in_progress"]
-                    ):
-                        self.page.snack_bar = ft.SnackBar(
-                            content=ft.Text(
-                                "メール抽出処理を開始しました。完了までしばらくお待ちください。"
-                            ),
-                            action="閉じる",
-                        )
-                        self.page.snack_bar.open = True
-                        self.page.update()
-                    # すでに抽出が進行中の場合
-                    elif status_after["extraction_in_progress"]:
-                        self.page.snack_bar = ft.SnackBar(
-                            content=ft.Text(
-                                "メール抽出処理が進行中です。ブラウザに表示されるまでお待ちください。"
-                            ),
-                            action="閉じる",
-                        )
-                        self.page.snack_bar.open = True
-                        self.page.update()
-                    # 抽出が完了している場合
-                    elif status_after["extraction_completed"]:
-                        self.page.snack_bar = ft.SnackBar(
-                            content=ft.Text(
-                                "メール抽出処理は完了しています。データをブラウザに表示します。"
-                            ),
-                            action="閉じる",
-                        )
-                        self.page.snack_bar.open = True
-                        self.page.update()
-                    # スナップショットのみ作成された場合
-                    elif (
-                        status_after["has_snapshot"]
-                        and not status_after["has_extraction_plan"]
-                    ):
-                        self.page.snack_bar = ft.SnackBar(
-                            content=ft.Text("Outlookスナップショットを作成しました。"),
-                            action="閉じる",
-                        )
-                        self.page.snack_bar.open = True
-                        self.page.update()
+                    self.page.snack_bar = ft.SnackBar(
+                        content=ft.Text("タスクの処理中にエラーが発生しました。"),
+                        action="閉じる",
+                    )
+                    self.page.snack_bar.open = True
+                    self.page.update()
+                return
 
-            # 画面遷移
-            if self.main_viewmodel:
-                self.main_viewmodel.set_current_task_id(task_id)
-                self.main_viewmodel.set_destination("preview")
-                self.logger.info(
-                    f"HomeContent: MainViewModelを使用して画面遷移 - {task_id}"
-                )
-            else:
-                # HomeViewModelのselect_taskメソッドを使用
-                self.home_viewmodel.select_task(task_id)
-                self.logger.info(
-                    f"HomeContent: HomeViewModelを使用して画面遷移 - {task_id}"
-                )
+            # set_current_task_id 後に一度だけ状態を確認
+            status = self.contents_viewmodel.check_snapshot_and_extraction_plan(task_id)
+
+            # 適切なユーザーフィードバックを表示（抽出確認ダイアログが表示されない場合のみ）
+            if hasattr(self, "page") and self.page:
+                # すでに抽出が進行中の場合
+                if status["extraction_in_progress"]:
+                    self.page.snack_bar = ft.SnackBar(
+                        content=ft.Text(
+                            "メール抽出処理が進行中です。ブラウザに表示されるまでお待ちください。"
+                        ),
+                        action="閉じる",
+                    )
+                    self.page.snack_bar.open = True
+                    self.page.update()
+                # 抽出が完了している場合
+                elif status["extraction_completed"]:
+                    self.page.snack_bar = ft.SnackBar(
+                        content=ft.Text(
+                            "メール抽出処理は完了しています。データをブラウザに表示します。"
+                        ),
+                        action="閉じる",
+                    )
+                    self.page.snack_bar.open = True
+                    self.page.update()
+                # スナップショットのみ作成された場合
+                elif status["has_snapshot"] and not status["has_extraction_plan"]:
+                    self.page.snack_bar = ft.SnackBar(
+                        content=ft.Text("Outlookスナップショットを作成しました。"),
+                        action="閉じる",
+                    )
+                    self.page.snack_bar.open = True
+                    self.page.update()
+
+            # 確認ダイアログが表示される場合は、ダイアログ内で画面遷移を行うため、
+            # 抽出が進行中または完了済みの場合のみ、ここで画面遷移を行う
+            if status["extraction_in_progress"] or status["extraction_completed"]:
+                if self.main_viewmodel:
+                    self.main_viewmodel.set_current_task_id(task_id)
+                    self.main_viewmodel.set_destination("preview")
+                    self.logger.info(
+                        f"HomeContent: MainViewModelを使用して画面遷移 - {task_id}"
+                    )
+                else:
+                    # HomeViewModelのselect_taskメソッドを使用
+                    self.home_viewmodel.select_task(task_id)
+                    self.logger.info(
+                        f"HomeContent: HomeViewModelを使用して画面遷移 - {task_id}"
+                    )
         except Exception as e:
             self.logger.error(
                 "HomeContent: タスクID設定または画面遷移でエラー発生", error=str(e)

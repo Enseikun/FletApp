@@ -7,6 +7,8 @@ CREATE TABLE IF NOT EXISTS folders (
     item_count INTEGER DEFAULT 0,
     unread_count INTEGER DEFAULT 0,
     parent_folder_id TEXT,
+    folder_type TEXT,
+    folder_class TEXT,
     last_sync TEXT CHECK (
         last_sync IS NULL OR (
             datetime(last_sync) IS NOT NULL AND

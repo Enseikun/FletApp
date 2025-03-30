@@ -10,6 +10,8 @@ import flet as ft
 
 from src.core.logger import get_logger
 from src.viewmodels.preview_content_viewmodel import PreviewContentViewModel
+from src.views.components.mail_content_viewer import MailContentViewer
+from src.views.components.mail_list import MailList
 from src.views.styles.style import AppTheme
 
 
@@ -43,35 +45,40 @@ class PreviewContent(ft.Container):
         # 会話グループのコンテナを保存する辞書
         self.conversation_containers = {}
 
-        # 検索フィールド
-        self.search_field = ft.TextField(
-            hint_text="メールを検索...",
-            prefix_icon=ft.icons.SEARCH,
-            expand=True,
-            on_submit=self.on_search,
-            border_radius=20,
-            height=40,
+        # メールリストコンポーネント
+        self.mail_list_component = MailList(
+            on_mail_selected=self.show_mail_content,
+            on_refresh=self.load_all_mails,
         )
 
-        # メールリスト
-        self.mail_list = ft.ListView(
-            expand=True,
-            spacing=2,
-            padding=5,
+        # 検索イベントを設定
+        self.mail_list_component.on_search = self.on_search
+
+        # 会話グループ変更イベントを設定
+        self.mail_list_component.on_group_changed = (
+            self.on_group_by_conversation_changed
         )
 
-        # メール内容表示
-        self.mail_content = ft.Column(
-            expand=True,
-            scroll=ft.ScrollMode.AUTO,
+        # 会話選択イベントを設定
+        self.mail_list_component.on_conversation_selected = self._show_conversation
+
+        # メール内容表示コンポーネント
+        self.mail_content_viewer = MailContentViewer(
+            on_flag_click=self._toggle_flag,
+            on_download_attachment=self.download_attachment,
         )
+
+        # Fletコンテナの設定
+        self.padding = 20
+        self.expand = True
+        self.bgcolor = ft.colors.WHITE
 
         # UIを構築
         self._build()
         self.logger.info("PreviewContent: 初期化完了")
 
         # サンプルデータフラグ
-        self.use_sample_data = True
+        self.use_sample_data = False
 
     def _build(self):
         """UIを構築"""
@@ -79,56 +86,7 @@ class PreviewContent(ft.Container):
 
         # 左側のペイン（メールリスト）
         left_pane = ft.Container(
-            content=ft.Column(
-                [
-                    ft.Container(
-                        content=ft.Row(
-                            [
-                                ft.Text("メール一覧", weight="bold", size=16),
-                                ft.IconButton(
-                                    icon=ft.icons.REFRESH,
-                                    tooltip="更新",
-                                    on_click=lambda _: self.load_all_mails(),
-                                ),
-                            ],
-                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                        ),
-                        padding=ft.padding.only(left=10, top=10, right=10, bottom=5),
-                    ),
-                    ft.Container(
-                        content=self.search_field,
-                        padding=ft.padding.only(left=10, right=10, bottom=5),
-                    ),
-                    ft.Container(
-                        content=ft.Row(
-                            [
-                                ft.Text("会話ごとに集約:", size=12),
-                                ft.Switch(
-                                    value=False,
-                                    on_change=self.on_group_by_conversation_changed,
-                                    scale=0.8,
-                                ),
-                                ft.IconButton(
-                                    icon=ft.icons.HELP_OUTLINE,
-                                    tooltip="同じ件名のメールをまとめて表示します",
-                                    icon_size=16,
-                                ),
-                            ],
-                            alignment=ft.MainAxisAlignment.START,
-                        ),
-                        padding=ft.padding.only(left=10, right=10, bottom=5),
-                    ),
-                    ft.Container(
-                        content=self.mail_list,
-                        expand=True,
-                        border=ft.border.all(1, ft.colors.BLACK12),
-                        border_radius=AppTheme.CONTAINER_BORDER_RADIUS,
-                        padding=5,
-                    ),
-                ],
-                spacing=0,
-                expand=True,
-            ),
+            content=self.mail_list_component,
             expand=1,
         )
 
@@ -141,7 +99,7 @@ class PreviewContent(ft.Container):
                         padding=ft.padding.only(left=10, top=10, right=10, bottom=10),
                     ),
                     ft.Container(
-                        content=self.mail_content,
+                        content=self.mail_content_viewer,
                         expand=True,
                         border=ft.border.all(1, ft.colors.BLACK12),
                         border_radius=AppTheme.CONTAINER_BORDER_RADIUS,
@@ -166,10 +124,6 @@ class PreviewContent(ft.Container):
             spacing=10,
             expand=True,
         )
-
-        self.padding = 20
-        self.expand = True
-        self.bgcolor = ft.colors.WHITE
         self.logger.debug("PreviewContent: UI構築完了")
 
     def on_close_button_click(self, e):
@@ -211,12 +165,6 @@ class PreviewContent(ft.Container):
     def load_data(self):
         """データを読み込む"""
         self.logger.info("PreviewContent: データ読み込み開始")
-
-        # サンプルデータを使用する場合
-        if self.use_sample_data:
-            self.logger.debug("PreviewContent: サンプルデータを使用")
-            self.load_sample_data()
-            return
 
         if self.task_id:
             self.logger.debug("PreviewContent: タスクID有効", task_id=self.task_id)
@@ -283,82 +231,16 @@ class PreviewContent(ft.Container):
     def load_all_mails(self):
         """すべてのメールを読み込む"""
         self.logger.info("PreviewContent: すべてのメール読み込み開始")
-        if not self.viewmodel and not self.use_sample_data:
+        if not self.viewmodel:
             self.logger.error("PreviewContent: ViewModelが初期化されていません")
             return
 
-        # メールリストをクリア
-        self.mail_list.controls.clear()
+        # すべてのメールを取得
+        mails = self.viewmodel.get_all_mails()
+        self.logger.debug("PreviewContent: メール取得完了", mail_count=len(mails))
 
-        # サンプルデータを使用する場合
-        if self.use_sample_data:
-            # ViewModelからメールデータを取得（ソート順指定を削除）
-            mails = self.viewmodel.get_all_mails()
-            self.logger.debug(
-                "PreviewContent: サンプルメール取得完了", mail_count=len(mails)
-            )
-
-            # デバッグログを追加
-            self.logger.debug(
-                "PreviewContent: 会話集約モード",
-                group_by_conversation=self.group_by_conversation,
-            )
-
-            # 会話ごとに集約する場合
-            if self.group_by_conversation:
-                self._display_grouped_mails(mails)
-            else:
-                # 通常表示
-                for mail in mails:
-                    mail_item = self._create_mail_item(mail)
-                    self.mail_list.controls.append(mail_item)
-        else:
-            # すべてのメールを取得（ソート順指定を削除）
-            mails = self.viewmodel.get_all_mails()
-            self.logger.debug("PreviewContent: メール取得完了", mail_count=len(mails))
-
-            # メール一覧を表示
-            if mails:
-                # 会話ごとに集約する場合
-                if self.group_by_conversation:
-                    self._display_grouped_mails(mails)
-                else:
-                    # 通常表示
-                    for mail in mails:
-                        mail_item = self._create_mail_item(mail)
-                        self.mail_list.controls.append(mail_item)
-            else:
-                # データがない場合の表示を改善
-                self.mail_list.controls.append(
-                    ft.Container(
-                        content=ft.Column(
-                            [
-                                ft.Icon(
-                                    name=ft.icons.EMAIL_OUTLINED,
-                                    size=40,
-                                    color=ft.colors.GREY,
-                                ),
-                                ft.Text(
-                                    "メールはありません",
-                                    color=ft.colors.GREY,
-                                    text_align=ft.TextAlign.CENTER,
-                                    weight="bold",
-                                ),
-                                ft.Text(
-                                    "このタスクにはメールデータが登録されていません",
-                                    color=ft.colors.GREY,
-                                    size=12,
-                                    text_align=ft.TextAlign.CENTER,
-                                ),
-                            ],
-                            alignment=ft.MainAxisAlignment.CENTER,
-                            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                            spacing=10,
-                        ),
-                        alignment=ft.alignment.center,
-                        expand=True,
-                    )
-                )
+        # メール一覧コンポーネントに表示
+        self.mail_list_component.display_mails(mails)
 
         # メール内容表示をクリア
         self._show_empty_mail_content()
@@ -367,120 +249,8 @@ class PreviewContent(ft.Container):
         self.update()
         self.logger.info("PreviewContent: すべてのメール読み込み完了")
 
-    def _create_mail_item(self, mail):
-        """メールアイテムを作成"""
-        is_unread = mail.get("unread", 0)
-        has_attachments = bool(mail.get("attachments", []))
-        is_flagged = mail.get("flagged", False)  # フラグ状態を取得
-
-        return ft.Container(
-            content=ft.Column(
-                [
-                    ft.Row(
-                        [
-                            ft.Container(
-                                content=ft.Icon(
-                                    name=ft.icons.CIRCLE,
-                                    size=8,
-                                    color=(
-                                        ft.colors.BLUE
-                                        if is_unread
-                                        else ft.colors.TRANSPARENT
-                                    ),
-                                ),
-                                width=15,
-                            ),
-                            ft.Text(
-                                mail["date"],
-                                size=12,
-                                color=ft.colors.GREY,
-                                width=100,
-                            ),
-                            ft.Text(
-                                mail["sender"]
-                                .split("<")[0]
-                                .strip(),  # 名前部分のみ表示
-                                size=12,
-                                color=ft.colors.GREY,
-                                expand=True,
-                                text_align=ft.TextAlign.RIGHT,
-                            ),
-                            # フラグアイコンを表示（フラグが立っている場合）
-                            (
-                                ft.Icon(
-                                    name=ft.icons.FLAG,
-                                    size=14,
-                                    color=ft.colors.RED,
-                                )
-                                if is_flagged
-                                else ft.Container(width=0)
-                            ),
-                            (
-                                ft.Icon(
-                                    name=ft.icons.ATTACH_FILE,
-                                    size=14,
-                                    color=ft.colors.GREY,
-                                )
-                                if has_attachments
-                                else ft.Container(width=0)
-                            ),
-                        ],
-                    ),
-                    ft.Text(
-                        mail["subject"] or "(件名なし)",
-                        weight="bold" if is_unread else "normal",
-                        overflow=ft.TextOverflow.ELLIPSIS,
-                    ),
-                    ft.Text(
-                        mail.get("preview", ""),
-                        size=12,
-                        color=ft.colors.GREY,
-                        max_lines=1,
-                        overflow=ft.TextOverflow.ELLIPSIS,
-                    ),
-                ],
-                spacing=2,
-            ),
-            padding=ft.padding.all(8),
-            border_radius=5,
-            on_click=lambda e, mail_id=mail["id"]: self.show_mail_content(mail_id),
-            ink=True,
-            bgcolor=ft.colors.WHITE,
-            border=ft.border.all(1, ft.colors.BLACK12),
-            margin=ft.margin.only(bottom=5),
-        )
-
-    def _show_empty_mail_content(self):
-        """空のメール内容表示"""
-        self.mail_content.controls.clear()
-        self.mail_content.controls.append(
-            ft.Container(
-                content=ft.Column(
-                    [
-                        ft.Icon(
-                            name=ft.icons.EMAIL_OUTLINED,
-                            size=40,
-                            color=ft.colors.GREY,
-                        ),
-                        ft.Text(
-                            "メールを選択してください",
-                            color=ft.colors.GREY,
-                            text_align=ft.TextAlign.CENTER,
-                            weight="bold",
-                        ),
-                    ],
-                    alignment=ft.MainAxisAlignment.CENTER,
-                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                    spacing=10,
-                ),
-                alignment=ft.alignment.center,
-                expand=True,
-            )
-        )
-
-    def on_search(self, e):
+    def on_search(self, search_term):
         """検索実行時の処理"""
-        search_term = self.search_field.value
         self.logger.info("PreviewContent: 検索実行", search_term=search_term)
         if not search_term:
             self.load_all_mails()
@@ -490,54 +260,39 @@ class PreviewContent(ft.Container):
             self.logger.error("PreviewContent: ViewModelが初期化されていません")
             return
 
-        # メールリストをクリア
-        self.mail_list.controls.clear()
-
         # 検索を実行
         mails = self.viewmodel.search_mails(search_term)
         self.logger.debug("PreviewContent: 検索結果取得", result_count=len(mails))
 
-        # 検索結果を表示
-        if mails:
-            for mail in mails:
-                mail_item = self._create_mail_item(mail)
-                self.mail_list.controls.append(mail_item)
-        else:
-            self.mail_list.controls.append(
-                ft.Container(
-                    content=ft.Column(
-                        [
-                            ft.Icon(
-                                name=ft.icons.SEARCH_OFF,
-                                size=40,
-                                color=ft.colors.GREY,
-                            ),
-                            ft.Text(
-                                f"「{search_term}」に一致するメールはありません",
-                                color=ft.colors.GREY,
-                                text_align=ft.TextAlign.CENTER,
-                                weight="bold",
-                            ),
-                            ft.TextButton(
-                                text="すべてのメールを表示",
-                                on_click=lambda _: self.load_all_mails(),
-                            ),
-                        ],
-                        alignment=ft.MainAxisAlignment.CENTER,
-                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                        spacing=10,
-                    ),
-                    alignment=ft.alignment.center,
-                    expand=True,
-                )
-            )
+        # 検索結果をコンポーネントに表示
+        self.mail_list_component.display_search_results(mails, search_term)
+
+        # メール内容表示をクリア
+        self._show_empty_mail_content()
 
         self.update()
         self.logger.info("PreviewContent: 検索完了", search_term=search_term)
 
-    def show_mail_content(self, mail_id):
+    def _show_empty_mail_content(self):
+        """空のメール内容表示"""
+        self.mail_content_viewer._show_empty_content()
+
+    def show_mail_content(self, e=None, mail_id=None):
         """メール内容を表示"""
-        self.logger.info("PreviewContent: メール内容表示", mail_id=mail_id)
+        # イベントオブジェクトから呼び出された場合
+        if e and not mail_id:
+            if hasattr(e, "control") and hasattr(e.control, "data"):
+                mail_id = e.control.data
+            elif hasattr(e, "data"):
+                # e自体がmailIdの場合（MailListコンポーネントから直接渡された場合）
+                mail_id = e.data
+            else:
+                # メールIDそのものが渡された場合
+                mail_id = e
+
+            self.logger.info("PreviewContent: メール内容表示", mail_id=mail_id)
+        else:
+            self.logger.info("PreviewContent: メール内容表示", mail_id=mail_id)
 
         if not self.viewmodel:
             self.logger.error("PreviewContent: ViewModelが初期化されていません")
@@ -549,189 +304,64 @@ class PreviewContent(ft.Container):
             self.logger.error("PreviewContent: メール内容取得失敗", mail_id=mail_id)
             return
 
+        # メールデータの整合性チェックと修正（必須フィールドのデフォルト値を設定）
+        # 送信者情報
+        if "sender" not in mail or not mail["sender"]:
+            mail["sender"] = "不明 <unknown@example.com>"
+
+        # 受信者情報
+        if "recipient" not in mail or not mail["recipient"]:
+            mail["recipient"] = "不明 <unknown@example.com>"
+
+        # 件名
+        if "subject" not in mail or mail["subject"] is None:
+            mail["subject"] = "(件名なし)"
+
+        # 本文
+        if "content" not in mail or mail["content"] is None:
+            mail["content"] = ""
+
+        # 添付ファイル
+        if "attachments" not in mail:
+            mail["attachments"] = []
+
+        # 未読フラグ
+        if "unread" not in mail:
+            mail["unread"] = 0
+
+        # フラグ状態
+        if "flagged" not in mail:
+            mail["flagged"] = False
+
+        # 日付
+        if "date" not in mail or not mail["date"]:
+            mail["date"] = "不明な日時"
+
         # メールを既読にする
         if mail.get("unread", 0):
             self.viewmodel.mark_as_read(mail_id)
             self.logger.debug("PreviewContent: メールを既読に設定", mail_id=mail_id)
-            # メールリストを更新して既読状態を反映
-            self.load_all_mails()
 
-        # メール内容表示をクリア
-        self.mail_content.controls.clear()
+            # メールリスト内の該当アイテムを更新
+            self.mail_list_component.mark_mail_as_read(mail_id)
 
-        # 送信者情報を解析
-        sender_name = mail["sender"].split("<")[0].strip()
-        sender_email = (
-            mail["sender"].split("<")[1].replace(">", "")
-            if "<" in mail["sender"]
-            else mail["sender"]
-        )
+            # 未読フラグを更新
+            mail["unread"] = 0
 
-        # 受信者情報を解析
-        recipient_name = mail.get("recipient", "").split("<")[0].strip()
-        recipient_email = (
-            mail.get("recipient", "").split("<")[1].replace(">", "")
-            if "<" in mail.get("recipient", "")
-            else mail.get("recipient", "")
-        )
-
-        # 添付ファイルがあれば表示用のリストを作成
-        attachments_section = []
-        if mail.get("attachments"):
-            attachments = mail["attachments"]
-            attachments_list = ft.Container(
-                content=ft.Column(
-                    [
-                        ft.Row(
-                            [
-                                ft.Icon(
-                                    name=ft.icons.ATTACH_FILE,
-                                    size=16,
-                                    color=ft.colors.BLUE,
-                                ),
-                                ft.Text("添付ファイル", weight="bold"),
-                            ],
-                            spacing=5,
-                        ),
-                        ft.Container(
-                            content=ft.Column(
-                                [
-                                    ft.Row(
-                                        [
-                                            self._get_file_icon(attachment["name"]),
-                                            ft.Text(attachment["name"]),
-                                            ft.Text(
-                                                self._get_file_type(attachment["name"]),
-                                                size=12,
-                                                color=ft.colors.GREY,
-                                            ),
-                                        ],
-                                        spacing=10,
-                                    )
-                                    for attachment in attachments
-                                ],
-                                spacing=5,
-                            ),
-                            padding=10,
-                        ),
-                    ],
-                    spacing=5,
-                ),
-                padding=10,
-                border=ft.border.all(1, ft.colors.BLACK12),
-                border_radius=5,
-                margin=ft.margin.only(top=10),
-            )
-            attachments_section = [attachments_list]
+        # MailContentViewerコンポーネントにViewModelを設定
+        self.mail_content_viewer.viewmodel = self.viewmodel
 
         # メール内容を表示
-        self.mail_content.controls.extend(
-            [
-                ft.Container(
-                    content=ft.Column(
-                        [
-                            ft.Row(
-                                [
-                                    ft.Text(
-                                        mail["subject"] or "(件名なし)",
-                                        size=18,
-                                        weight="bold",
-                                        expand=True,
-                                    ),
-                                    ft.IconButton(
-                                        icon=ft.icons.FLAG_OUTLINED,
-                                        tooltip="問題のあるメールとしてフラグを立てる",
-                                        icon_color=ft.colors.GREY,
-                                        on_click=lambda e, mail_id=mail[
-                                            "id"
-                                        ]: self._toggle_flag(e, mail_id),
-                                        data={"flagged": False, "mail_id": mail["id"]},
-                                    ),
-                                ],
-                            ),
-                            ft.Divider(height=1, color=ft.colors.BLACK12),
-                            ft.Row(
-                                [
-                                    ft.Column(
-                                        [
-                                            ft.Row(
-                                                [
-                                                    ft.Text(
-                                                        "送信者:",
-                                                        weight="bold",
-                                                        width=80,
-                                                    ),
-                                                    ft.Text(
-                                                        f"{sender_name} <{sender_email}>"
-                                                    ),
-                                                ],
-                                            ),
-                                            ft.Row(
-                                                [
-                                                    ft.Text(
-                                                        "宛先:", weight="bold", width=80
-                                                    ),
-                                                    ft.Text(
-                                                        f"{recipient_name} <{recipient_email}>"
-                                                    ),
-                                                ],
-                                            ),
-                                            ft.Row(
-                                                [
-                                                    ft.Text(
-                                                        "日時:", weight="bold", width=80
-                                                    ),
-                                                    ft.Text(mail["date"]),
-                                                ],
-                                            ),
-                                        ],
-                                        spacing=5,
-                                    ),
-                                ],
-                            ),
-                        ],
-                        spacing=10,
-                    ),
-                    padding=10,
-                    bgcolor=ft.colors.WHITE,
-                    border_radius=5,
-                    border=ft.border.all(1, ft.colors.BLACK12),
-                ),
-                *attachments_section,
-                ft.Container(
-                    content=ft.Column(
-                        [
-                            ft.Text(
-                                "本文:",
-                                weight="bold",
-                            ),
-                            ft.Container(
-                                content=ft.Text(mail["content"]),
-                                padding=10,
-                                bgcolor=ft.colors.WHITE,
-                                border_radius=5,
-                                border=ft.border.all(1, ft.colors.BLACK12),
-                            ),
-                        ],
-                        spacing=5,
-                    ),
-                    padding=10,
-                    margin=ft.margin.only(top=10),
-                    expand=True,
-                ),
-            ]
-        )
+        self.mail_content_viewer.show_mail_content(mail, mail_id)
 
         # メールリスト内の該当アイテムの背景色を変更して選択状態を示す
-        for item in self.mail_list.controls:
-            if hasattr(item, "on_click") and item.on_click.__closure__:
-                for cell in item.on_click.__closure__:
-                    if hasattr(cell, "cell_contents") and cell.cell_contents == mail_id:
-                        item.bgcolor = ft.colors.BLUE_50
-                    else:
-                        item.bgcolor = ft.colors.WHITE
+        for item in self.mail_list_component.mail_list_view.controls:
+            if hasattr(item, "data") and item.data == mail_id:
+                item.bgcolor = ft.colors.BLUE_50
+            else:
+                item.bgcolor = ft.colors.WHITE
+            item.update()
 
-        self.update()
         self.logger.info("PreviewContent: メール内容表示完了", mail_id=mail_id)
 
     def download_attachment(self, file_id):
@@ -765,36 +395,8 @@ class PreviewContent(ft.Container):
         """エラーメッセージを表示"""
         self.logger.error("PreviewContent: エラーメッセージ表示", message=message)
         # メール内容表示をクリア
-        self.mail_content.controls.clear()
-        self.mail_content.controls.append(
-            ft.Container(
-                content=ft.Column(
-                    [
-                        ft.Icon(
-                            name=ft.icons.ERROR_OUTLINE,
-                            size=40,
-                            color=ft.colors.RED,
-                        ),
-                        ft.Text(
-                            "エラーが発生しました",
-                            color=ft.colors.RED,
-                            text_align=ft.TextAlign.CENTER,
-                            weight="bold",
-                        ),
-                        ft.Text(
-                            message,
-                            color=ft.colors.RED_700,
-                            text_align=ft.TextAlign.CENTER,
-                        ),
-                    ],
-                    alignment=ft.MainAxisAlignment.CENTER,
-                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                    spacing=10,
-                ),
-                alignment=ft.alignment.center,
-                expand=True,
-            )
-        )
+        self.mail_content_viewer._show_empty_content()
+        self.mail_content_viewer.show_error_message(message)
         self.update()
 
     def show_no_data_message(self, message):
@@ -802,8 +404,8 @@ class PreviewContent(ft.Container):
         self.logger.info("PreviewContent: データなしメッセージ表示", message=message)
 
         # メールリストをクリア
-        self.mail_list.controls.clear()
-        self.mail_list.controls.append(
+        self.mail_list_component.mail_list_view.controls.clear()
+        self.mail_list_component.mail_list_view.controls.append(
             ft.Container(
                 content=ft.Column(
                     [
@@ -844,626 +446,6 @@ class PreviewContent(ft.Container):
         if self.viewmodel:
             self.viewmodel.close()
 
-    def load_sample_data(self):
-        """サンプルデータを読み込む"""
-        self.logger.info("PreviewContent: サンプルデータ読み込み開始")
-
-        # ViewModelからサンプルデータを取得
-        if self.viewmodel:
-            sample_mails = self.viewmodel.get_all_mails()
-            self.logger.debug(
-                "PreviewContent: サンプルデータ取得完了", mail_count=len(sample_mails)
-            )
-        else:
-            # ViewModelが初期化されていない場合は初期化
-            self.viewmodel = PreviewContentViewModel()
-            sample_mails = self.viewmodel.get_all_mails()
-            self.logger.debug(
-                "PreviewContent: ViewModelを初期化してサンプルデータ取得",
-                mail_count=len(sample_mails),
-            )
-
-        # メールリストをクリア
-        self.mail_list.controls.clear()
-
-        # サンプルメールを表示
-        for mail in sample_mails:
-            mail_item = self._create_mail_item(mail)
-            self.mail_list.controls.append(mail_item)
-
-        # 初期状態では空のメール内容を表示
-        self._show_empty_mail_content()
-
-        self.update()
-        self.logger.info("PreviewContent: サンプルデータ読み込み完了")
-
-    def on_group_by_conversation_changed(self, e):
-        """会話ごとに集約する設定が変更された時の処理"""
-        self.logger.info("PreviewContent: 会話集約設定変更", value=e.control.value)
-
-        # 状態を更新
-        self.group_by_conversation = e.control.value
-
-        # 会話表示の時系列ソート順（True: 新しい順、False: 古い順）
-        self.conversation_sort_newest_first = e.control.value
-
-        # 会話コンテナを初期化
-        self.conversation_containers = {}
-        self.logger.debug("PreviewContent: 会話コンテナ初期化")
-
-        # メール一覧を再読み込み
-        self.load_all_mails()
-
-        # 明示的に更新
-        self.update()
-
-    def _display_grouped_mails(self, mails):
-        """会話ごとにグループ化されたメールを表示（静的な階層表示）"""
-        self.logger.debug("PreviewContent: 会話ごとにグループ化して表示")
-
-        # メールリストをクリア
-        self.mail_list.controls.clear()
-
-        # 件名でグループ化
-        conversation_groups = {}
-        for mail in mails:
-            # 件名を正規化（Re:や空白を除去）して会話IDとする
-            subject = mail["subject"] or "(件名なし)"
-            normalized_subject = subject.lower().replace("re:", "").strip()
-
-            if normalized_subject not in conversation_groups:
-                conversation_groups[normalized_subject] = []
-
-            conversation_groups[normalized_subject].append(mail)
-
-        # グループごとに表示
-        # リスクレベルでソートする場合の条件分岐を削除
-
-        # 会話グループのソート - 単純に新しい順のみにする
-        sorted_subjects = sorted(
-            conversation_groups.keys(),
-            key=lambda s: max([mail["date"] for mail in conversation_groups[s]]),
-            reverse=True,  # 新しい順
-        )
-
-        # 会話コンテナを初期化
-        self.conversation_containers = {}
-
-        # ソートされた順序でグループを表示
-        for subject in sorted_subjects:
-            group = conversation_groups[subject]
-
-            # グループIDを生成
-            group_id = f"group_{subject}"
-
-            # 会話コンテナに保存
-            self.conversation_containers[group_id] = group
-
-            # 最新のメールを取得（日付でソート）
-            latest_mail = sorted(group, key=lambda x: x["date"], reverse=True)[0]
-
-            # 未読メールがあるかチェック
-            has_unread = any(mail.get("unread", 0) for mail in group)
-
-            # 添付ファイルがあるかチェック
-            has_attachments = any(mail.get("attachments") for mail in group)
-
-            # フラグが立っているかチェック
-            is_flagged = any(mail.get("flagged", False) for mail in group)
-
-            # リスク評価を取得
-            risk_score = self._get_conversation_risk_score(group)
-
-            # 会話グループアイテムを作成
-            conversation_item = ft.Container(
-                content=ft.Column(
-                    [
-                        ft.Row(
-                            [
-                                ft.Container(
-                                    content=ft.Icon(
-                                        name=ft.icons.CIRCLE,
-                                        size=8,
-                                        color=(
-                                            ft.colors.BLUE
-                                            if has_unread
-                                            else ft.colors.TRANSPARENT
-                                        ),
-                                    ),
-                                    width=15,
-                                ),
-                                ft.Container(
-                                    content=ft.Text(
-                                        risk_score["label"],
-                                        color=ft.colors.WHITE,
-                                        text_align=ft.TextAlign.CENTER,
-                                        size=12,
-                                    ),
-                                    bgcolor=risk_score["color"],
-                                    border_radius=15,
-                                    width=30,
-                                    height=20,
-                                    alignment=ft.alignment.center,
-                                    tooltip=risk_score["tooltip"],
-                                ),
-                                ft.Text(
-                                    f"{len(group)}件",
-                                    size=12,
-                                    color=ft.colors.GREY,
-                                    width=40,
-                                ),
-                                ft.Text(
-                                    latest_mail["date"],
-                                    size=12,
-                                    color=ft.colors.GREY,
-                                ),
-                                (
-                                    ft.Icon(
-                                        name=ft.icons.FLAG,
-                                        size=14,
-                                        color=ft.colors.RED,
-                                    )
-                                    if is_flagged
-                                    else ft.Container(width=0)
-                                ),
-                                (
-                                    ft.Icon(
-                                        name=ft.icons.ATTACH_FILE,
-                                        size=14,
-                                        color=ft.colors.GREY,
-                                    )
-                                    if has_attachments
-                                    else ft.Container(width=0)
-                                ),
-                            ],
-                        ),
-                        ft.Text(
-                            subject or "(件名なし)",
-                            weight="bold" if has_unread else "normal",
-                            overflow=ft.TextOverflow.ELLIPSIS,
-                        ),
-                        ft.Text(
-                            f"参加者: {latest_mail['sender'].split('<')[0].strip()} 他",
-                            size=12,
-                            color=ft.colors.GREY,
-                            max_lines=1,
-                            overflow=ft.TextOverflow.ELLIPSIS,
-                        ),
-                    ],
-                    spacing=2,
-                ),
-                padding=ft.padding.all(8),
-                border_radius=5,
-                on_click=lambda e, gid=group_id: self._on_conversation_click(e, gid),
-                data=group_id,
-                ink=True,
-                bgcolor=ft.colors.WHITE,
-                border=ft.border.all(1, ft.colors.BLACK12),
-                margin=ft.margin.only(bottom=5),
-            )
-
-            # メールリストに追加
-            self.mail_list.controls.append(conversation_item)
-
-    def _get_conversation_risk_score(self, mails):
-        """会話のAIリスク評価を取得"""
-        if self.viewmodel:
-            return self.viewmodel.get_conversation_risk_score(mails)
-
-        # ViewModelが初期化されていない場合のフォールバック処理
-        # ... 既存のコード ...
-
-    def _on_conversation_click(self, e, group_id):
-        """会話グループがクリックされたときの処理"""
-        self.logger.info(
-            "PreviewContent: 会話グループクリック",
-            group_id=group_id,
-            control_type=type(e.control).__name__,
-        )
-
-        # グループIDに対応するメールリストを取得
-        if group_id in self.conversation_containers:
-            mails = self.conversation_containers[group_id]
-            self.logger.debug(
-                "PreviewContent: 会話メール取得成功", mail_count=len(mails)
-            )
-            self._show_conversation(mails)
-        else:
-            self.logger.error(
-                "PreviewContent: 会話グループが見つかりません", group_id=group_id
-            )
-
-    def _get_file_icon(self, filename):
-        """ファイル名から適切なアイコンを返す"""
-        extension = filename.split(".")[-1].lower() if "." in filename else ""
-
-        if extension in ["pdf"]:
-            return ft.Icon(name=ft.icons.PICTURE_AS_PDF, size=24, color=ft.colors.RED)
-        elif extension in ["doc", "docx"]:
-            return ft.Icon(name=ft.icons.ARTICLE, size=24, color=ft.colors.BLUE)
-        elif extension in ["xls", "xlsx"]:
-            return ft.Icon(name=ft.icons.TABLE_CHART, size=24, color=ft.colors.GREEN)
-        elif extension in ["ppt", "pptx"]:
-            return ft.Icon(name=ft.icons.SLIDESHOW, size=24, color=ft.colors.ORANGE)
-        elif extension in ["jpg", "jpeg", "png", "gif"]:
-            return ft.Icon(name=ft.icons.IMAGE, size=24, color=ft.colors.PURPLE)
-        elif extension in ["zip", "rar", "7z"]:
-            return ft.Icon(name=ft.icons.FOLDER_ZIP, size=24, color=ft.colors.BROWN)
-        else:
-            return ft.Icon(
-                name=ft.icons.INSERT_DRIVE_FILE, size=24, color=ft.colors.GREY
-            )
-
-    def _get_file_type(self, filename):
-        """ファイル名から種類の説明を返す"""
-        extension = filename.split(".")[-1].lower() if "." in filename else ""
-
-        if extension in ["pdf"]:
-            return "PDF文書"
-        elif extension in ["doc", "docx"]:
-            return "Word文書"
-        elif extension in ["xls", "xlsx"]:
-            return "Excel表計算"
-        elif extension in ["ppt", "pptx"]:
-            return "PowerPointプレゼンテーション"
-        elif extension in ["jpg", "jpeg", "png", "gif"]:
-            return "画像ファイル"
-        elif extension in ["zip", "rar", "7z"]:
-            return "圧縮ファイル"
-        else:
-            return f"{extension.upper()}ファイル" if extension else "ファイル"
-
-    def _show_conversation(self, mails):
-        """会話グループのメール内容を表示"""
-        self.logger.info("PreviewContent: 会話内容表示開始", mail_count=len(mails))
-
-        # メール内容表示をクリア
-        self.mail_content.controls.clear()
-
-        if not mails:
-            self.logger.error("PreviewContent: 会話内容が空です")
-            return
-
-        # 時系列でソート（新しい順/古い順）
-        sorted_mails = sorted(
-            mails, key=lambda x: x["date"], reverse=self.conversation_sort_newest_first
-        )
-
-        # 最新のメールを取得（ソート前のリストから）
-        latest_mail = mails[0]
-
-        # 送信者情報を解析
-        sender_name = latest_mail["sender"].split("<")[0].strip()
-        sender_email = (
-            latest_mail["sender"].split("<")[1].replace(">", "")
-            if "<" in latest_mail["sender"]
-            else latest_mail["sender"]
-        )
-
-        # 受信者情報を解析
-        recipient_name = latest_mail.get("recipient", "").split("<")[0].strip()
-        recipient_email = (
-            latest_mail.get("recipient", "").split("<")[1].replace(">", "")
-            if "<" in latest_mail.get("recipient", "")
-            else latest_mail.get("recipient", "")
-        )
-
-        # 添付ファイルがあれば表示用のリストを作成
-        attachments_section = []
-        if latest_mail.get("attachments"):
-            attachments = latest_mail["attachments"]
-            attachments_list = ft.Container(
-                content=ft.Column(
-                    [
-                        ft.Row(
-                            [
-                                ft.Icon(
-                                    name=ft.icons.ATTACH_FILE,
-                                    size=16,
-                                    color=ft.colors.BLUE,
-                                ),
-                                ft.Text("添付ファイル", weight="bold"),
-                            ],
-                            spacing=5,
-                        ),
-                        ft.Container(
-                            content=ft.Column(
-                                [
-                                    ft.Row(
-                                        [
-                                            self._get_file_icon(attachment["name"]),
-                                            ft.Text(attachment["name"]),
-                                            ft.Text(
-                                                self._get_file_type(attachment["name"]),
-                                                size=12,
-                                                color=ft.colors.GREY,
-                                            ),
-                                        ],
-                                        spacing=10,
-                                    )
-                                    for attachment in attachments
-                                ],
-                                spacing=5,
-                            ),
-                            padding=10,
-                        ),
-                    ],
-                    spacing=5,
-                ),
-                padding=10,
-                border=ft.border.all(1, ft.colors.BLACK12),
-                border_radius=5,
-                margin=ft.margin.only(top=10),
-            )
-            attachments_section = [attachments_list]
-
-        # AIリスク評価を取得
-        risk_score = self._get_conversation_risk_score(mails)
-
-        # AIレビューセクション（会話集約モード専用）
-        ai_review_section = ft.Container(
-            content=ft.Column(
-                [
-                    ft.Row(
-                        [
-                            ft.Icon(
-                                name=ft.icons.PSYCHOLOGY_ALT,
-                                size=16,
-                                color=ft.colors.BLUE,
-                            ),
-                            ft.Text("AIレビュー", weight="bold"),
-                            ft.IconButton(
-                                icon=ft.icons.REFRESH,
-                                tooltip="AIに再評価させる",
-                                icon_size=16,
-                                on_click=self._on_ai_review_refresh,
-                            ),
-                        ],
-                        spacing=5,
-                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                    ),
-                    ft.Container(
-                        content=ft.Column(
-                            [
-                                ft.Row(
-                                    [
-                                        ft.Text("リスクスコア:", weight="bold"),
-                                        ft.Container(
-                                            content=ft.Text(
-                                                risk_score["label"],
-                                                color=ft.colors.WHITE,
-                                                text_align=ft.TextAlign.CENTER,
-                                            ),
-                                            bgcolor=risk_score["color"],
-                                            border_radius=5,
-                                            padding=5,
-                                            width=50,
-                                            alignment=ft.alignment.center,
-                                        ),
-                                    ],
-                                    spacing=10,
-                                ),
-                                ft.Text(
-                                    risk_score["tooltip"],
-                                    size=14,
-                                ),
-                                ft.Row(
-                                    [
-                                        ft.Text("キーポイント:", weight="bold"),
-                                    ],
-                                ),
-                                ft.Column(
-                                    [
-                                        # リスク要因がある場合は表示
-                                        *(
-                                            [
-                                                ft.Text(
-                                                    f"• {factor}",
-                                                    size=14,
-                                                    color=(
-                                                        ft.colors.RED
-                                                        if risk_score["label"] == "高"
-                                                        else None
-                                                    ),
-                                                    weight=(
-                                                        "bold"
-                                                        if risk_score["label"] == "高"
-                                                        else None
-                                                    ),
-                                                )
-                                                for factor in risk_score.get(
-                                                    "factors", []
-                                                )
-                                            ]
-                                            if risk_score.get("factors")
-                                            else [
-                                                ft.Text(
-                                                    "• 特に注意すべき点はありません",
-                                                    size=14,
-                                                    color=ft.colors.GREY,
-                                                )
-                                            ]
-                                        ),
-                                    ],
-                                    spacing=2,
-                                ),
-                            ],
-                            spacing=10,
-                        ),
-                        padding=10,
-                    ),
-                ],
-                spacing=5,
-            ),
-            padding=10,
-            border=ft.border.all(1, ft.colors.BLACK12),
-            border_radius=5,
-            margin=ft.margin.only(top=10),
-        )
-
-        # 会話の概要セクション
-        conversation_summary = ft.Container(
-            content=ft.Column(
-                [
-                    ft.Row(
-                        [
-                            ft.Text(
-                                latest_mail["subject"] or "(件名なし)",
-                                size=18,
-                                weight="bold",
-                                expand=True,
-                            ),
-                            ft.IconButton(
-                                icon=ft.icons.FLAG_OUTLINED,
-                                tooltip="問題のある会話としてフラグを立てる",
-                                icon_color=ft.colors.GREY,
-                                on_click=lambda e, group_id=f"group_{latest_mail['subject']}": self._toggle_conversation_flag(
-                                    e, group_id
-                                ),
-                                data={
-                                    "flagged": False,
-                                    "group_id": f"group_{latest_mail['subject']}",
-                                },
-                            ),
-                        ],
-                    ),
-                    ft.Divider(height=1, color=ft.colors.BLACK12),
-                    ft.Row(
-                        [
-                            ft.Column(
-                                [
-                                    ft.Row(
-                                        [
-                                            ft.Text(
-                                                "会話数:",
-                                                weight="bold",
-                                                width=80,
-                                            ),
-                                            ft.Text(f"{len(mails)}件のメール"),
-                                        ],
-                                    ),
-                                    ft.Row(
-                                        [
-                                            ft.Text(
-                                                "期間:",
-                                                weight="bold",
-                                                width=80,
-                                            ),
-                                            ft.Text(
-                                                f"{mails[-1]['date']} - {mails[0]['date']}"
-                                            ),
-                                        ],
-                                    ),
-                                    ft.Row(
-                                        [
-                                            ft.Text(
-                                                "参加者:",
-                                                weight="bold",
-                                                width=80,
-                                            ),
-                                            ft.Text(f"{sender_name}、{recipient_name}"),
-                                        ],
-                                    ),
-                                ],
-                                spacing=5,
-                            ),
-                        ],
-                    ),
-                ],
-                spacing=10,
-            ),
-            padding=10,
-            bgcolor=ft.colors.WHITE,
-            border_radius=5,
-            border=ft.border.all(1, ft.colors.BLACK12),
-        )
-
-        # 時系列ソート順切り替えボタン
-        sort_order_toggle = ft.Container(
-            content=ft.Row(
-                [
-                    ft.Text("表示順:", size=14),
-                    ft.TextButton(
-                        text=(
-                            "新しい順"
-                            if self.conversation_sort_newest_first
-                            else "古い順"
-                        ),
-                        icon=(
-                            ft.icons.ARROW_DOWNWARD
-                            if self.conversation_sort_newest_first
-                            else ft.icons.ARROW_UPWARD
-                        ),
-                        on_click=self._toggle_conversation_sort_order,
-                    ),
-                ],
-                alignment=ft.MainAxisAlignment.END,
-            ),
-            margin=ft.margin.only(top=10, bottom=5),
-        )
-
-        # 会話内のすべてのメールを表示
-        conversation_label = ft.Container(
-            content=ft.Text(
-                "会話内容:",
-                weight="bold",
-            ),
-            padding=10,
-        )
-
-        # サンプルボタン
-        sample_button = ft.Container(
-            content=ft.TextButton(
-                text="サンプルボタン",
-                icon=ft.icons.ADD_CIRCLE_OUTLINE,
-                icon_color=ft.colors.BLUE,
-                style=ft.ButtonStyle(
-                    color=ft.colors.BLUE,
-                    bgcolor=ft.colors.WHITE,
-                    padding=ft.padding.symmetric(horizontal=20, vertical=10),
-                    shape=ft.RoundedRectangleBorder(radius=20),
-                    elevation=0,
-                    overlay_color=ft.colors.BLUE_50,
-                ),
-                on_click=lambda e: self.logger.info(
-                    "PreviewContent: サンプルボタンがクリックされました"
-                ),
-            ),
-            padding=ft.padding.only(left=10, bottom=10),
-            alignment=ft.alignment.center_left,
-        )
-
-        conversation_mails = ft.Container(
-            content=ft.Column(
-                [
-                    self._create_mail_content_item(mail, index)
-                    for index, mail in enumerate(sorted_mails)
-                ],
-                spacing=15,
-            ),
-            padding=10,
-            bgcolor=ft.colors.WHITE,
-            border_radius=5,
-            border=ft.border.all(1, ft.colors.BLACK12),
-            expand=True,
-        )
-
-        # メール内容を表示
-        self.mail_content.controls.extend(
-            [
-                conversation_summary,
-                ai_review_section,
-                *attachments_section,
-                sort_order_toggle,
-                conversation_label,
-                sample_button,
-                conversation_mails,
-            ]
-        )
-
-        self.update()
-        self.logger.info("PreviewContent: 会話内容表示完了")
-
     def _create_mail_content_item(self, mail, index):
         """会話内の個別メールアイテムを作成"""
         # 送信者情報を解析
@@ -1495,34 +477,58 @@ class PreviewContent(ft.Container):
             else ft.Container(width=0)
         )
 
-        # メール本文を処理
+        # メール本文
         content = mail["content"]
         content_lines = content.split("\n")
+        is_truncated = len(content_lines) > 5
 
-        # 最初は5行まで表示
-        preview_line_count = 5
-        is_truncated = len(content_lines) > preview_line_count
-
-        # メール本文のプレビュー
-        preview_text = ft.Text(
-            "\n".join(content_lines[:preview_line_count])
-            + ("..." if is_truncated else "")
+        # メール本文を表示するコンテナ
+        content_container = ft.Container(
+            content=ft.Text(
+                "\n".join(content_lines[:5]) + ("..." if is_truncated else "")
+            ),
+            padding=10,
+            border_radius=5,
+            bgcolor=ft.colors.WHITE,
+            border=ft.border.all(1, ft.colors.BLACK12),
+            # データに表示状態を保存
+            data={
+                "expanded": False,
+                "full_text": content,
+                "preview_text": "\n".join(content_lines[:5])
+                + ("..." if is_truncated else ""),
+            },
         )
-
-        # 全文
-        full_text = ft.Text(content, visible=False)
 
         # 続きを見るボタン
-        expand_button = ft.TextButton(
-            text="続きを見る",
-            icon=ft.icons.EXPAND_MORE,
-            on_click=lambda e, t1=preview_text, t2=full_text, b=None: self._toggle_mail_content(
-                e, t1, t2, b
+        expand_button = ft.Container(
+            content=ft.Row(
+                [
+                    ft.Text(
+                        "続きを見る",
+                        color=ft.colors.BLUE,
+                        size=12,
+                    ),
+                    ft.Icon(
+                        name=ft.icons.EXPAND_MORE,
+                        color=ft.colors.BLUE,
+                        size=16,
+                    ),
+                ],
+                alignment=ft.MainAxisAlignment.CENTER,
+                spacing=5,
             ),
+            padding=5,
+            border_radius=15,
+            alignment=ft.alignment.center,
+            on_click=lambda e, container=content_container: self._toggle_mail_content_container(
+                e, container
+            ),
+            on_hover=self._on_expand_button_hover,
             visible=is_truncated,
+            height=30,
+            bgcolor=ft.colors.with_opacity(0.05, ft.colors.BLUE),
         )
-        # ボタン自身への参照を設定
-        expand_button.data = expand_button
 
         return ft.Container(
             content=ft.Column(
@@ -1557,37 +563,16 @@ class PreviewContent(ft.Container):
                                 weight="bold",
                                 expand=True,
                             ),
-                            ft.IconButton(
-                                icon=ft.icons.FLAG_OUTLINED,
-                                tooltip="問題のあるメールとしてフラグを立てる",
-                                icon_color=ft.colors.GREY,
-                                icon_size=16,
-                                on_click=lambda e, mail_id=mail[
-                                    "id"
-                                ]: self._toggle_flag(e, mail_id),
-                                data={"flagged": False, "mail_id": mail["id"]},
+                            # 新しいフラグボタンを使用
+                            self.create_flag_button(
+                                mail["id"], mail.get("flagged", False)
                             ),
                             attachments_icon,
                         ],
                         spacing=5,
                     ),
-                    ft.Container(
-                        content=ft.Column(
-                            [
-                                preview_text,
-                                full_text,
-                                ft.Container(
-                                    content=expand_button,
-                                    alignment=ft.alignment.center,
-                                ),
-                            ],
-                            spacing=5,
-                        ),
-                        padding=10,
-                        bgcolor=ft.colors.WHITE,
-                        border_radius=5,
-                        border=ft.border.all(1, ft.colors.BLACK12),
-                    ),
+                    content_container,
+                    expand_button,
                 ],
                 spacing=5,
             ),
@@ -1597,31 +582,49 @@ class PreviewContent(ft.Container):
             border=ft.border.all(1, ft.colors.BLACK12),
         )
 
-    def _toggle_mail_content(self, e, preview_text, full_text, button):
+    def _on_expand_button_hover(self, e):
+        """展開ボタンのホバー効果"""
+        # マウスが入ったとき
+        if e.data == "true":
+            e.control.bgcolor = ft.colors.with_opacity(0.1, ft.colors.BLUE)
+        # マウスが出たとき
+        else:
+            e.control.bgcolor = ft.colors.with_opacity(0.05, ft.colors.BLUE)
+        e.control.update()
+
+    def _toggle_mail_content_container(self, e, content_container):
         """メール内容の全文表示/折りたたみを切り替える"""
         self.logger.info("PreviewContent: メール内容表示切り替え")
 
-        # ボタンを取得
-        button = e.control
-
         # 現在の表示状態を確認
-        is_expanded = full_text.visible
+        container_data = content_container.data
+        is_expanded = container_data.get("expanded", False)
+
+        # ボタンを取得 (コンテナからアイコンを取得)
+        button = e.control
+        button_icon = button.content.controls[1]
+        button_text = button.content.controls[0]
 
         if is_expanded:
             # 折りたたむ
-            preview_text.visible = True
-            full_text.visible = False
-            button.text = "続きを見る"
-            button.icon = ft.icons.EXPAND_MORE
+            content_container.content = ft.Text(container_data["preview_text"])
+            content_container.data["expanded"] = False
+            button_text.value = "続きを見る"
+            button_icon.name = ft.icons.EXPAND_MORE
         else:
             # 展開する
-            preview_text.visible = False
-            full_text.visible = True
-            button.text = "折りたたむ"
-            button.icon = ft.icons.EXPAND_LESS
+            content_container.content = ft.Text(container_data["full_text"])
+            content_container.data["expanded"] = True
+            button_text.value = "折りたたむ"
+            button_icon.name = ft.icons.EXPAND_LESS
+
+        # 高さを自動調整
+        content_container.height = None
 
         # 更新
-        self.update()
+        content_container.update()
+        button.update()
+
         self.logger.info(
             "PreviewContent: メール内容表示切り替え完了", expanded=not is_expanded
         )
@@ -1638,10 +641,20 @@ class PreviewContent(ft.Container):
         # ソート順を反転
         self.conversation_sort_newest_first = not self.conversation_sort_newest_first
 
+        # ボタンのテキストとアイコンを更新
+        button = e.control
+        button.text = "新しい順" if self.conversation_sort_newest_first else "古い順"
+        button.icon = (
+            ft.icons.ARROW_DOWNWARD
+            if self.conversation_sort_newest_first
+            else ft.icons.ARROW_UPWARD
+        )
+        button.update()
+
         # 現在表示中の会話グループを再表示
         for group_id, mails in self.conversation_containers.items():
             # 現在選択されているグループを特定
-            for item in self.mail_list.controls:
+            for item in self.mail_list_component.mail_list_view.controls:
                 if (
                     hasattr(item, "data")
                     and item.data == group_id
@@ -1661,7 +674,6 @@ class PreviewContent(ft.Container):
 
         # 再評価中の表示
         ai_review_section = e.control.parent.parent.parent
-        original_content = ai_review_section.content
 
         # 読み込み中表示に切り替え
         ai_review_section.content = ft.Column(
@@ -1714,11 +726,19 @@ class PreviewContent(ft.Container):
                                 color=ft.colors.BLUE,
                             ),
                             ft.Text("AIレビュー (更新済み)", weight="bold"),
-                            ft.IconButton(
-                                icon=ft.icons.REFRESH,
+                            ft.Container(
+                                content=ft.Icon(
+                                    name=ft.icons.REFRESH,
+                                    size=16,
+                                    color=ft.colors.BLUE,
+                                ),
                                 tooltip="AIに再評価させる",
-                                icon_size=16,
+                                width=32,
+                                height=32,
+                                border_radius=16,
+                                on_hover=self._on_refresh_button_hover,
                                 on_click=self._on_ai_review_refresh,
+                                alignment=ft.alignment.center,
                             ),
                         ],
                         spacing=5,
@@ -1741,6 +761,7 @@ class PreviewContent(ft.Container):
                                             padding=5,
                                             width=50,
                                             alignment=ft.alignment.center,
+                                            opacity=1.0,
                                         ),
                                     ],
                                     spacing=10,
@@ -1756,18 +777,16 @@ class PreviewContent(ft.Container):
                                 ),
                                 ft.Column(
                                     [
-                                        ft.Text(
-                                            "• 重要な期限が近づいています",
-                                            size=14,
+                                        self._create_animated_point(
+                                            "重要な期限が近づいています", 100
                                         ),
-                                        ft.Text(
-                                            "• 複数の関係者への連絡が必要です",
-                                            size=14,
+                                        self._create_animated_point(
+                                            "複数の関係者への連絡が必要です", 300
                                         ),
-                                        ft.Text(
-                                            "• 添付ファイルに重要な情報が含まれています",
-                                            size=14,
-                                            weight="bold",
+                                        self._create_animated_point(
+                                            "添付ファイルに重要な情報が含まれています",
+                                            500,
+                                            is_important=True,
                                         ),
                                     ],
                                     spacing=2,
@@ -1785,98 +804,619 @@ class PreviewContent(ft.Container):
         # 非同期処理を開始
         asyncio.create_task(simulate_ai_review())
 
-    def _toggle_flag(self, e, mail_id):
+    def _create_animated_point(self, text, delay_ms, is_important=False):
+        """アニメーション付きのポイントを作成"""
+        return ft.Container(
+            content=ft.Text(
+                f"• {text}",
+                size=14,
+                color=ft.colors.RED if is_important else None,
+                weight="bold" if is_important else None,
+            ),
+            opacity=1.0,
+            data={"delay": delay_ms, "text": text},
+        )
+
+    def _on_refresh_button_hover(self, e):
+        """更新ボタンのホバー効果"""
+        # マウスが入ったとき
+        if e.data == "true":
+            e.control.bgcolor = ft.colors.with_opacity(0.1, ft.colors.BLUE)
+        # マウスが出たとき
+        else:
+            e.control.bgcolor = None
+        e.control.update()
+
+    def _toggle_flag(self, mail_id, is_flagged):
         """メールのフラグ状態を切り替える"""
         self.logger.info("PreviewContent: メールフラグ切り替え", mail_id=mail_id)
-
-        # ボタンの状態を取得
-        button = e.control
-        is_flagged = button.data.get("flagged", False)
-
-        # フラグ状態を切り替え
-        is_flagged = not is_flagged
-        button.data["flagged"] = is_flagged
-
-        # アイコンと色を更新
-        if is_flagged:
-            button.icon = ft.icons.FLAG
-            button.icon_color = ft.colors.RED
-            button.tooltip = "フラグを解除する"
-        else:
-            button.icon = ft.icons.FLAG_OUTLINED
-            button.icon_color = ft.colors.GREY
-            button.tooltip = "問題のあるメールとしてフラグを立てる"
 
         # フラグ状態をViewModelに保存
         if self.viewmodel:
             self.viewmodel.set_mail_flag(mail_id, is_flagged)
-            # メールリストを更新
-            self.load_all_mails()
 
-        self.update()
+            # メールリスト全体を更新する代わりに、現在のメールリストアイテムのみを更新
+            for item in self.mail_list_component.mail_list_view.controls:
+                if hasattr(item, "data") and item.data == mail_id:
+                    # このメールアイテムにフラグ表示があれば更新
+                    for row in item.content.controls:
+                        if (
+                            isinstance(row, ft.Row) and len(row.controls) > 3
+                        ):  # フラグアイコンがある行
+                            for control in row.controls:
+                                # フラグアイコンを探す
+                                if (
+                                    hasattr(control, "content")
+                                    and isinstance(control.content, ft.Icon)
+                                    and control.content.name
+                                    in [ft.icons.FLAG, ft.icons.FLAG_OUTLINED]
+                                ):
+                                    # フラグを更新
+                                    control.content.name = (
+                                        ft.icons.FLAG
+                                        if is_flagged
+                                        else ft.icons.FLAG_OUTLINED
+                                    )
+                                    control.content.color = (
+                                        ft.colors.RED if is_flagged else ft.colors.GREY
+                                    )
+                                    control.visible = True
+                                    control.width = 20
+                    item.update()
+                    break
+
         self.logger.info(
             "PreviewContent: メールフラグ切り替え完了",
             mail_id=mail_id,
             flagged=is_flagged,
         )
 
-    def _toggle_conversation_flag(self, e, group_id):
-        """会話グループのフラグ状態を切り替える"""
-        self.logger.info("PreviewContent: 会話フラグ切り替え", group_id=group_id)
+    def on_group_by_conversation_changed(self, e):
+        """会話ごとに集約するフラグを切り替える"""
+        self.logger.info(
+            "PreviewContent: 会話ごとに集約フラグ切り替え開始",
+            value=e.control.value if hasattr(e, "control") else e,
+            current_group_by_conversation=self.group_by_conversation,
+        )
 
-        # ボタンの状態を取得
-        button = e.control
-        is_flagged = button.data.get("flagged", False)
-
-        # フラグ状態を切り替え
-        is_flagged = not is_flagged
-        button.data["flagged"] = is_flagged
-
-        # アイコンと色を更新
-        if is_flagged:
-            button.icon = ft.icons.FLAG
-            button.icon_color = ft.colors.RED
-            button.tooltip = "フラグを解除する"
+        # フラグを切り替え
+        if hasattr(e, "control"):
+            # イベントオブジェクトの場合
+            self.group_by_conversation = e.control.value
+            self.logger.debug("PreviewContent: イベントオブジェクトから値を取得")
         else:
-            button.icon = ft.icons.FLAG_OUTLINED
-            button.icon_color = ft.colors.GREY
-            button.tooltip = "問題のある会話としてフラグを立てる"
+            # 直接値が渡された場合
+            self.group_by_conversation = e
+            self.logger.debug("PreviewContent: 直接値が渡された")
 
-        # サンプルデータを使用する場合
-        if self.use_sample_data:
-            # 会話グループ内のすべてのメールのフラグ状態を更新
-            if group_id in self.conversation_containers:
-                mails = self.conversation_containers[group_id]
-                for mail in mails:
-                    mail["flagged"] = is_flagged
+        self.logger.debug(
+            "PreviewContent: group_by_conversationフラグを更新",
+            new_value=self.group_by_conversation,
+        )
 
-                # サンプルメールデータを更新
-                sample_mails = [
-                    # ... existing sample mails ...
-                ]
+        # メール一覧コンポーネントのフラグも更新
+        self.mail_list_component.group_by_conversation = self.group_by_conversation
+        self.logger.debug(
+            "PreviewContent: mail_list_componentのフラグを更新",
+            component_value=self.mail_list_component.group_by_conversation,
+        )
 
-                # 該当する会話のすべてのメールのフラグ状態を更新
-                for mail in sample_mails:
-                    if mail["subject"].lower().replace(
-                        "re:", ""
-                    ).strip() == group_id.replace("group_", ""):
-                        mail["flagged"] = is_flagged
+        # メール一覧を再読み込み
+        self.logger.debug("PreviewContent: load_all_mailsを呼び出し")
+        self.load_all_mails()
 
-                # メールリストを更新して新しいフラグ状態を反映
-                self.mail_list.controls.clear()
-                self._display_grouped_mails(sample_mails)
-        else:
-            # 実際のアプリケーションでは、ここでデータベースにフラグ状態を保存する処理を追加
-            if self.viewmodel and group_id in self.conversation_containers:
-                mails = self.conversation_containers[group_id]
-                for mail in mails:
-                    self.viewmodel.set_mail_flag(mail["id"], is_flagged)
-                # メールリストを更新
-                self.load_all_mails()
+        self.logger.info(
+            "PreviewContent: 会話ごとに集約フラグ切り替え完了",
+            group_by_conversation=self.group_by_conversation,
+        )
+
+    def _display_grouped_mails(self, mails):
+        """会話ごとにグループ化されたメールを表示"""
+        self.logger.info("PreviewContent: 会話ごとにグループ化されたメール表示開始")
+
+        # 会話コンテナを初期化
+        self.conversation_containers = {}
+
+        # 現在のコンテナの状態をログ出力
+        self.logger.debug(
+            "PreviewContent: 会話コンテナを初期化しました",
+            previous_count=len(self.conversation_containers),
+        )
+
+        # conversation_idでグループ化
+        conversations = {}
+        for mail in mails:
+            # conversation_idがない場合は単独のメールとして扱う
+            if not mail.get("conversation_id"):
+                # メールIDをキーとして使用
+                conversation_key = f"single_{mail['id']}"
+                if conversation_key not in conversations:
+                    conversations[conversation_key] = []
+                conversations[conversation_key].append(mail)
+                continue
+
+            # conversation_id全体をそのまま使用
+            conversation_id = mail["conversation_id"]
+
+            if conversation_id not in conversations:
+                conversations[conversation_id] = []
+            conversations[conversation_id].append(mail)
+
+        # グループ化されたメールのログ
+        self.logger.debug(
+            "PreviewContent: 会話グループ化結果",
+            conversation_count=len(conversations),
+            conversation_keys=list(conversations.keys())[:5] if conversations else [],
+        )
+
+        # グループごとにリストに追加
+        for conversation_key, mails_in_conversation in conversations.items():
+            # 会話内のメールを日付順にソート
+            sorted_mails = sorted(
+                mails_in_conversation,
+                key=lambda x: x["date"],
+                reverse=self.conversation_sort_newest_first,
+            )
+
+            # 会話グループ用の識別子を作成（conv_プレフィックスを付与）
+            # プレフィックスが既にある場合は追加しない
+            if conversation_key.startswith("conv_"):
+                conversation_id = conversation_key
+            else:
+                conversation_id = f"conv_{conversation_key}"
+
+            self.logger.debug(
+                "PreviewContent: 会話グループ作成",
+                original_key=conversation_key,
+                conversation_id=conversation_id,
+                mail_count=len(sorted_mails),
+                first_mail_id=(
+                    sorted_mails[0].get("id", "不明") if sorted_mails else "なし"
+                ),
+            )
+
+            # キャッシュに保存
+            self.conversation_containers[conversation_id] = sorted_mails
+
+            # メールリストが空でないことを確認
+            if not sorted_mails:
+                self.logger.warning(
+                    "PreviewContent: 会話グループのメールリストが空です",
+                    conversation_id=conversation_id,
+                )
+                continue
+
+            # 会話の代表的な件名を取得（最新のメールの件名を使用）
+            subject = sorted_mails[0].get("subject") or "(件名なし)"
+
+            # 件名が文字列でない場合は修正
+            if not isinstance(subject, str):
+                subject = "(件名なし)"
+                self.logger.warning(
+                    "PreviewContent: 会話の件名が文字列ではありません",
+                    conversation_id=conversation_id,
+                    subject_type=type(subject).__name__,
+                )
+
+            # グループのヘッダーアイテムを作成
+            unread_count = sum(1 for mail in sorted_mails if mail.get("unread", 0))
+            attachment_count = sum(
+                1 for mail in sorted_mails if mail.get("attachments", [])
+            )
+
+            # AIレビュースコアを取得
+            ai_score = 0
+            risk_color = ft.colors.GREEN  # デフォルトは緑（安全）
+
+            # メールからAIレビュー情報を取得
+            for mail in sorted_mails:
+                if mail.get("ai_review"):
+                    ai_review = mail.get("ai_review", {})
+                    if isinstance(ai_review, dict):
+                        # スコア情報を取得（0～10の範囲）
+                        score = ai_review.get("score", 0)
+                        if isinstance(score, int) or isinstance(score, float):
+                            ai_score = score
+                            # スコアに応じた色分け
+                            if ai_score >= 4:
+                                risk_color = ft.colors.RED
+                            elif ai_score >= 1:
+                                risk_color = ft.colors.YELLOW
+                            else:
+                                risk_color = ft.colors.GREEN
+                            break  # AIレビュー情報が見つかったらループを抜ける
+
+            try:
+                conversation_header = ft.Container(
+                    content=ft.Column(
+                        [
+                            ft.Row(
+                                [
+                                    ft.Container(
+                                        content=ft.Text(
+                                            f"{ai_score}",  # メール数の代わりにAIスコアを表示
+                                            color=ft.colors.WHITE,
+                                            text_align=ft.TextAlign.CENTER,
+                                            size=12,
+                                        ),
+                                        bgcolor=risk_color,  # AIスコアに基づく色設定
+                                        border_radius=15,
+                                        width=25,
+                                        height=20,
+                                        alignment=ft.alignment.center,
+                                        tooltip=f"AIリスクスコア: {ai_score}",
+                                    ),
+                                    ft.Text(
+                                        subject,
+                                        weight="bold" if unread_count else "normal",
+                                        expand=True,
+                                        overflow=ft.TextOverflow.ELLIPSIS,
+                                    ),
+                                    (
+                                        ft.Text(
+                                            f"{unread_count}件の未読",
+                                            size=12,
+                                            color=ft.colors.BLUE,
+                                        )
+                                        if unread_count
+                                        else ft.Container(width=0)
+                                    ),
+                                    (
+                                        ft.Icon(
+                                            name=ft.icons.ATTACH_FILE,
+                                            size=14,
+                                            color=ft.colors.GREY,
+                                        )
+                                        if attachment_count
+                                        else ft.Container(width=0)
+                                    ),
+                                ],
+                                spacing=5,
+                            ),
+                            ft.Row(
+                                [
+                                    ft.Text(
+                                        f"最新: {sorted_mails[0].get('date', '不明な日時')}",
+                                        size=12,
+                                        color=ft.colors.GREY,
+                                        expand=True,
+                                    ),
+                                    ft.Text(
+                                        f"メール数: {len(sorted_mails)}",
+                                        size=12,
+                                        color=ft.colors.GREY,
+                                    ),
+                                ],
+                                spacing=5,
+                            ),
+                        ],
+                        spacing=2,
+                    ),
+                    padding=10,
+                    border_radius=5,
+                    on_click=lambda e, cid=conversation_id: self._show_conversation(
+                        self.conversation_containers[cid], cid
+                    ),
+                    data=conversation_id,
+                    ink=True,
+                    bgcolor=ft.colors.WHITE,
+                    border=ft.border.all(1, ft.colors.BLACK12),
+                    margin=ft.margin.only(bottom=5),
+                )
+
+                self.mail_list_component.mail_list_view.controls.append(
+                    conversation_header
+                )
+            except Exception as e:
+                self.logger.error(
+                    "PreviewContent: 会話ヘッダー作成中にエラーが発生",
+                    error=str(e),
+                    conversation_id=conversation_id,
+                )
+
+        # 会話コンテナの内容をログ出力
+        self.logger.debug(
+            "PreviewContent: 会話コンテナ作成完了",
+            container_count=len(self.conversation_containers),
+            container_keys=(
+                list(self.conversation_containers.keys())[:5]
+                if self.conversation_containers
+                else []
+            ),
+        )
+
+        self.logger.info(
+            "PreviewContent: 会話ごとにグループ化されたメール表示完了",
+            conversation_count=len(conversations),
+        )
+
+    def _show_conversation(self, mails=None, conversation_id=None):
+        """会話内容を表示"""
+        self.logger.info(
+            "PreviewContent: 会話内容表示",
+            mail_count=len(mails) if isinstance(mails, list) else 0,
+            conversation_id=conversation_id,
+        )
+
+        # 詳細なデバッグ情報
+        self.logger.debug(
+            "PreviewContent: _show_conversation引数詳細",
+            mails_type=type(mails).__name__,
+            mails_is_list=isinstance(mails, list),
+            conversation_id_type=(
+                type(conversation_id).__name__ if conversation_id else "None"
+            ),
+            conversation_id=conversation_id,
+        )
+
+        if isinstance(mails, list) and len(mails) > 0:
+            self.logger.debug(
+                "PreviewContent: メールリスト最初の要素",
+                first_mail_keys=(
+                    list(mails[0].keys())
+                    if isinstance(mails[0], dict)
+                    else "not a dict"
+                ),
+            )
+
+        # mailsの型確認と処理
+        if isinstance(mails, str):
+            # mailsが文字列の場合、それは会話IDとして扱い、本来のmailsとconversation_idを入れ替える
+            self.logger.warning(
+                "PreviewContent: mails引数が文字列です。会話IDとして処理します",
+                mails_as_string=mails,
+                original_conversation_id=conversation_id,
+            )
+            conversation_id = mails  # 文字列をconversation_idとして設定
+            mails = []  # mailsを空リストにリセット
+
+            # 会話コンテナから会話IDに対応するメールリストを取得
+            if conversation_id in self.conversation_containers:
+                mails = self.conversation_containers[conversation_id]
+                self.logger.debug(
+                    "PreviewContent: 会話IDからメールを取得",
+                    conversation_id=conversation_id,
+                    mail_count=len(mails),
+                )
+        elif mails is None:
+            # mailsがNoneの場合は空リストに変換
+            self.logger.warning(
+                "PreviewContent: mails引数がNoneです", conversation_id=conversation_id
+            )
+            mails = []
+        elif not isinstance(mails, list):
+            self.logger.warning(
+                "PreviewContent: メールデータがリスト型ではありません",
+                type=type(mails).__name__ if mails is not None else "None",
+            )
+            mails = []
+
+        # mails引数の内容検証
+        if isinstance(mails, list) and mails:
+            if not all(isinstance(mail, dict) for mail in mails):
+                self.logger.warning(
+                    "PreviewContent: メールリストに辞書型でない要素が含まれています",
+                    mail_types=[type(mail).__name__ for mail in mails[:5]],
+                )
+                # 辞書型でない要素をフィルタリング
+                mails = [mail for mail in mails if isinstance(mail, dict)]
+
+            # 残ったメールが有効かを確認
+            for i, mail in enumerate(mails[:5]):  # 最初の5件だけログ出力
+                self.logger.debug(
+                    "PreviewContent: メールデータ検証",
+                    idx=i,
+                    mail_id=mail.get("id", "不明"),
+                    has_content="content" in mail,
+                    has_subject="subject" in mail,
+                    has_sender="sender" in mail,
+                    has_date="date" in mail,
+                )
+
+            # 必須フィールドを持たないメールをフィルタリング
+            mails = [mail for mail in mails if "id" in mail and "date" in mail]
+
+        # mailsデータが空の場合のエラーハンドリング
+        if not mails:
+            self.logger.warning(
+                "PreviewContent: メールデータが空です", conversation_id=conversation_id
+            )
+
+        # mailsが空でconversation_idが指定されている場合、会話コンテナから取得を試みる
+        if (not mails or len(mails) == 0) and conversation_id:
+            # まず完全一致で検索
+            if conversation_id in self.conversation_containers:
+                mails = self.conversation_containers[conversation_id]
+                self.logger.debug(
+                    "PreviewContent: 会話コンテナからメールを取得 (完全一致)",
+                    conversation_id=conversation_id,
+                    mail_count=len(mails),
+                )
+            # conv_プレフィックスがない場合は追加して検索
+            elif (
+                not conversation_id.startswith("conv_")
+                and f"conv_{conversation_id}" in self.conversation_containers
+            ):
+                mails = self.conversation_containers[f"conv_{conversation_id}"]
+                self.logger.debug(
+                    "PreviewContent: 会話コンテナからメールを取得 (プレフィックス追加)",
+                    original_id=conversation_id,
+                    modified_id=f"conv_{conversation_id}",
+                    mail_count=len(mails),
+                )
+            # conv_プレフィックスがある場合は削除して検索
+            elif (
+                conversation_id.startswith("conv_")
+                and conversation_id[5:] in self.conversation_containers
+            ):
+                mails = self.conversation_containers[conversation_id[5:]]
+                self.logger.debug(
+                    "PreviewContent: 会話コンテナからメールを取得 (プレフィックス削除)",
+                    original_id=conversation_id,
+                    modified_id=conversation_id[5:],
+                    mail_count=len(mails),
+                )
+            else:
+                self.logger.warning(
+                    "PreviewContent: 指定された会話IDのメールが見つかりません",
+                    conversation_id=conversation_id,
+                )
+
+                # 会話コンテナの内容をデバッグ出力
+                container_keys = list(self.conversation_containers.keys())
+                self.logger.debug(
+                    "PreviewContent: 利用可能な会話コンテナ一覧",
+                    container_count=len(container_keys),
+                    sample_keys=(
+                        container_keys[:5]
+                        if len(container_keys) > 5
+                        else container_keys
+                    ),
+                )
+
+        # メールリスト内の全アイテムの選択状態をリセット
+        for item in self.mail_list_component.mail_list_view.controls:
+            # 選択されたアイテムだけ色を変更
+            if (
+                conversation_id
+                and hasattr(item, "data")
+                and item.data == conversation_id
+            ):
+                item.bgcolor = ft.colors.BLUE_50
+                self.logger.debug(
+                    "PreviewContent: 選択アイテムの背景色を変更",
+                    item_id=item.data,
+                    conversation_id=conversation_id,
+                )
+            else:
+                item.bgcolor = ft.colors.WHITE
+            item.update()
+
+        # メール内容表示をクリア
+        self.mail_content_viewer._show_empty_content()
+
+        if not mails or len(mails) == 0:
+            self.logger.warning("PreviewContent: 表示するメールデータがありません")
+            self._show_empty_mail_content()
+            return
+
+        # 会話内のメールを時系列順に並べ替え
+        sorted_mails = sorted(
+            mails,
+            key=lambda x: x["date"],
+            reverse=self.conversation_sort_newest_first,
+        )
+
+        # メールを既読にする
+        for mail in sorted_mails:
+            if mail.get("unread", 0):
+                self.viewmodel.mark_as_read(mail["id"])
+                mail["unread"] = 0
+
+        # メールデータの整合性チェックと対応
+        cleaned_mails = []
+        for mail in sorted_mails:
+            # 辞書のキーを確認して初期化
+            mail_copy = mail.copy()  # 元のオブジェクトを保護するためにコピー
+
+            # 最低限必要な項目の確認と初期化
+            if "id" not in mail_copy:
+                self.logger.warning("PreviewContent: メールにIDがありません")
+                continue  # IDがない場合はスキップ
+
+            # 必須項目の設定
+            required_fields = {
+                "sender": "不明 <unknown@example.com>",
+                "recipient": "不明 <unknown@example.com>",
+                "subject": "(件名なし)",
+                "content": "",
+                "date": "不明な日時",
+                "unread": 0,
+                "flagged": False,
+                "attachments": [],
+            }
+
+            for field, default_value in required_fields.items():
+                if field not in mail_copy or mail_copy[field] is None:
+                    mail_copy[field] = default_value
+                    self.logger.debug(
+                        f"PreviewContent: メールの{field}フィールドを初期化しました",
+                        mail_id=mail_copy["id"],
+                    )
+
+            # 型チェックと修正
+            if not isinstance(mail_copy["content"], str):
+                mail_copy["content"] = (
+                    str(mail_copy["content"])
+                    if mail_copy["content"] is not None
+                    else ""
+                )
+
+            if not isinstance(mail_copy["attachments"], list):
+                mail_copy["attachments"] = []
+
+            cleaned_mails.append(mail_copy)
+
+        if not cleaned_mails:
+            self.logger.warning(
+                "PreviewContent: クリーニング後にメールデータがありません"
+            )
+            self._show_empty_mail_content()
+            return
+
+        # クリーンアップしたメールに切り替え
+        sorted_mails = cleaned_mails
+
+        # ソート順切り替えボタン
+        sort_button = ft.ElevatedButton(
+            text="新しい順" if self.conversation_sort_newest_first else "古い順",
+            icon=(
+                ft.icons.ARROW_DOWNWARD
+                if self.conversation_sort_newest_first
+                else ft.icons.ARROW_UPWARD
+            ),
+            on_click=self._toggle_conversation_sort_order,
+        )
+
+        # メール内容表示
+        try:
+            self.mail_content_viewer.show_conversation_content(
+                sorted_mails, sort_button
+            )
+        except Exception as e:
+            self.logger.error(
+                "PreviewContent: メール内容表示中にエラーが発生", error=str(e)
+            )
+            self.mail_content_viewer._show_empty_content()
+            self.mail_content_viewer.show_error_message(
+                f"メール内容の表示中にエラーが発生しました: {str(e)}"
+            )
 
         self.update()
         self.logger.info(
-            "PreviewContent: 会話フラグ切り替え完了",
-            group_id=group_id,
-            flagged=is_flagged,
+            "PreviewContent: 会話内容表示完了",
+            mail_count=len(sorted_mails),
+            conversation_id=conversation_id,
+        )
+
+    def create_flag_button(self, mail_id, is_flagged):
+        """フラグボタンを作成"""
+        return ft.Container(
+            content=ft.Icon(
+                name=ft.icons.FLAG if is_flagged else ft.icons.FLAG_OUTLINED,
+                size=16,
+                color=ft.colors.RED if is_flagged else ft.colors.GREY,
+            ),
+            tooltip=(
+                "フラグを解除する"
+                if is_flagged
+                else "問題のあるメールとしてフラグを立てる"
+            ),
+            width=32,
+            height=32,
+            border_radius=16,
+            on_click=lambda e, mid=mail_id: self._toggle_flag(mid, not is_flagged),
+            on_hover=self._on_hover_effect,
+            alignment=ft.alignment.center,
+            data={"flagged": is_flagged},
         )

@@ -114,7 +114,7 @@ class DatabaseManager:
             self.logger.error(
                 f"クエリ実行エラー: {query}, パラメータ: {params}, エラー: {str(e)}"
             )
-            raise
+            return []  # エラー時に空のリストを返す
 
     def execute_update(self, query: str, params: tuple = ()) -> int:
         """

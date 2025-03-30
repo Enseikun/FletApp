@@ -25,13 +25,17 @@ Outlookからのメール抽出サービス
   - outlook.db（extraction_conditionsテーブル）
 """
 
+import datetime
 import os
 from typing import Optional
+
+from markdownify import markdownify
 
 from src.core.database import DatabaseManager
 from src.core.logger import get_logger
 from src.models.outlook.outlook_client import OutlookClient
 from src.models.outlook.outlook_item_model import OutlookItemModel
+from src.models.outlook.outlook_service import OutlookService
 from src.util.object_util import get_safe
 
 
@@ -117,14 +121,29 @@ class OutlookExtractionService:
             start_date = get_safe(task_info, "start_date")
             end_date = get_safe(task_info, "end_date")
 
+            # 日付形式を変換（「-」を「/」に変更、秒を削除）
+            start_date_formatted = ""
+            if start_date:
+                parts = start_date.replace("-", "/").rsplit(":", 1)
+                start_date_formatted = (
+                    parts[0] if len(parts) > 1 else start_date.replace("-", "/")
+                )
+
+                end_date_formatted = ""
+                if end_date:
+                    parts = end_date.replace("-", "/").rsplit(":", 1)
+                    end_date_formatted = (
+                        parts[0] if len(parts) > 1 else end_date.replace("-", "/")
+                    )
+
             # Outlookのフィルター形式に変換
             date_filter = ""
             if start_date and end_date:
-                date_filter = f"[ReceivedTime] >= '{start_date}' AND [ReceivedTime] <= '{end_date}'"
+                date_filter = f"[ReceivedTime] >= '{start_date_formatted}' AND [ReceivedTime] <= '{end_date_formatted}'"
             elif start_date:
-                date_filter = f"[ReceivedTime] >= '{start_date}'"
+                date_filter = f"[ReceivedTime] >= '{start_date_formatted}'"
             elif end_date:
-                date_filter = f"[ReceivedTime] <= '{end_date}'"
+                date_filter = f"[ReceivedTime] <= '{end_date_formatted}'"
 
             # get_safeを使用して安全にデータを取得
             conditions = {
@@ -160,6 +179,28 @@ class OutlookExtractionService:
                 # outlook.dbからfoldersテーブルのデータを取得
                 folders_data = self.outlook_db.execute_query("SELECT * FROM folders")
 
+                if not folders_data:
+                    self.logger.warning(
+                        "フォルダデータが見つかりません", task_id=self.task_id
+                    )
+
+                # スナップショットのデータが既に存在するか確認
+                existing_count_result = self.items_db.execute_query(
+                    "SELECT COUNT(*) as count FROM outlook_snapshot"
+                )
+                existing_count = (
+                    existing_count_result[0].get("count", 0)
+                    if existing_count_result
+                    else 0
+                )
+
+                # データが既に存在する場合は削除
+                if existing_count > 0:
+                    self.logger.info(
+                        "既存のスナップショットデータを削除します", count=existing_count
+                    )
+                    self.items_db.execute_update("DELETE FROM outlook_snapshot")
+
                 # outlook_snapshotテーブルにデータを挿入
                 for folder in folders_data:
                     query = """
@@ -194,11 +235,22 @@ class OutlookExtractionService:
                 # エラー時はトランザクションをロールバック
                 self.items_db.rollback()
                 self.outlook_db.rollback()
+                self.logger.error(
+                    "スナップショット作成中のエラー（トランザクション内）",
+                    task_id=self.task_id,
+                    error=repr(e),
+                    error_type=type(e).__name__,
+                    error_details=str(e),
+                )
                 raise e
 
         except Exception as e:
             self.logger.error(
-                "Outlookスナップショット作成エラー", task_id=self.task_id, error=str(e)
+                "Outlookスナップショット作成エラー",
+                task_id=self.task_id,
+                error=repr(e),
+                error_type=type(e).__name__,
+                error_details=str(e),
             )
             return False
 
@@ -216,6 +268,46 @@ class OutlookExtractionService:
             self.items_db.begin_transaction()
 
             try:
+                # 既存の抽出計画をチェック
+                existing_conditions = self.items_db.execute_query(
+                    "SELECT COUNT(*) as count FROM extraction_conditions WHERE task_id = ?",
+                    (self.task_id,),
+                )
+
+                existing_mail_tasks = self.items_db.execute_query(
+                    "SELECT COUNT(*) as count FROM mail_tasks WHERE task_id = ?",
+                    (self.task_id,),
+                )
+
+                # 既に抽出計画が存在する場合は削除して再作成
+                existing_conditions_count = (
+                    existing_conditions[0].get("count", 0) if existing_conditions else 0
+                )
+                if existing_conditions_count > 0:
+                    self.logger.info("既存の抽出条件を削除します", task_id=self.task_id)
+                    self.items_db.execute_update(
+                        "DELETE FROM extraction_conditions WHERE task_id = ?",
+                        (self.task_id,),
+                    )
+
+                existing_mail_tasks_count = (
+                    existing_mail_tasks[0].get("count", 0) if existing_mail_tasks else 0
+                )
+                if existing_mail_tasks_count > 0:
+                    self.logger.info(
+                        "既存のメールタスクを削除します",
+                        task_id=self.task_id,
+                        count=existing_mail_tasks_count,
+                    )
+                    self.items_db.execute_update(
+                        "DELETE FROM mail_tasks WHERE task_id = ?", (self.task_id,)
+                    )
+
+                # task_progressが存在する場合は削除
+                self.items_db.execute_update(
+                    "DELETE FROM task_progress WHERE task_id = ?", (self.task_id,)
+                )
+
                 # task_infoテーブルからタスク情報を取得 (tasks.dbにある)
                 task_info_query = """
                 SELECT * FROM task_info WHERE id = ?
@@ -278,20 +370,41 @@ class OutlookExtractionService:
                     self.items_db.rollback()
                     return False
 
-                # Outlookクライアントを使用して対象メールの基本情報のみを取得
-                outlook_client = OutlookClient()
-                mail_items_basic = outlook_client.get_mail_list(
+                # OutlookItemModelを使用して対象メールの基本情報のみを取得
+                outlook_item_model = OutlookItemModel()
+
+                # 日付形式を変換（「-」を「/」に変更、秒を削除）
+                start_date_formatted = ""
+                if start_date:
+                    parts = start_date.replace("-", "/").rsplit(":", 1)
+                    start_date_formatted = (
+                        parts[0] if len(parts) > 1 else start_date.replace("-", "/")
+                    )
+
+                end_date_formatted = ""
+                if end_date:
+                    parts = end_date.replace("-", "/").rsplit(":", 1)
+                    end_date_formatted = (
+                        parts[0] if len(parts) > 1 else end_date.replace("-", "/")
+                    )
+
+                # ジェネレータからすべてのチャンクを取得してリストに結合
+                mail_items_basic = []
+                for chunk in outlook_item_model.get_mail_items(
                     from_folder_id,
-                    filter_criteria=f"[ReceivedTime] >= '{start_date}' AND [ReceivedTime] <= '{end_date}'",
-                )
+                    filter_criteria=f"[ReceivedTime] >= '{start_date_formatted}' AND [ReceivedTime] <= '{end_date_formatted}'",
+                ):
+                    mail_items_basic.extend(chunk)
 
                 # 抽出条件を記録
+                current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
                 extraction_conditions_query = """
                 INSERT INTO extraction_conditions (
                     task_id, from_folder_id, from_folder_name,
                     start_date, end_date, exclude_extensions,
                     created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
                 """
                 self.items_db.execute_update(
                     extraction_conditions_query,
@@ -302,42 +415,63 @@ class OutlookExtractionService:
                         start_date,
                         end_date,
                         exclude_extensions,
+                        current_time,
                     ),
                 )
 
                 # mail_tasksテーブルに各メールアイテムの抽出計画を記録
+                current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
                 mail_tasks_query = """
                 INSERT INTO mail_tasks (
                     task_id, message_id, subject, sent_time,
                     status, mail_fetch_status, attachment_status,
                     ai_review_status, created_at
-                ) VALUES (?, ?, ?, ?, 'pending', 'pending', 'pending', 'pending', datetime('now'))
+                ) VALUES (?, ?, ?, ?, 'pending', 'pending', 'pending', 'pending', ?)
                 """
 
                 for mail_item in mail_items_basic:
+                    # pywintypes.datetimeオブジェクトを文字列に変換
+                    sent_time = get_safe(mail_item, "SentOn") or get_safe(
+                        mail_item, "ReceivedTime"
+                    )
+
+                    # pywintypes.datetimeオブジェクトをISO形式の文字列に変換
+                    sent_time_str = None
+                    if sent_time:
+                        try:
+                            # datetimeオブジェクトの場合は文字列に変換
+                            sent_time_str = sent_time.strftime("%Y-%m-%d %H:%M:%S")
+                        except AttributeError:
+                            # 既に文字列の場合はそのまま使用
+                            sent_time_str = str(sent_time)
+
                     self.items_db.execute_update(
                         mail_tasks_query,
                         (
                             self.task_id,
                             get_safe(mail_item, "EntryID"),
                             get_safe(mail_item, "Subject"),
-                            get_safe(mail_item, "SentOn")
-                            or get_safe(mail_item, "ReceivedTime"),
+                            sent_time_str,
+                            current_time,
                         ),
                     )
 
-                # task_progressテーブルに進捗状況を記録
-                # トリガーで自動的に追加されるので削除
-                # task_progress_query = """
-                # INSERT INTO task_progress (
-                #     task_id, total_messages, processed_messages,
-                #     successful_messages, failed_messages, skipped_messages,
-                #     status, last_updated_at
-                # ) VALUES (?, ?, 0, 0, 0, 0, 'pending', datetime('now'))
-                # """
-                # self.items_db.execute_update(
-                #    task_progress_query, (self.task_id, total_messages)
-                # )
+                # task_progressテーブルに明示的に進捗状況を記録（初期状態）
+                current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+                task_progress_query = """
+                INSERT OR REPLACE INTO task_progress (
+                    task_id, 
+                    total_messages,
+                    status,
+                    last_updated_at
+                ) VALUES (?, ?, 'pending', ?)
+                """
+                self.items_db.execute_update(
+                    task_progress_query,
+                    (self.task_id, len(mail_items_basic), current_time),
+                )
 
                 # トランザクションをコミット
                 self.items_db.commit()
@@ -364,19 +498,43 @@ class OutlookExtractionService:
     def start_extraction(self) -> bool:
         """抽出作業の開始"""
         try:
-            # まず、Outlookのスナップショットを作成
-            if not self.create_snapshot():
-                self.logger.error("Outlookスナップショットの作成に失敗しました")
-                return False
+            # スナップショットの存在を確認
+            snapshot_exists = False
+            try:
+                snapshot_count_query = "SELECT COUNT(*) as count FROM outlook_snapshot"
+                snapshot_result = self.items_db.execute_query(snapshot_count_query)
+                if snapshot_result and snapshot_result[0].get("count", 0) > 0:
+                    snapshot_exists = True
+                    self.logger.info("既存のOutlookスナップショットを検出しました")
+            except Exception as e:
+                self.logger.warning(f"スナップショット確認中にエラー: {str(e)}")
+                # エラーが発生した場合は存在しないと仮定
+                snapshot_exists = False
+
+            # スナップショットが存在しない場合のみ作成
+            if not snapshot_exists:
+                if not self.create_snapshot():
+                    self.logger.error("Outlookスナップショットの作成に失敗しました")
+                    # タスク状態を失敗に更新
+                    self._update_extraction_status(
+                        "error", "Outlookスナップショットの作成に失敗しました"
+                    )
+                    return False
+            else:
+                self.logger.info("既存のスナップショットを使用します")
 
             # 次に、抽出計画を作成
             if not self._create_extraction_plan():
                 self.logger.error("抽出計画の作成に失敗しました")
+                # タスク状態を失敗に更新
+                self._update_extraction_status("error", "抽出計画の作成に失敗しました")
                 return False
 
             # 抽出条件の取得
             conditions = self.get_extraction_conditions()
             if not conditions:
+                # タスク状態を失敗に更新
+                self._update_extraction_status("error", "抽出条件の取得に失敗しました")
                 return False
 
             # OutlookItemModelの初期化
@@ -396,11 +554,14 @@ class OutlookExtractionService:
             self.logger.info(f"抽出対象のメールタスク数: {len(mail_tasks)}")
 
             # タスク状態を処理中に更新
+            current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             update_task_status_query = """
-            UPDATE task_progress SET status = 'processing', started_at = datetime('now')
+            UPDATE task_progress SET status = 'processing', started_at = ?, last_updated_at = ?
             WHERE task_id = ?
             """
-            self.items_db.execute_update(update_task_status_query, (self.task_id,))
+            self.items_db.execute_update(
+                update_task_status_query, (current_time, current_time, self.task_id)
+            )
 
             # チャンク処理
             for i in range(0, len(mail_tasks), chunk_size):
@@ -441,10 +602,54 @@ class OutlookExtractionService:
                 self._process_all_ai_reviews()
 
             self.logger.info("抽出作業が完了しました")
+            # タスク状態を完了に更新
+            self._update_extraction_status(
+                "completed", "メール抽出が正常に完了しました"
+            )
             return True
 
         except Exception as e:
             self.logger.error("抽出作業の実行に失敗", error=str(e))
+            # タスク状態を失敗に更新
+            self._update_extraction_status("error", f"抽出作業の実行に失敗: {str(e)}")
+            return False
+
+    def _update_extraction_status(self, status: str, message: str = "") -> bool:
+        """
+        抽出タスク全体のステータスを更新する
+
+        Args:
+            status: ステータス ("completed", "error", "processing")
+            message: 状態メッセージ
+
+        Returns:
+            bool: 更新が成功したかどうか
+        """
+        try:
+            current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+            # task_progressテーブルにステータスを記録
+            query = """
+            UPDATE task_progress 
+            SET status = ?, last_error = ?, 
+                completed_at = CASE WHEN ? IN ('completed', 'error') THEN ? ELSE completed_at END,
+                last_updated_at = ?
+            WHERE task_id = ?
+            """
+            self.items_db.execute_update(
+                query,
+                (status, message, status, current_time, current_time, self.task_id),
+            )
+
+            self.logger.info(
+                f"抽出タスクのステータスを更新: {status}",
+                task_id=self.task_id,
+                status_message=message,
+            )
+            return True
+
+        except Exception as e:
+            self.logger.error(f"抽出タスクのステータス更新に失敗: {str(e)}")
             return False
 
     def _update_mail_task_status(
@@ -471,6 +676,8 @@ class OutlookExtractionService:
             bool: 更新が成功したかどうか
         """
         try:
+            current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
             # UPDATE文の構築
             query = "UPDATE mail_tasks SET status = ?"
             params = [status]
@@ -493,10 +700,12 @@ class OutlookExtractionService:
 
             # 時間情報の更新
             if status == "processing" and mail_fetch_status == "processing":
-                query += ", started_at = datetime('now')"
+                query += ", started_at = ?"
+                params.append(current_time)
 
             if status in ["completed", "error", "skipped"]:
-                query += ", completed_at = datetime('now')"
+                query += ", completed_at = ?"
+                params.append(current_time)
 
             # WHERE句
             query += " WHERE id = ?"
@@ -545,28 +754,57 @@ class OutlookExtractionService:
 
                 for task in chunk:
                     task_id = get_safe(task, "id")
-                    mail_id = get_safe(task, "mail_id")
+                    message_id = get_safe(task, "message_id")
+                    mail_id = (
+                        get_safe(task, "mail_id") or message_id
+                    )  # mail_idがなければmessage_idを使用
 
                     # ステータス更新
                     self._update_mail_task_status(
                         task_id, "processing", attachment_status="processing"
                     )
 
-                    # 添付ファイル保存先パス
+                    # 添付ファイル保存先ディレクトリ
                     save_path = f"data/tasks/{self.task_id}/attachments/{mail_id}"
 
-                    if item_model.process_attachments(
-                        mail_id, {"HasAttachments": True}, save_path
-                    ):
-                        self._update_mail_task_status(
-                            task_id, "processing", attachment_status="success"
+                    # メールアイテムが添付ファイルを持っているか確認
+                    has_attachments_query = """
+                    SELECT has_attachments, attachment_count 
+                    FROM mail_items 
+                    WHERE entry_id = ?
+                    """
+                    mail_info = self.items_db.execute_query(
+                        has_attachments_query, (mail_id,)
+                    )
+
+                    has_attachments = False
+                    attachment_count = 0
+                    if mail_info:
+                        has_attachments = mail_info[0].get("has_attachments", 0) == 1
+                        attachment_count = mail_info[0].get("attachment_count", 0)
+
+                    # 添付ファイルがある場合のみ処理
+                    if has_attachments:
+                        self.logger.info(
+                            f"添付ファイル処理開始: {mail_id}, 予想ファイル数: {attachment_count}"
                         )
+                        if item_model.process_attachments(
+                            mail_id, {"HasAttachments": True}, save_path
+                        ):
+                            self._update_mail_task_status(
+                                task_id, "processing", attachment_status="success"
+                            )
+                        else:
+                            self._update_mail_task_status(
+                                task_id,
+                                "processing",
+                                attachment_status="error",
+                                error_message="添付ファイル処理に失敗しました",
+                            )
                     else:
+                        # 添付ファイルがない場合は処理不要
                         self._update_mail_task_status(
-                            task_id,
-                            "processing",
-                            attachment_status="error",
-                            error_message="添付ファイル処理に失敗しました",
+                            task_id, "processing", attachment_status="not_required"
                         )
 
             return True
@@ -610,7 +848,7 @@ class OutlookExtractionService:
 
                 for task in chunk:
                     task_id = get_safe(task, "id")
-                    mail_id = get_safe(task, "mail_id")
+                    message_id = get_safe(task, "message_id")
 
                     # ステータス更新
                     self._update_mail_task_status(
@@ -618,7 +856,7 @@ class OutlookExtractionService:
                     )
 
                     # AIレビュー処理
-                    if self._process_ai_review(mail_id):
+                    if self._process_ai_review(message_id):
                         self._update_mail_task_status(
                             task_id, "completed", ai_review_status="success"
                         )
@@ -636,31 +874,40 @@ class OutlookExtractionService:
             self.logger.error(f"AIレビュー一括処理エラー: {str(e)}")
             return False
 
-    def _process_mail_item(self, mail_item: dict) -> bool:
-        """メールアイテムの処理"""
+    def _process_mail_item(self, entry_id: str) -> bool:
+        """
+        メールアイテムの処理
+
+        Args:
+            entry_id: メールのEntryID
+
+        Returns:
+            bool: 処理が成功したかどうか
+        """
         try:
             # メールコンテンツの抽出
-            mail_model = self._extract_mail_content(get_safe(mail_item, "EntryID"))
-            if not mail_model:
+            mail_data = self._extract_mail_content(entry_id)
+
+            # 暫定対応: OutlookItemModelを使って直接メールを取得
+            self.logger.info(f"メールID {entry_id} の処理開始")
+
+            # 本来の処理コード (未実装部分)
+            if not mail_data:
+                return False
+
+            # メールアイテムの保存
+            if not self._save_mail_item(mail_data):
                 return False
 
             # 添付ファイルの処理
             if self.get_extraction_conditions().get("file_download", False):
-                if not self._process_attachments(mail_model):
-                    self.logger.warning(
-                        f"添付ファイルの処理に失敗: {get_safe(mail_item, 'EntryID')}"
-                    )
+                if not self._process_attachments(mail_data):
+                    self.logger.warning(f"添付ファイルの処理に失敗: {entry_id}")
 
             # AIレビューの処理
             if self.get_extraction_conditions().get("ai_review", False):
-                if not self._process_ai_review(mail_model):
-                    self.logger.warning(
-                        f"AIレビューの処理に失敗: {get_safe(mail_item, 'EntryID')}"
-                    )
-
-            # メールアイテムの保存
-            if not self._save_mail_item(mail_model):
-                return False
+                if not self._process_ai_review(entry_id):
+                    self.logger.warning(f"AIレビューの処理に失敗: {entry_id}")
 
             return True
 
@@ -668,18 +915,924 @@ class OutlookExtractionService:
             self.logger.error(f"メール処理中にエラーが発生: {str(e)}")
             return False
 
-    def _extract_mail_content(self, entry_id: str) -> Optional[OutlookItemModel]:
-        """メールコンテンツの抽出"""
-        pass
+    def _extract_mail_content(self, entry_id: str) -> Optional[dict]:
+        """
+        メールコンテンツの抽出
 
-    def _save_mail_item(self, mail_item: OutlookItemModel) -> bool:
-        """メールアイテムの保存"""
-        pass
+        Args:
+            entry_id: メールのEntryID
 
-    def _process_attachments(self, mail_item: OutlookItemModel) -> bool:
-        """添付ファイルの処理"""
-        pass
+        Returns:
+            Optional[dict]: メールデータ辞書、取得失敗時はNone
+        """
+        try:
+            # OutlookServiceを使用してメールアイテムを取得
+            outlook_service = OutlookService()
+            mail_item = outlook_service.get_item_by_id(entry_id)
 
-    def _process_ai_review(self, mail_item: OutlookItemModel) -> bool:
-        """AIレビューの処理"""
-        pass
+            if not mail_item:
+                self.logger.error(f"メールアイテムの取得に失敗: {entry_id}")
+                return None
+
+            # 送受信時間の取得と変換
+            sent_time = get_safe(mail_item, "SentOn")
+            received_time = get_safe(mail_item, "ReceivedTime")
+
+            # datetime形式を文字列に変換（形式: YYYY-MM-DD HH:MM:SS）
+            sent_time_str = ""
+            if sent_time:
+                try:
+                    sent_time_str = sent_time.strftime("%Y-%m-%d %H:%M:%S")
+                except AttributeError:
+                    sent_time_str = str(sent_time)
+
+            received_time_str = ""
+            if received_time:
+                try:
+                    received_time_str = received_time.strftime("%Y-%m-%d %H:%M:%S")
+                except AttributeError:
+                    received_time_str = str(received_time)
+
+            # ConversationIDを取得（Exchange環境でのみ利用可能）
+            conversation_id = get_safe(mail_item, "ConversationID", "")
+
+            # 基本メールデータの構築
+            mail_data = {
+                "entry_id": entry_id,
+                "store_id": get_safe(mail_item, "StoreID", ""),
+                "folder_id": get_safe(mail_item.Parent, "EntryID", ""),
+                "conversation_id": conversation_id,
+                "message_type": "email",  # デフォルトはemail
+                "subject": get_safe(mail_item, "Subject", ""),
+                "sent_time": sent_time_str,
+                "received_time": received_time_str,
+                "body": get_safe(mail_item, "Body", ""),
+                "html_body": get_safe(mail_item, "HTMLBody", ""),
+                "unread": get_safe(mail_item, "UnRead", 0),
+                "size": get_safe(mail_item, "Size", 0),
+                "has_attachments": get_safe(mail_item, "Attachments.Count", 0) > 0,
+                "raw_item": mail_item,  # 生のOutlookアイテム
+            }
+
+            # 参加者情報の抽出
+            mail_data["participants"] = self._extract_participants(mail_item)
+
+            # 特殊なメッセージタイプの処理
+            mail_data = self._update_message_type(mail_data)
+
+            self.logger.info(f"メールコンテンツを抽出しました: {mail_data['subject']}")
+            return mail_data
+
+        except Exception as e:
+            self.logger.error(f"メールコンテンツの抽出に失敗: {str(e)}")
+            return None
+
+    def _update_message_type(self, mail_data: dict) -> dict:
+        """
+        メールタイプの更新処理
+
+        Args:
+            mail_data: メールデータ
+
+        Returns:
+            dict: 更新されたメールデータ
+        """
+        if not mail_data:
+            return mail_data
+
+        try:
+            # メールの件名にGUARDIANWALLが含まれている場合の処理
+            subject = mail_data.get("subject", "")
+            if "GUARDIANWALL" in subject:
+                # データベース制約に合わせる
+                mail_data["message_type"] = "mail"
+                # 特別な処理タイプを示すフィールドに "GUARDIAN" を設定
+                mail_data["process_type"] = "GUARDIAN"
+                self.logger.info(
+                    f"メールタイプを'mail'に更新し、process_typeを'GUARDIAN'に設定しました: {subject}"
+                )
+
+            return mail_data
+        except Exception as e:
+            self.logger.error(f"メールタイプの更新処理でエラーが発生: {str(e)}")
+            return mail_data
+
+    def _save_mail_item(self, mail_data: dict) -> bool:
+        """
+        メールアイテムの保存
+
+        Args:
+            mail_data: 保存するメールのデータ
+
+        Returns:
+            bool: 保存が成功したかどうか
+        """
+        if not mail_data:
+            self.logger.error("保存するメールデータがありません")
+            return False
+
+        try:
+            # 必須フィールドのチェック
+            required_fields = [
+                "entry_id",
+                "folder_id",
+                "subject",
+                "sent_time",
+                "received_time",
+            ]
+            for field in required_fields:
+                if not mail_data.get(field):
+                    self.logger.error(f"必須フィールド '{field}' の値がありません")
+                    return False
+
+            # 日時形式の検証 - 形式が「YYYY-MM-DD HH:MM:SS」、長さが19文字であることを確認
+            date_fields = ["sent_time", "received_time"]
+            for field in date_fields:
+                value = mail_data.get(field, "")
+                if (
+                    len(value) != 19
+                    or not value.replace("-", "")
+                    .replace(" ", "")
+                    .replace(":", "")
+                    .isdigit()
+                ):
+                    self.logger.error(f"フィールド '{field}' の日時形式が不正: {value}")
+                    return False
+
+            # HTMLコンテンツをMarkdown形式に変換（一時的に無効化）
+            # html_content = mail_data.get("html_body", "")
+            # markdown_content = ""
+            # if html_content:
+            #     try:
+            #         # HTMLコンテンツをMarkdown形式に変換
+            #         markdown_content = markdownify(html_content)
+            #         self.logger.info(f"HTMLコンテンツをMarkdown形式に変換しました: {mail_data['subject']}")
+            #     except Exception as e:
+            #         self.logger.error(f"Markdown変換エラー: {str(e)}")
+            #         # 変換エラーの場合はMarkdownとして処理しない
+            #         markdown_content = ""
+
+            # トランザクション開始
+            self.items_db.begin_transaction()
+
+            try:
+                # まず参加者情報を保存
+                participant_ids = self._save_participants(
+                    mail_data["entry_id"], mail_data["participants"]
+                )
+
+                # mail_itemsテーブルにメールデータを保存
+                query = """
+                INSERT INTO mail_items (
+                    entry_id, store_id, folder_id, conversation_id, 
+                    message_type, subject, sent_time, received_time,
+                    body, unread, message_size, task_id, has_attachments, attachment_count, processed_at
+                """
+
+                # process_typeがある場合は追加
+                if mail_data.get("process_type"):
+                    query += ", process_type"
+
+                query += ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now')"
+
+                # process_typeがある場合はパラメーターにプレースホルダーを追加
+                if mail_data.get("process_type"):
+                    query += ", ?"
+
+                query += ")"
+
+                # 現在の時刻を取得
+                current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+                # 添付ファイルの個数を取得
+                attachment_count = 0
+                if mail_data.get("has_attachments") and mail_data.get("raw_item"):
+                    attachments = get_safe(mail_data["raw_item"], "Attachments")
+                    if attachments:
+                        attachment_count = get_safe(attachments, "Count", 0)
+
+                params = [
+                    mail_data["entry_id"],
+                    mail_data["store_id"],
+                    mail_data["folder_id"],
+                    mail_data["conversation_id"],
+                    mail_data["message_type"],
+                    mail_data["subject"],
+                    mail_data["sent_time"],
+                    mail_data["received_time"],
+                    mail_data["body"],
+                    mail_data["unread"],
+                    mail_data["size"],
+                    self.task_id,
+                    (
+                        1 if mail_data.get("has_attachments") else 0
+                    ),  # has_attachments (0=なし、1=あり)
+                    attachment_count,  # 添付ファイルの個数
+                ]
+
+                # process_typeがある場合はパラメータに追加
+                if mail_data.get("process_type"):
+                    params.append(mail_data["process_type"])
+
+                # メールデータを保存
+                self.items_db.execute_update(query, tuple(params))
+
+                # Markdown化されたHTMLコンテンツをstyled_bodyテーブルに保存（一時的に無効化）
+                # if markdown_content:
+                #     styled_body_query = """
+                #     INSERT OR REPLACE INTO styled_body (
+                #         entry_id, styled_body, keywords
+                #     ) VALUES (?, ?, ?)
+                #     """
+                #
+                #     # キーワードは現時点では空文字列で保存
+                #     styled_body_params = (
+                #         mail_data["entry_id"],
+                #         markdown_content,
+                #         "",  # キーワード（今後の拡張用）
+                #     )
+                #
+                #     self.items_db.execute_update(styled_body_query, styled_body_params)
+                #     self.logger.info(f"Markdown化されたコンテンツをstyled_bodyテーブルに保存しました: {mail_data['subject']}")
+
+                # mail_tasksテーブルの状態を更新
+                # message_idからtask idを取得
+                task_query = """
+                SELECT id FROM mail_tasks
+                WHERE message_id = ? AND task_id = ?
+                """
+                task_result = self.items_db.execute_query(
+                    task_query, (mail_data["entry_id"], self.task_id)
+                )
+
+                if task_result:
+                    task_id = task_result[0]["id"]
+
+                    # タスクのstatusとmail_fetch_statusを更新
+                    self._update_mail_task_status(
+                        task_id, "processing", mail_fetch_status="success"
+                    )
+
+                # コミット
+                self.items_db.commit()
+                self.logger.info(
+                    f"メールデータをDBに保存しました: {mail_data['subject']}"
+                )
+                return True
+
+            except Exception as e:
+                # ロールバック
+                self.items_db.rollback()
+                self.logger.error(f"メールデータ保存中のSQLエラー: {str(e)}")
+                raise e
+
+        except Exception as e:
+            self.logger.error(f"メールデータの保存に失敗: {str(e)}")
+            return False
+
+    def _save_participants(self, mail_id: str, participants: dict) -> dict:
+        """
+        参加者情報をデータベースに保存する
+
+        Args:
+            mail_id: メールID
+            participants: 参加者情報
+
+        Returns:
+            dict: 参加者タイプごとのユーザーID辞書
+        """
+        participant_ids = {"sender": [], "to": [], "cc": [], "bcc": []}
+
+        try:
+            # 現在時刻
+            current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+            # 送信者の処理
+            for sender in participants.get("sender", []):
+                if not sender.get("email"):
+                    continue
+
+                # ユーザー情報の保存/更新
+                user_id = self._save_user_info(sender, current_time)
+                if user_id:
+                    # participantsテーブルに関連を保存
+                    self._save_participant_relation(
+                        mail_id, user_id, "sender", current_time
+                    )
+                    participant_ids["sender"].append(user_id)
+
+            # 受信者の処理
+            for recipient_type in ["to", "cc", "bcc"]:
+                for recipient in participants.get(recipient_type, []):
+                    if not recipient.get("email"):
+                        continue
+
+                    # ユーザー情報の保存/更新
+                    user_id = self._save_user_info(recipient, current_time)
+                    if user_id:
+                        # participantsテーブルに関連を保存
+                        self._save_participant_relation(
+                            mail_id, user_id, recipient_type, current_time
+                        )
+                        participant_ids[recipient_type].append(user_id)
+
+            return participant_ids
+
+        except Exception as e:
+            self.logger.error(f"参加者情報の保存に失敗: {str(e)}")
+            return participant_ids
+
+    def _save_user_info(self, user_info: dict, timestamp: str) -> int:
+        """
+        ユーザー情報を保存/更新する
+
+        Args:
+            user_info: ユーザー情報
+            timestamp: タイムスタンプ
+
+        Returns:
+            int: ユーザーID
+        """
+        try:
+            email = user_info.get("email", "")
+            if not email:
+                return None
+
+            # 既存ユーザーのチェック
+            check_query = "SELECT id FROM users WHERE email = ?"
+            result = self.items_db.execute_query(check_query, (email,))
+
+            if result:
+                # 既存ユーザーの更新
+                user_id = result[0]["id"]
+
+                update_query = """
+                UPDATE users SET 
+                    name = ?,
+                    display_name = ?,
+                    company = ?,
+                    office_location = ?,
+                    smtp_address = ?,
+                    updated_at = ?
+                WHERE id = ?
+                """
+
+                self.items_db.execute_update(
+                    update_query,
+                    (
+                        user_info.get("name", user_info.get("display_name", "")),
+                        user_info.get("display_name", ""),
+                        user_info.get("company", ""),
+                        user_info.get("office_location", ""),
+                        user_info.get("smtp_address", email),
+                        timestamp,
+                        user_id,
+                    ),
+                )
+
+                return user_id
+            else:
+                # 新規ユーザーの作成
+                insert_query = """
+                INSERT INTO users (
+                    email, name, display_name, company, office_location, smtp_address,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """
+
+                self.items_db.execute_update(
+                    insert_query,
+                    (
+                        email,
+                        user_info.get("name", user_info.get("display_name", "")),
+                        user_info.get("display_name", ""),
+                        user_info.get("company", ""),
+                        user_info.get("office_location", ""),
+                        user_info.get("smtp_address", email),
+                        timestamp,
+                        timestamp,
+                    ),
+                )
+
+                # 新しく挿入されたユーザーIDを取得
+                id_query = "SELECT id FROM users WHERE email = ?"
+                result = self.items_db.execute_query(id_query, (email,))
+
+                if result:
+                    return result[0]["id"]
+
+                return None
+
+        except Exception as e:
+            self.logger.error(f"ユーザー情報の保存に失敗: {str(e)}")
+            return None
+
+    def _save_participant_relation(
+        self, mail_id: str, user_id: int, participant_type: str, timestamp: str
+    ) -> bool:
+        """
+        メールと参加者の関連を保存する
+
+        Args:
+            mail_id: メールID
+            user_id: ユーザーID
+            participant_type: 参加者タイプ (sender, to, cc, bcc)
+            timestamp: タイムスタンプ
+
+        Returns:
+            bool: 保存が成功したかどうか
+        """
+        try:
+            # 既存の関連をチェック
+            check_query = """
+            SELECT id FROM participants 
+            WHERE mail_id = ? AND user_id = ? AND participant_type = ?
+            """
+            result = self.items_db.execute_query(
+                check_query, (mail_id, user_id, participant_type)
+            )
+
+            if not result:
+                # 新規関連の保存
+                insert_query = """
+                INSERT INTO participants (
+                    mail_id, user_id, participant_type, address_type
+                ) VALUES (?, ?, ?, 'SMTP')
+                """
+
+                self.items_db.execute_update(
+                    insert_query, (mail_id, user_id, participant_type)
+                )
+
+            return True
+
+        except Exception as e:
+            self.logger.error(f"参加者関連の保存に失敗: {str(e)}")
+            return False
+
+    def _process_attachments(self, mail_data: dict) -> bool:
+        """
+        添付ファイルの処理
+
+        Args:
+            mail_data: メールデータ
+
+        Returns:
+            bool: 処理が成功したかどうか
+        """
+        if not mail_data or not mail_data.get("has_attachments"):
+            # 添付ファイルがない場合は成功として扱う
+            return True
+
+        try:
+            # 添付ファイル保存先ディレクトリを作成
+            save_dir = os.path.join(
+                "data", "tasks", self.task_id, "attachments", mail_data["entry_id"]
+            )
+            os.makedirs(save_dir, exist_ok=True)
+            self.logger.info(
+                f"添付ファイル保存先ディレクトリを作成しました: {save_dir}"
+            )
+
+            # OutlookServiceを使用してメールアイテムを取得
+            outlook_service = OutlookService()
+            mail_item = outlook_service.get_item_by_id(mail_data["entry_id"])
+
+            if not mail_item:
+                self.logger.error(
+                    f"メールアイテムの取得に失敗: {mail_data['entry_id']}"
+                )
+                return False
+
+            if not hasattr(mail_item, "Attachments"):
+                self.logger.error("添付ファイル処理: Attachmentsプロパティがありません")
+                return False
+
+            # 添付ファイルの保存
+            attachments = mail_item.Attachments
+            if not attachments or attachments.Count == 0:
+                self.logger.warning(
+                    f"添付ファイルが見つかりませんでした: {mail_data['entry_id']}"
+                )
+                return True
+
+            # 実際に処理した添付ファイルの数
+            processed_count = 0
+            self.logger.info(
+                f"添付ファイル処理: {attachments.Count}個の添付ファイルを処理します"
+            )
+
+            for i in range(1, attachments.Count + 1):  # Outlookのインデックスは1始まり
+                try:
+                    attachment = attachments.Item(i)
+                    file_name = attachment.FileName
+                    self.logger.info(f"添付ファイル処理中: {file_name}")
+
+                    # 除外拡張子のチェック
+                    exclude_extensions = self.get_extraction_conditions().get(
+                        "exclude_extensions", ""
+                    )
+                    if exclude_extensions:
+                        extension = os.path.splitext(file_name)[1].lower()
+                        if extension and extension[1:] in [
+                            ext.strip().lower() for ext in exclude_extensions.split(",")
+                        ]:
+                            self.logger.info(
+                                f"除外拡張子のため保存をスキップ: {file_name}"
+                            )
+                            continue
+
+                    # ファイル保存
+                    file_path = os.path.join(save_dir, file_name)
+
+                    # 確実にディレクトリが存在することを再確認
+                    os.makedirs(os.path.dirname(file_path), exist_ok=True)
+
+                    # 添付ファイルを保存
+                    self.logger.info(f"添付ファイルを保存します: {file_path}")
+                    attachment.SaveAsFile(file_path)
+
+                    # ファイルが実際に作成されたか確認
+                    if not os.path.exists(file_path):
+                        self.logger.error(
+                            f"添付ファイルの保存に失敗: {file_path} - ファイルが作成されませんでした"
+                        )
+                        continue
+
+                    # ファイルサイズが0でないか確認
+                    file_size = os.path.getsize(file_path)
+                    if file_size == 0:
+                        self.logger.warning(f"添付ファイルのサイズが0です: {file_path}")
+
+                    # データベースに添付ファイル情報を登録
+                    query = """
+                    INSERT INTO attachments (mail_id, name, path)
+                    VALUES (?, ?, ?)
+                    """
+                    self.items_db.execute_update(
+                        query, (mail_data["entry_id"], file_name, file_path)
+                    )
+
+                    processed_count += 1
+                    self.logger.info(
+                        f"添付ファイルを保存しました: {file_path}, サイズ: {file_size}バイト"
+                    )
+                except Exception as e:
+                    self.logger.error(f"添付ファイル処理中のエラー: {str(e)}")
+                    # 個別の添付ファイルの処理に失敗しても続行する
+
+            # mail_tasksテーブルの更新
+            task_query = """
+            SELECT id FROM mail_tasks
+            WHERE message_id = ? AND task_id = ?
+            """
+            task_result = self.items_db.execute_query(
+                task_query, (mail_data["entry_id"], self.task_id)
+            )
+
+            if task_result:
+                task_id = task_result[0]["id"]
+                attachment_status = "success" if processed_count > 0 else "error"
+                self._update_mail_task_status(
+                    task_id, "processing", attachment_status=attachment_status
+                )
+
+            # 実際に処理した添付ファイルの数がデータベースに保存されている数と異なる場合は更新
+            if processed_count != mail_data.get("attachment_count", 0):
+                update_query = """
+                UPDATE mail_items 
+                SET attachment_count = ?
+                WHERE entry_id = ?
+                """
+                self.items_db.execute_update(
+                    update_query, (processed_count, mail_data["entry_id"])
+                )
+                self.logger.info(
+                    f"添付ファイル数を更新しました: {mail_data.get('subject', 'Unknown')} ({processed_count}個)"
+                )
+
+            self.logger.info(
+                f"添付ファイル処理完了: {processed_count}個のファイルを保存"
+            )
+            return processed_count > 0 or attachments.Count == 0
+
+        except Exception as e:
+            self.logger.error(f"添付ファイル処理でエラーが発生: {str(e)}")
+            return False
+
+    def _process_ai_review(self, mail_id: str) -> bool:
+        """
+        AIレビューの処理
+
+        Args:
+            mail_id: メールID
+
+        Returns:
+            bool: 処理が成功したかどうか
+        """
+        try:
+            # メールデータを取得
+            mail_query = """
+            SELECT 
+                entry_id, subject, sender, body, sent_time, received_time,
+                has_attachments, conversation_id
+            FROM mail_items 
+            WHERE entry_id = ?
+            """
+            mail_result = self.items_db.execute_query(mail_query, (mail_id,))
+
+            if not mail_result:
+                self.logger.error(
+                    f"AIレビュー: メールデータが見つかりません: {mail_id}"
+                )
+                return False
+
+            mail_data = mail_result[0]
+
+            # 会話IDを取得（必須）
+            conversation_id = mail_data.get("conversation_id")
+            if not conversation_id:
+                self.logger.error(f"AIレビュー: 会話IDが見つかりません: {mail_id}")
+                return False
+
+            # 参加者情報を取得
+            participants_query = """
+            SELECT u.name, u.email, p.participant_type
+            FROM participants p
+            JOIN users u ON p.user_id = u.id
+            WHERE p.mail_id = ?
+            """
+            participants_result = self.items_db.execute_query(
+                participants_query, (mail_id,)
+            )
+
+            # AIに送信するデータを構築
+            mail_info = {
+                "subject": mail_data.get("subject", ""),
+                "sent_time": mail_data.get("sent_time", ""),
+                "received_time": mail_data.get("received_time", ""),
+                "body": mail_data.get("body", ""),
+                "has_attachments": bool(mail_data.get("has_attachments", 0)),
+                "participants": {"sender": [], "to": [], "cc": [], "bcc": []},
+            }
+
+            # 参加者情報を整理
+            for p in participants_result:
+                p_type = p.get("participant_type", "")
+                if p_type in ["sender", "to", "cc", "bcc"]:
+                    mail_info["participants"][p_type].append(
+                        {"name": p.get("name", ""), "email": p.get("email", "")}
+                    )
+
+            # AIReviewクラスを初期化して非同期処理を実行
+            import asyncio
+
+            from src.models.azure.ai_review import AIReview
+
+            # AIレビュー用のプロンプトを構築
+            prompt_data = {
+                "mail_id": mail_id[:8] + "...",  # IDは短縮して表示
+                "conversation_id": conversation_id[:8] + "...",  # 会話IDも短縮
+                "subject": mail_info["subject"],
+                "body": mail_info["body"],
+                "sender": mail_info["participants"]["sender"],
+                "recipients": {
+                    "to": mail_info["participants"]["to"],
+                    "cc": mail_info["participants"]["cc"],
+                    "bcc": mail_info["participants"]["bcc"],
+                },
+                "sent_time": mail_info["sent_time"],
+                "has_attachments": mail_info["has_attachments"],
+            }
+
+            # 非同期処理を実行するための関数
+            async def run_ai_review():
+                ai_review = AIReview()
+                try:
+                    # プロンプトをJSON文字列に変換
+                    import json
+
+                    prompt_json = json.dumps(prompt_data, ensure_ascii=False)
+
+                    # AIクライアントとタスクマネージャーを初期化
+                    from src.models.azure.openai_client import OpenAIClient
+                    from src.models.azure.task_manager import TaskManager
+
+                    # システムプロンプトを読み込む
+                    system_prompt = "メールの内容を分析し、その概要、リスク評価、重要度を判断してください。"
+                    try:
+                        import os
+
+                        prompt_path = os.path.join("config", "prompt.txt")
+                        if os.path.exists(prompt_path):
+                            with open(prompt_path, "r", encoding="utf-8") as f:
+                                system_prompt = f.read().strip()
+                    except Exception as e:
+                        self.logger.warning(
+                            f"システムプロンプトの読み込みに失敗しました: {e}"
+                        )
+
+                    client = OpenAIClient(system_prompt=system_prompt)
+                    manager = TaskManager(client)
+
+                    # コールバック関数
+                    result_data = None
+
+                    async def callback(prompt_str, result):
+                        nonlocal result_data
+                        if result:
+                            result_data = result
+
+                    # AIに処理を依頼
+                    await manager.execute_tasks([prompt_json], callback)
+
+                    # 結果を返す
+                    return result_data
+                except Exception as e:
+                    self.logger.error(f"AIレビュー実行中にエラーが発生しました: {e}")
+                    return None
+
+            # 非同期関数を実行
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                result = loop.run_until_complete(run_ai_review())
+            finally:
+                loop.close()
+
+            # AIの結果をデータベースに保存
+            if result:
+                # 新しい結果を保存（INSERT OR REPLACEを使用して既存のデータを上書き）
+                self.items_db.execute_update(
+                    """
+                    INSERT OR REPLACE INTO ai_reviews (conversation_id, result)
+                    VALUES (?, ?)
+                    """,
+                    (conversation_id, result),
+                )
+
+                self.logger.info(
+                    f"AIレビュー結果を保存しました: 会話ID {conversation_id}"
+                )
+                return True
+            else:
+                self.logger.error(f"AIレビュー結果が取得できませんでした: {mail_id}")
+                return False
+
+        except Exception as e:
+            self.logger.error(f"AIレビュー処理でエラーが発生: {str(e)}")
+            return False
+
+    def _extract_participants(self, mail_item):
+        """
+        メールの参加者情報を抽出する
+
+        Args:
+            mail_item: Outlookのメールアイテム
+
+        Returns:
+            dict: 参加者情報を含む辞書
+        """
+        participants = {"sender": [], "to": [], "cc": [], "bcc": []}
+
+        try:
+            # 送信者情報の抽出
+            sender = mail_item.Sender
+            if sender:
+                try:
+                    # SenderのAddressEntryを取得
+                    address_entry = sender.AddressEntry
+                    if address_entry:
+                        sender_info = {
+                            "display_name": get_safe(sender, "Name"),
+                            "email": get_safe(address_entry, "Address", ""),
+                            "type": "sender",
+                        }
+
+                        # AddressEntryオブジェクトから詳細情報を取得
+                        if hasattr(address_entry, "GetExchangeUser"):
+                            exchange_user = address_entry.GetExchangeUser()
+                            if exchange_user:
+                                sender_info.update(
+                                    {
+                                        "name": get_safe(
+                                            exchange_user,
+                                            "Name",
+                                            sender_info["display_name"],
+                                        ),
+                                        "company": get_safe(
+                                            exchange_user, "CompanyName", ""
+                                        ),
+                                        "office_location": get_safe(
+                                            exchange_user, "OfficeLocation", ""
+                                        ),
+                                        "smtp_address": get_safe(
+                                            exchange_user,
+                                            "PrimarySmtpAddress",
+                                            sender_info["email"],
+                                        ),
+                                    }
+                                )
+
+                        # 表示名が空の場合はメールアドレスで代替
+                        if not sender_info["display_name"] and sender_info.get("email"):
+                            sender_info["display_name"] = sender_info["email"]
+
+                        # 名前が空の場合は表示名で代替
+                        if not sender_info.get("name") and sender_info["display_name"]:
+                            sender_info["name"] = sender_info["display_name"]
+
+                        participants["sender"].append(sender_info)
+                except Exception as e:
+                    self.logger.warning(f"送信者の詳細情報取得に失敗: {e}")
+                    # 基本情報だけ追加
+                    participants["sender"].append(
+                        {
+                            "display_name": get_safe(sender, "Name", "不明な送信者"),
+                            "email": get_safe(sender, "Address", ""),
+                            "type": "sender",
+                            "name": get_safe(sender, "Name", "不明な送信者"),
+                        }
+                    )
+
+            # 受信者情報の抽出
+            if hasattr(mail_item, "Recipients") and mail_item.Recipients:
+                for i in range(1, mail_item.Recipients.Count + 1):
+                    try:
+                        recipient = mail_item.Recipients.Item(i)
+                        recipient_type = get_safe(recipient, "Type", 0)
+
+                        # 受信者タイプによって分類 (0=To, 1=CC, 2=BCC)
+                        type_map = {1: "to", 2: "cc", 3: "bcc", 0: "originator"}
+                        recipient_category = type_map.get(recipient_type, "to")
+
+                        recipient_info = {
+                            "display_name": get_safe(recipient, "Name", ""),
+                            "email": get_safe(recipient, "Address", ""),
+                            "type": recipient_category,
+                        }
+
+                        # AddressEntryオブジェクトから詳細情報を取得
+                        address_entry = get_safe(recipient, "AddressEntry")
+                        if address_entry:
+                            # メールアドレスをAddressEntryから取得
+                            if (
+                                hasattr(address_entry, "Address")
+                                and not recipient_info["email"]
+                            ):
+                                recipient_info["email"] = get_safe(
+                                    address_entry, "Address", ""
+                                )
+
+                            # ExchangeUserからより詳細な情報を取得
+                            if hasattr(address_entry, "GetExchangeUser"):
+                                try:
+                                    exchange_user = address_entry.GetExchangeUser()
+                                    if exchange_user:
+                                        recipient_info.update(
+                                            {
+                                                "name": get_safe(
+                                                    exchange_user,
+                                                    "Name",
+                                                    recipient_info["display_name"],
+                                                ),
+                                                "company": get_safe(
+                                                    exchange_user, "CompanyName", ""
+                                                ),
+                                                "office_location": get_safe(
+                                                    exchange_user, "OfficeLocation", ""
+                                                ),
+                                                "smtp_address": get_safe(
+                                                    exchange_user,
+                                                    "PrimarySmtpAddress",
+                                                    recipient_info["email"],
+                                                ),
+                                            }
+                                        )
+                                except Exception as e:
+                                    self.logger.warning(
+                                        f"受信者のExchangeUser取得に失敗: {e}"
+                                    )
+
+                        # 表示名が空の場合はメールアドレスで代替
+                        if (
+                            not recipient_info["display_name"]
+                            and recipient_info["email"]
+                        ):
+                            recipient_info["display_name"] = recipient_info["email"]
+
+                        # 名前が空の場合は表示名で代替
+                        if (
+                            not recipient_info.get("name")
+                            and recipient_info["display_name"]
+                        ):
+                            recipient_info["name"] = recipient_info["display_name"]
+
+                        participants[recipient_category].append(recipient_info)
+                    except Exception as e:
+                        self.logger.warning(f"受信者情報の処理に失敗: {e}")
+
+        except Exception as e:
+            self.logger.error(f"参加者情報の抽出に失敗: {e}")
+
+        return participants

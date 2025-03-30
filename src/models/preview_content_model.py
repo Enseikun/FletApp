@@ -3,6 +3,7 @@
 メールプレビュー画面のデータアクセスを担当
 """
 
+import json
 import logging
 import os
 from typing import Any, Dict, List, Optional, Union
@@ -59,16 +60,16 @@ class PreviewContentModel:
         try:
             if self.db_manager:
                 query = """
-                    SELECT DISTINCT task_id, task_name
-                    FROM items
+                    SELECT DISTINCT task_id
+                    FROM mail_items
                     LIMIT 1
                     """
                 results = self.db_manager.execute_query(query)
                 if results:
                     row = results[0]
                     return {
-                        "id": row["task_id"] or self.task_id,
-                        "name": row["task_name"] or f"アーカイブタスク {self.task_id}",
+                        "id": row.get("task_id") or self.task_id,
+                        "name": f"アーカイブタスク {self.task_id}",
                         "status": "completed",
                     }
         except Exception as e:
@@ -89,7 +90,7 @@ class PreviewContentModel:
         try:
             query = """
                 SELECT DISTINCT folder_id as entry_id, folder_name as name
-                FROM items
+                FROM mail_items
                 ORDER BY name
                 """
             return self.db_manager.execute_query(query)
@@ -105,20 +106,147 @@ class PreviewContentModel:
         try:
             query = """
                 SELECT 
-                    id as entry_id, 
-                    sender, 
+                    entry_id, 
+                    '' as sender, 
                     subject, 
                     substr(body, 1, 100) as preview, 
-                    date, 
+                    sent_time as date, 
                     unread
-                FROM items
+                FROM mail_items
                 WHERE folder_id = ?
-                ORDER BY date DESC
+                ORDER BY sent_time DESC
                 """
             return self.db_manager.execute_query(query, (folder_id,))
         except Exception as e:
             logging.error(f"メール一覧取得エラー: {e}")
             return []
+
+    def _get_mail_participants(self, mail_id: str) -> Dict[str, str]:
+        """メールの送信者と受信者情報を取得する
+
+        Args:
+            mail_id: メールID
+
+        Returns:
+            送信者と受信者情報を含む辞書
+        """
+        if self.db_manager is None:
+            return {
+                "sender": "不明 <unknown@example.com>",
+                "recipient": "不明 <unknown@example.com>",
+            }
+
+        try:
+            # 送信者情報を取得
+            sender_query = """
+                SELECT 
+                    u.name, 
+                    u.email, 
+                    u.display_name 
+                FROM participants p
+                JOIN users u ON p.user_id = u.id
+                WHERE p.mail_id = ? AND p.participant_type = 'sender'
+                LIMIT 1
+            """
+            sender_results = self.db_manager.execute_query(sender_query, (mail_id,))
+
+            # 受信者情報を取得（to参加者のみ）
+            recipient_query = """
+                SELECT 
+                    u.name, 
+                    u.email, 
+                    u.display_name 
+                FROM participants p
+                JOIN users u ON p.user_id = u.id
+                WHERE p.mail_id = ? AND p.participant_type = 'to'
+                LIMIT 1
+            """
+            recipient_results = self.db_manager.execute_query(
+                recipient_query, (mail_id,)
+            )
+
+            # 送信者情報の処理
+            sender = "不明 <unknown@example.com>"
+            if sender_results:
+                sender_info = sender_results[0]
+                sender_name = (
+                    sender_info.get("display_name") or sender_info.get("name") or ""
+                )
+                sender_email = sender_info.get("email") or "unknown@example.com"
+                sender = f"{sender_name} <{sender_email}>"
+
+            # 受信者情報の処理
+            recipient = "不明 <unknown@example.com>"
+            if recipient_results:
+                recipient_info = recipient_results[0]
+                recipient_name = (
+                    recipient_info.get("display_name")
+                    or recipient_info.get("name")
+                    or ""
+                )
+                recipient_email = recipient_info.get("email") or "unknown@example.com"
+                recipient = f"{recipient_name} <{recipient_email}>"
+
+            return {"sender": sender, "recipient": recipient}
+        except Exception as e:
+            logging.error(f"参加者情報取得エラー: {e}")
+            return {
+                "sender": "不明 <unknown@example.com>",
+                "recipient": "不明 <unknown@example.com>",
+            }
+
+    def _get_all_participants(self, mail_id: str) -> Dict[str, List[Dict]]:
+        """メールの全参加者情報を取得する（sender, to, cc, bcc）
+
+        Args:
+            mail_id: メールID
+
+        Returns:
+            参加者タイプ別の情報を含む辞書
+        """
+        if self.db_manager is None:
+            return {"sender": [], "to": [], "cc": [], "bcc": []}
+
+        try:
+            # 全参加者情報を取得
+            query = """
+                SELECT 
+                    u.id,
+                    u.name, 
+                    u.email, 
+                    u.display_name,
+                    u.company,
+                    p.participant_type
+                FROM participants p
+                JOIN users u ON p.user_id = u.id
+                WHERE p.mail_id = ?
+                ORDER BY p.participant_type, u.name
+            """
+            results = self.db_manager.execute_query(query, (mail_id,))
+
+            # 参加者タイプ別に整理
+            participants = {"sender": [], "to": [], "cc": [], "bcc": []}
+
+            for participant in results:
+                participant_type = participant.get("participant_type", "to")
+
+                if participant_type not in participants:
+                    participants[participant_type] = []
+
+                participants[participant_type].append(
+                    {
+                        "id": participant.get("id"),
+                        "name": participant.get("name", ""),
+                        "email": participant.get("email", ""),
+                        "display_name": participant.get("display_name", ""),
+                        "company": participant.get("company", ""),
+                    }
+                )
+
+            return participants
+        except Exception as e:
+            logging.error(f"全参加者情報取得エラー: {e}")
+            return {"sender": [], "to": [], "cc": [], "bcc": []}
 
     def search_mails(self, search_term: str) -> List[Dict]:
         """メールを検索"""
@@ -129,25 +257,96 @@ class PreviewContentModel:
             search_pattern = f"%{search_term}%"
             query = """
                 SELECT 
-                    id as entry_id, 
-                    sender, 
+                    entry_id as id, 
                     subject, 
+                    body as content,
                     substr(body, 1, 100) as preview, 
-                    date, 
-                    unread
-                FROM items
+                    sent_time as date, 
+                    unread,
+                    folder_id,
+                    has_attachments
+                FROM mail_items
                 WHERE 
                     subject LIKE ? OR 
-                    sender LIKE ? OR 
                     body LIKE ?
-                ORDER BY date DESC
+                ORDER BY sent_time DESC
                 """
-            return self.db_manager.execute_query(
-                query, (search_pattern, search_pattern, search_pattern)
+            results = self.db_manager.execute_query(
+                query, (search_pattern, search_pattern)
             )
+
+            # データがなければ空リストを返す
+            if not results:
+                return []
+
+            # 結果を整形
+            formatted_mails = []
+            for mail in results:
+                # 送信者と受信者情報を取得
+                participant_info = self._get_mail_participants(mail["id"])
+                mail["sender"] = participant_info["sender"]
+                mail["recipient"] = participant_info["recipient"]
+
+                # フラグ状態
+                mail["flagged"] = False
+
+                # 添付ファイル情報を取得（has_attachmentsが1の場合のみ）
+                attachments = []
+                if mail.get("has_attachments", 0) == 1:
+                    attachment_query = """
+                        SELECT id, name, path
+                        FROM attachments
+                        WHERE mail_id = ?
+                        """
+                    attachment_results = self.db_manager.execute_query(
+                        attachment_query, (mail["id"],)
+                    )
+                    attachments = attachment_results if attachment_results else []
+
+                # 添付ファイル情報を設定
+                mail["attachments"] = attachments
+                formatted_mails.append(mail)
+
+            return formatted_mails
         except Exception as e:
             logging.error(f"メール検索エラー: {e}")
             return []
+
+    def get_ai_review_for_conversation(self, conversation_id: str) -> Optional[Dict]:
+        """会話グループのAIレビュー結果を取得
+
+        Args:
+            conversation_id: 会話ID
+
+        Returns:
+            AIレビュー結果を含む辞書（ない場合はNone）
+        """
+        if self.db_manager is None or not conversation_id:
+            return None
+
+        try:
+            query = """
+                SELECT result
+                FROM ai_reviews
+                WHERE conversation_id = ?
+                """
+            results = self.db_manager.execute_query(query, (conversation_id,))
+
+            if not results or not results[0].get("result"):
+                return None
+
+            # JSON文字列をPythonオブジェクトに変換
+            try:
+                result_json = results[0].get("result")
+                if isinstance(result_json, str):
+                    return json.loads(result_json)
+                return result_json
+            except json.JSONDecodeError as e:
+                logging.error(f"AIレビュー結果のJSON解析エラー: {e}")
+                return None
+        except Exception as e:
+            logging.error(f"AIレビュー取得エラー: {e}")
+            return None
 
     def get_mail_content(self, entry_id: str) -> Optional[Dict]:
         """メールの内容を取得"""
@@ -155,19 +354,62 @@ class PreviewContentModel:
             return None
 
         try:
+            # メール基本情報を取得
             query = """
                 SELECT 
-                    id, 
-                    sender, 
+                    entry_id as id, 
                     subject, 
                     body as content, 
-                    date, 
-                    unread
-                FROM items
-                WHERE id = ?
+                    sent_time as date, 
+                    unread,
+                    has_attachments,
+                    conversation_id
+                FROM mail_items
+                WHERE entry_id = ?
                 """
             results = self.db_manager.execute_query(query, (entry_id,))
-            return results[0] if results else None
+            if not results:
+                return None
+
+            mail = results[0]
+
+            # Markdownフラグを常にFalseに設定
+            mail["is_markdown"] = False
+
+            # 送信者と受信者情報を取得
+            participant_info = self._get_mail_participants(entry_id)
+            mail["sender"] = participant_info["sender"]
+            mail["recipient"] = participant_info["recipient"]
+
+            # 全参加者情報を取得
+            mail["participants"] = self._get_all_participants(entry_id)
+
+            # フラグ状態
+            mail["flagged"] = False
+
+            # 添付ファイル情報を取得（has_attachmentsが1の場合のみ）
+            attachments = []
+            if mail.get("has_attachments", 0) == 1:
+                attachment_query = """
+                    SELECT id, name, path
+                    FROM attachments
+                    WHERE mail_id = ?
+                    """
+                attachment_results = self.db_manager.execute_query(
+                    attachment_query, (entry_id,)
+                )
+                attachments = attachment_results if attachment_results else []
+
+            # 添付ファイル情報を設定
+            mail["attachments"] = attachments
+
+            # 会話IDがあれば、AIレビュー結果を取得
+            if mail.get("conversation_id"):
+                mail["ai_review"] = self.get_ai_review_for_conversation(
+                    mail["conversation_id"]
+                )
+
+            return mail
         except Exception as e:
             logging.error(f"メール内容取得エラー: {e}")
             return None
@@ -179,15 +421,115 @@ class PreviewContentModel:
 
         try:
             query = """
-                UPDATE items
+                UPDATE mail_items
                 SET unread = 0
-                WHERE id = ?
+                WHERE entry_id = ?
                 """
             self.db_manager.execute_update(query, (entry_id,))
             return True
         except Exception as e:
             logging.error(f"既読設定エラー: {e}")
             return False
+
+    def get_all_mails(self) -> List[Dict]:
+        """すべてのメールを取得"""
+        if self.db_manager is None:
+            return []
+
+        try:
+            # メール一覧情報を取得
+            query = """
+                SELECT 
+                    entry_id as id, 
+                    subject,
+                    body as content,
+                    substr(body, 1, 100) as preview, 
+                    sent_time as date,
+                    unread,
+                    folder_id,
+                    has_attachments,
+                    conversation_id
+                FROM mail_items
+                ORDER BY sent_time DESC
+                """
+            results = self.db_manager.execute_query(query)
+
+            # データがなければ空リストを返す
+            if not results:
+                return []
+
+            # 会話IDをキーにしてAIレビュー結果をまとめて取得
+            conversation_ids = set()
+            for mail in results:
+                if mail.get("conversation_id"):
+                    conversation_ids.add(mail["conversation_id"])
+
+            ai_reviews = {}
+            if conversation_ids:
+                placeholders = ", ".join(["?"] * len(conversation_ids))
+                ai_review_query = f"""
+                    SELECT conversation_id, result
+                    FROM ai_reviews
+                    WHERE conversation_id IN ({placeholders})
+                    """
+                ai_review_results = self.db_manager.execute_query(
+                    ai_review_query, tuple(conversation_ids)
+                )
+
+                for review in ai_review_results:
+                    conv_id = review.get("conversation_id")
+                    result = review.get("result")
+                    if conv_id and result:
+                        try:
+                            if isinstance(result, str):
+                                ai_reviews[conv_id] = json.loads(result)
+                            else:
+                                ai_reviews[conv_id] = result
+                        except json.JSONDecodeError:
+                            logging.warning(
+                                f"AIレビュー結果のJSON解析エラー: {conv_id}"
+                            )
+
+            # 結果を整形
+            formatted_mails = []
+            for mail in results:
+                # 送信者と受信者情報を取得
+                participant_info = self._get_mail_participants(mail["id"])
+                mail["sender"] = participant_info["sender"]
+                mail["recipient"] = participant_info["recipient"]
+
+                # フラグ状態
+                mail["flagged"] = False
+
+                # 添付ファイル情報を取得（has_attachmentsが1の場合のみ）
+                attachments = []
+                if mail.get("has_attachments", 0) == 1:
+                    attachment_query = """
+                        SELECT id, name, path
+                        FROM attachments
+                        WHERE mail_id = ?
+                        """
+                    attachment_results = self.db_manager.execute_query(
+                        attachment_query, (mail["id"],)
+                    )
+                    attachments = attachment_results if attachment_results else []
+
+                # 添付ファイル情報を設定
+                mail["attachments"] = attachments
+
+                # AIレビュー結果を設定
+                if (
+                    mail.get("conversation_id")
+                    and mail["conversation_id"] in ai_reviews
+                ):
+                    mail["ai_review"] = ai_reviews[mail["conversation_id"]]
+
+                formatted_mails.append(mail)
+
+            return formatted_mails
+        except Exception as e:
+            logging.error(f"すべてのメール取得エラー: {e}")
+            return []
 
     def close(self):
         """データベース接続を閉じる"""

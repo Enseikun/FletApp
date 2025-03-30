@@ -29,7 +29,6 @@ CREATE TABLE IF NOT EXISTS outlook_snapshot (
     
     -- 制約
     FOREIGN KEY (parent_folder_id) REFERENCES outlook_snapshot(entry_id),
-    FOREIGN KEY (store_id) REFERENCES accounts(store_id),
     UNIQUE (store_id, entry_id)
 );
 
@@ -37,8 +36,8 @@ CREATE TABLE IF NOT EXISTS outlook_snapshot (
 CREATE TABLE IF NOT EXISTS mail_items (
     -- メタデータ
     entry_id TEXT PRIMARY KEY,
-    store_id TEXT NOT NULL,
-    folder_id TEXT NOT NULL,
+    store_id TEXT,
+    folder_id TEXT NOT NULL, -- from_folder_id を所与、使わない
     conversation_id TEXT, -- OutlookのConversationID
     thread_id TEXT, -- このアプリケーションで付与
     message_type TEXT CHECK (message_type IN ('email', 'meeting', 'task')),
@@ -46,6 +45,9 @@ CREATE TABLE IF NOT EXISTS mail_items (
     parent_folder_name TEXT, -- 自身が添付ファイルの場合, 元メッセージのフォルダ名
     message_size INTEGER DEFAULT 0,
     unread INTEGER DEFAULT 0,
+    task_id TEXT, -- 関連するタスクID
+    has_attachments INTEGER DEFAULT 0, -- 添付ファイルの有無（0=なし、1=あり）
+    attachment_count INTEGER DEFAULT 0, -- 添付ファイルの個数
 
     -- メッセージヘッダー
     subject TEXT NOT NULL,
@@ -72,9 +74,7 @@ CREATE TABLE IF NOT EXISTS mail_items (
     
     -- 制約
     FOREIGN KEY (parent_entry_id) REFERENCES mail_items(entry_id),
-    FOREIGN KEY (store_id) REFERENCES accounts(store_id),
-    FOREIGN KEY (folder_id) REFERENCES outlook_snapshot(entry_id),
-    UNIQUE (store_id, entry_id)
+    FOREIGN KEY (folder_id) REFERENCES outlook_snapshot(entry_id)
 );
 
 -- ユーザー情報
@@ -145,8 +145,8 @@ CREATE TABLE IF NOT EXISTS chat_view (
 CREATE TABLE IF NOT EXISTS mail_tasks (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     task_id TEXT NOT NULL,  -- task_infoのidを参照
-    message_id TEXT NOT NULL,
-    mail_id TEXT UNIQUE,    -- 処理後に設定されるメールID
+    message_id TEXT NOT NULL, -- 未完遂プロセスの仮ID（mail_itemsのentry_id）
+    mail_id TEXT UNIQUE,    -- 処理完了後に合格の証として付与されるメールID（mail_itemsのentry_id）
     
     -- メール情報
     subject TEXT,
@@ -253,7 +253,6 @@ CREATE TABLE IF NOT EXISTS extraction_conditions (
         datetime(created_at) IS NOT NULL AND
         created_at LIKE '____-__-__ __:__:__'
     ),
-    FOREIGN KEY (task_id) REFERENCES task_info(id),
     FOREIGN KEY (from_folder_id) REFERENCES outlook_snapshot(entry_id)
 );
 
@@ -327,11 +326,13 @@ BEGIN
     INSERT INTO task_progress (
         task_id, 
         total_messages, 
-        status
+        status,
+        last_updated_at
     ) VALUES (
         NEW.task_id,
         (SELECT COUNT(*) FROM mail_tasks WHERE task_id = NEW.task_id),
-        'pending'
+        'pending',
+        CURRENT_TIMESTAMP
     );
 END;
 
@@ -342,8 +343,48 @@ BEGIN
     UPDATE mail_tasks
     SET mail_id = (
         SELECT entry_id FROM mail_items 
-        WHERE task_id = NEW.task_id 
+        WHERE entry_id = NEW.message_id
         ORDER BY processed_at DESC LIMIT 1
     )
     WHERE id = NEW.id;
 END;
+
+-- GUARDIAN処理タイプのメールがエラーになった場合は特殊処理を行うトリガー
+-- 注意: mail_tasksテーブルにprocess_typeカラムがないため一時的に無効化
+/*
+CREATE TRIGGER IF NOT EXISTS handle_guardian_mail_error AFTER UPDATE ON mail_tasks
+WHEN NEW.mail_fetch_status = 'error' AND OLD.mail_fetch_status != 'error' AND NEW.process_type = 'GUARDIAN'
+BEGIN
+    UPDATE mail_tasks
+    SET 
+        mail_fetch_status = 'success',
+        status = 'completed',
+        error_message = 'GUARDIANタイプのため自動成功扱い',
+        completed_at = CURRENT_TIMESTAMP
+    WHERE id = NEW.id;
+END;
+*/
+
+-- process_typeを同期させるトリガー（mail_itemsのprocess_type更新時）
+-- 注意: mail_tasksテーブルにprocess_typeカラムがないため一時的に無効化
+/*
+CREATE TRIGGER IF NOT EXISTS sync_process_type_on_mail_items_update AFTER UPDATE ON mail_items
+WHEN NEW.process_type IS NOT NULL AND (OLD.process_type IS NULL OR NEW.process_type != OLD.process_type)
+BEGIN
+    UPDATE mail_tasks
+    SET process_type = NEW.process_type
+    WHERE message_id = NEW.entry_id;
+END;
+*/
+
+-- process_typeを同期させるトリガー（mail_items挿入時）
+-- 注意: mail_tasksテーブルにprocess_typeカラムがないため一時的に無効化
+/*
+CREATE TRIGGER IF NOT EXISTS sync_process_type_on_mail_items_insert AFTER INSERT ON mail_items
+WHEN NEW.process_type IS NOT NULL
+BEGIN
+    UPDATE mail_tasks
+    SET process_type = NEW.process_type
+    WHERE message_id = NEW.entry_id;
+END;
+*/

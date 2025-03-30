@@ -557,13 +557,20 @@ class PreviewContentModel:
             return False
 
         try:
+            logging.info(
+                f"===== 添付ファイルダウンロード開始 - ファイルID: {file_id} ====="
+            )
+            logging.info(f"タスクID: {self.task_id}")
+
             # 添付ファイル情報を取得
             query = """
                 SELECT a.id, a.name, a.path, a.mail_id
                 FROM attachments a
                 WHERE a.id = ?
                 """
+            logging.info(f"クエリ実行: {query} - パラメータ: {file_id}")
             results = self.db_manager.execute_query(query, (file_id,))
+            logging.info(f"クエリ結果: {results}")
 
             if not results:
                 logging.error(f"添付ファイルが見つかりません: {file_id}")
@@ -572,9 +579,32 @@ class PreviewContentModel:
             attachment = results[0]
             source_path = attachment.get("path")
             mail_id = attachment.get("mail_id")
+            file_name = attachment.get("name")
 
-            if not source_path or not os.path.exists(source_path):
+            logging.info(f"取得した添付ファイル情報:")
+            logging.info(f"  ID: {attachment.get('id')}")
+            logging.info(f"  名前: {file_name}")
+            logging.info(f"  パス: {source_path}")
+            logging.info(f"  メールID: {mail_id}")
+
+            # ソースパスの検証
+            if not source_path:
+                logging.error(f"添付ファイルのパスが設定されていません: {file_id}")
+                return False
+
+            if not os.path.exists(source_path):
                 logging.error(f"添付ファイルのパスが無効です: {source_path}")
+                # ファイルの存在確認
+                if os.path.isdir(os.path.dirname(source_path)):
+                    logging.info(
+                        f"ディレクトリは存在します: {os.path.dirname(source_path)}"
+                    )
+                    dir_contents = os.listdir(os.path.dirname(source_path))
+                    logging.info(f"ディレクトリ内容: {dir_contents}")
+                else:
+                    logging.error(
+                        f"ディレクトリが存在しません: {os.path.dirname(source_path)}"
+                    )
                 return False
 
             if not mail_id:
@@ -590,44 +620,86 @@ class PreviewContentModel:
             # 指定されたディレクトリ構造に保存
             download_dir = os.path.join("data", "tasks", self.task_id, mail_id)
             downloads_path = Path(download_dir)
+            logging.info(f"保存先ディレクトリ: {download_dir}")
+            logging.info(f"絶対パス: {os.path.abspath(download_dir)}")
 
             # ダウンロードディレクトリの存在確認、なければ作成
-            if not downloads_path.exists():
-                os.makedirs(download_dir, exist_ok=True)
-                logging.info(f"ダウンロードディレクトリを作成しました: {download_dir}")
+            try:
+                if not downloads_path.exists():
+                    os.makedirs(download_dir, exist_ok=True)
+                    logging.info(
+                        f"ダウンロードディレクトリを作成しました: {download_dir}"
+                    )
+                else:
+                    logging.info(
+                        f"ダウンロードディレクトリは既に存在します: {download_dir}"
+                    )
+
+                # ディレクトリの権限を確認
+                logging.info(
+                    f"ディレクトリの権限: {oct(os.stat(download_dir).st_mode)[-3:]}"
+                )
+            except Exception as e:
+                logging.error(f"ディレクトリ作成エラー: {str(e)}")
+                return False
 
             # ファイル名を取得
-            file_name = attachment.get("name")
             target_path = os.path.join(download_dir, file_name)
+            logging.info(f"保存先ファイルパス: {target_path}")
 
             # ファイルが既に存在する場合は別名で保存
-            if os.path.exists(target_path):
-                base_name, ext = os.path.splitext(file_name)
-                counter = 1
-                while os.path.exists(target_path):
-                    new_file_name = f"{base_name}_{counter}{ext}"
-                    target_path = os.path.join(download_dir, new_file_name)
-                    counter += 1
-                logging.info(
-                    f"ファイル名競合回避: {file_name} -> {os.path.basename(target_path)}"
-                )
+            try:
+                if os.path.exists(target_path):
+                    base_name, ext = os.path.splitext(file_name)
+                    counter = 1
+                    while os.path.exists(target_path):
+                        new_file_name = f"{base_name}_{counter}{ext}"
+                        target_path = os.path.join(download_dir, new_file_name)
+                        counter += 1
+                    logging.info(
+                        f"ファイル名競合回避: {file_name} -> {os.path.basename(target_path)}"
+                    )
+            except Exception as e:
+                logging.error(f"ファイル名競合処理エラー: {str(e)}")
+                return False
 
             # ファイルをコピー
-            shutil.copy2(source_path, target_path)
+            try:
+                logging.info(f"ファイルコピー開始: {source_path} -> {target_path}")
+                shutil.copy2(source_path, target_path)
+                logging.info(f"ファイルコピー完了")
+            except Exception as e:
+                logging.error(f"ファイルコピーエラー: {str(e)}")
+                return False
 
             # コピー成功を確認
             if os.path.exists(target_path):
-                logging.info(f"添付ファイルをダウンロードしました: {target_path}")
+                file_size = os.path.getsize(target_path)
+                logging.info(
+                    f"添付ファイルをダウンロードしました: {target_path} (サイズ: {file_size} バイト)"
+                )
 
                 # 保存したパスをDBに更新
-                update_query = """
-                    UPDATE attachments
-                    SET path = ?
-                    WHERE id = ?
-                """
-                self.db_manager.execute_update(update_query, (target_path, file_id))
-                logging.info(f"添付ファイルの保存パスをDBに更新しました: {target_path}")
+                try:
+                    update_query = """
+                        UPDATE attachments
+                        SET path = ?
+                        WHERE id = ?
+                    """
+                    logging.info(
+                        f"DB更新クエリ: {update_query} - パラメータ: {target_path}, {file_id}"
+                    )
+                    self.db_manager.execute_update(update_query, (target_path, file_id))
+                    logging.info(
+                        f"添付ファイルの保存パスをDBに更新しました: {target_path}"
+                    )
+                except Exception as e:
+                    logging.error(f"DB更新エラー: {str(e)}")
+                    return False
 
+                logging.info(
+                    f"===== 添付ファイルダウンロード完了 - ファイルID: {file_id} ====="
+                )
                 return True
             else:
                 logging.error(
@@ -636,5 +708,8 @@ class PreviewContentModel:
                 return False
 
         except Exception as e:
+            import traceback
+
             logging.error(f"添付ファイルのダウンロードに失敗: {str(e)}")
+            logging.error(traceback.format_exc())
             return False

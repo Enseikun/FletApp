@@ -58,6 +58,36 @@ class OutlookExtractionService:
             items_db_path = f"data/tasks/{self.task_id}/items.db"
             self.items_db = DatabaseManager(items_db_path)
 
+            # hash_mappingテーブルの存在確認、なければ作成
+            try:
+                check_table_query = """
+                SELECT name FROM sqlite_master WHERE type='table' AND name='hash_mapping'
+                """
+                table_exists = self.items_db.execute_query(check_table_query)
+
+                if not table_exists:
+                    self.logger.info("hash_mappingテーブルを作成します")
+                    create_table_query = """
+                    CREATE TABLE hash_mapping (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        original_id TEXT NOT NULL,
+                        hash_value TEXT NOT NULL,
+                        type TEXT NOT NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                    """
+                    self.items_db.execute_update(create_table_query)
+
+                    # インデックスの作成
+                    create_index_query = """
+                    CREATE INDEX idx_hash_mapping_original_id ON hash_mapping(original_id);
+                    CREATE INDEX idx_hash_mapping_hash_value ON hash_mapping(hash_value);
+                    """
+                    self.items_db.execute_update(create_index_query)
+                    self.logger.info("hash_mappingテーブルを作成しました")
+            except Exception as e:
+                self.logger.warning(f"hash_mappingテーブルの確認/作成に失敗: {str(e)}")
+
             # outlook.dbの接続
             outlook_db_path = "data/outlook.db"
             self.outlook_db = DatabaseManager(outlook_db_path)
@@ -764,8 +794,13 @@ class OutlookExtractionService:
                         task_id, "processing", attachment_status="processing"
                     )
 
+                    # EntryIDをハッシュ値に変換してパス長を短縮
+                    import hashlib
+
+                    mail_id_hash = hashlib.md5(mail_id.encode()).hexdigest()
+
                     # 添付ファイル保存先ディレクトリ
-                    save_path = f"data/tasks/{self.task_id}/attachments/{mail_id}"
+                    save_path = f"data/tasks/{self.task_id}/attachments/{mail_id_hash}"
 
                     # メールアイテムが添付ファイルを持っているか確認
                     has_attachments_query = """
@@ -806,6 +841,21 @@ class OutlookExtractionService:
                         self._update_mail_task_status(
                             task_id, "processing", attachment_status="not_required"
                         )
+
+                    # ハッシュ値と元のEntryIDのマッピングをデータベースに保存
+                    try:
+                        mapping_query = """
+                        INSERT OR REPLACE INTO hash_mapping (original_id, hash_value, type)
+                        VALUES (?, ?, 'attachment_path')
+                        """
+                        self.items_db.execute_update(
+                            mapping_query, (mail_id, mail_id_hash)
+                        )
+                        self.logger.info(
+                            f"EntryIDとハッシュ値のマッピングを保存しました: {mail_id} -> {mail_id_hash}"
+                        )
+                    except Exception as e:
+                        self.logger.warning(f"マッピング情報の保存に失敗: {str(e)}")
 
             return True
 
@@ -1382,9 +1432,14 @@ class OutlookExtractionService:
             return True
 
         try:
+            # EntryIDをハッシュ値に変換してパス長を短縮
+            import hashlib
+
+            entry_id_hash = hashlib.md5(mail_data["entry_id"].encode()).hexdigest()
+
             # 添付ファイル保存先ディレクトリを作成
             save_dir = os.path.join(
-                "data", "tasks", self.task_id, "attachments", mail_data["entry_id"]
+                "data", "tasks", self.task_id, "attachments", entry_id_hash
             )
             os.makedirs(save_dir, exist_ok=True)
             self.logger.info(
@@ -1627,6 +1682,21 @@ class OutlookExtractionService:
                 self._update_mail_task_status(
                     task_id, "processing", attachment_status=attachment_status
                 )
+
+            # ハッシュ値と元のEntryIDのマッピングをデータベースに保存
+            try:
+                mapping_query = """
+                INSERT OR REPLACE INTO hash_mapping (original_id, hash_value, type)
+                VALUES (?, ?, 'attachment_path')
+                """
+                self.items_db.execute_update(
+                    mapping_query, (mail_data["entry_id"], entry_id_hash)
+                )
+                self.logger.info(
+                    f"EntryIDとハッシュ値のマッピングを保存しました: {mail_data['entry_id']} -> {entry_id_hash}"
+                )
+            except Exception as e:
+                self.logger.warning(f"マッピング情報の保存に失敗: {str(e)}")
 
             # 実際に処理した添付ファイルの数がデータベースに保存されている数と異なる場合は更新
             if processed_count != mail_data.get("attachment_count", 0):

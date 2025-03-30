@@ -256,6 +256,18 @@ CREATE TABLE IF NOT EXISTS extraction_conditions (
     FOREIGN KEY (from_folder_id) REFERENCES outlook_snapshot(entry_id)
 );
 
+-- EntryIDとハッシュ値のマッピングテーブル
+CREATE TABLE IF NOT EXISTS hash_mapping (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    original_id TEXT NOT NULL,  -- 元のEntryID
+    hash_value TEXT NOT NULL,   -- ハッシュ化された値
+    type TEXT NOT NULL,         -- マッピングの種類（例: 'attachment_path'）
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP CHECK (
+        datetime(created_at) IS NOT NULL AND
+        created_at LIKE '____-__-__ __:__:__'
+    )
+);
+
 -- インデックス
 CREATE INDEX IF NOT EXISTS idx_outlook_snapshot_store ON outlook_snapshot(store_id);
 CREATE INDEX IF NOT EXISTS idx_outlook_snapshot_parent ON outlook_snapshot(parent_folder_id);
@@ -280,6 +292,8 @@ CREATE INDEX IF NOT EXISTS idx_mail_tasks_attachment ON mail_tasks(attachment_st
 CREATE INDEX IF NOT EXISTS idx_mail_tasks_ai_review ON mail_tasks(ai_review_status);
 CREATE INDEX IF NOT EXISTS idx_extraction_conditions_folder ON extraction_conditions(from_folder_id);
 CREATE INDEX IF NOT EXISTS idx_extraction_conditions_dates ON extraction_conditions(start_date, end_date);
+CREATE INDEX IF NOT EXISTS idx_hash_mapping_original_id ON hash_mapping(original_id);
+CREATE INDEX IF NOT EXISTS idx_hash_mapping_hash_value ON hash_mapping(hash_value);
 
 -- フォルダのitem_count更新用トリガー
 CREATE TRIGGER IF NOT EXISTS update_folder_item_count_insert AFTER INSERT ON mail_items

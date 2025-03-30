@@ -35,7 +35,15 @@ class HomeViewModel:
 
         # メインViewModelに選択されたタスクIDを設定
         if self.main_viewmodel:
-            self.main_viewmodel.set_current_task_id(task_id)
+            # content_viewmodelにタスクIDを設定し、成功したかどうかを確認
+            success = self.content_viewmodel.set_current_task_id(task_id)
+
+            if not success:
+                # エラーがあった場合は画面遷移をしない
+                print(
+                    f"HomeViewModel.select_task: タスク選択処理に失敗しました - {task_id}"
+                )
+                return False
 
             # main_viewmodelがMainContentsViewModelの場合、そのmain_viewmodelプロパティを使用
             if (
@@ -45,10 +53,13 @@ class HomeViewModel:
                 self.main_viewmodel.main_viewmodel.set_current_task_id(task_id)
                 # プレビュー画面に遷移
                 self.main_viewmodel.main_viewmodel.set_destination("preview")
-                return
+                return True
 
             # 通常のMainViewModelの場合
             self.main_viewmodel.set_destination("preview")
+            return True
+
+        return False
 
     def delete_task(self, task_id):
         """タスクを削除する"""

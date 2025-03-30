@@ -52,31 +52,80 @@ class HomeContentViewModel:
             self.logger.error("HomeContentViewModel: タスク削除失敗", task_id=task_id)
         return result
 
-    def set_current_task_id(self, task_id: str) -> None:
+    def set_current_task_id(self, task_id: str) -> bool:
         """
         現在選択されているタスクIDを設定する
 
         Args:
             task_id: 設定するタスクID
+
+        Returns:
+            bool: 処理が成功したかどうか
         """
         self.current_task_id = task_id
         self.logger.info("HomeContentViewModel: 現在のタスクIDを設定", task_id=task_id)
 
+        success = True
+
         # スナップショットを作成
         if task_id:
-            success = self.create_outlook_snapshot(task_id)
-            if not success:
-                self.logger.error(
-                    "HomeContentViewModel: スナップショットの作成に失敗しました",
-                    task_id=task_id,
+            # スナップショットと抽出計画の状態を確認
+            status = self.check_snapshot_and_extraction_plan(task_id)
+
+            # スナップショットが存在しない場合は作成
+            if not status["has_snapshot"]:
+                self.logger.info(
+                    f"HomeContentViewModel: スナップショットが存在しないため作成します - {task_id}"
+                )
+                snapshot_success = self.create_outlook_snapshot(task_id)
+                if not snapshot_success:
+                    self.logger.error(
+                        "HomeContentViewModel: スナップショットの作成に失敗しました",
+                        task_id=task_id,
+                    )
+                    success = False
+                    return success  # スナップショットの作成に失敗した場合は処理を中止
+
+            # スナップショットが存在し、抽出計画が存在しないか、または抽出が完了していない場合はメール抽出を開始
+            if status["has_snapshot"] and (
+                not status["has_extraction_plan"]
+                or (
+                    not status["extraction_in_progress"]
+                    and not status["extraction_completed"]
+                )
+            ):
+                self.logger.info(
+                    f"HomeContentViewModel: メール抽出を開始します - {task_id}"
+                )
+                extraction_success = self.start_mail_extraction(task_id)
+                if not extraction_success:
+                    self.logger.error(
+                        "HomeContentViewModel: メール抽出の開始に失敗しました",
+                        task_id=task_id,
+                    )
+                    success = False
+                else:
+                    self.logger.info(
+                        "HomeContentViewModel: メール抽出を開始しました",
+                        task_id=task_id,
+                    )
+            elif status["extraction_in_progress"]:
+                self.logger.info(
+                    f"HomeContentViewModel: メール抽出は既に進行中です - {task_id}"
+                )
+            elif status["extraction_completed"]:
+                self.logger.info(
+                    f"HomeContentViewModel: メール抽出は既に完了しています - {task_id}"
                 )
 
         # MainViewModelが設定されている場合、そちらにも通知する
-        if self.main_viewmodel:
+        if self.main_viewmodel and success:
             self.main_viewmodel.set_current_task_id(task_id)
             self.logger.debug(
                 "HomeContentViewModel: MainViewModelにタスクIDを設定", task_id=task_id
             )
+
+        return success
 
     def get_current_task_id(self) -> str:
         """
@@ -117,6 +166,28 @@ class HomeContentViewModel:
             )
         return result
 
+    def check_snapshot_and_extraction_plan(self, task_id: str) -> Dict[str, bool]:
+        """
+        スナップショットと抽出計画の存在を確認する
+
+        Args:
+            task_id: タスクID
+
+        Returns:
+            Dict[str, bool]: スナップショットと抽出計画の存在状況
+        """
+        self.logger.info(
+            "HomeContentViewModel: スナップショットと抽出計画の確認開始",
+            task_id=task_id,
+        )
+        result = self.model.check_snapshot_and_extraction_plan(task_id)
+        self.logger.info(
+            "HomeContentViewModel: スナップショットと抽出計画の確認完了",
+            task_id=task_id,
+            result=result,
+        )
+        return result
+
     def create_outlook_snapshot(self, task_id: str) -> bool:
         """
         outlook.dbのfoldersテーブルの状態をitems.dbのoutlook_snapshotテーブルに記録する
@@ -138,5 +209,27 @@ class HomeContentViewModel:
         else:
             self.logger.error(
                 "HomeContentViewModel: Outlookスナップショット作成失敗", task_id=task_id
+            )
+        return result
+
+    def start_mail_extraction(self, task_id: str) -> bool:
+        """
+        メール抽出作業を開始する
+
+        Args:
+            task_id: タスクID
+
+        Returns:
+            bool: 開始が成功したかどうか
+        """
+        self.logger.info("HomeContentViewModel: メール抽出開始", task_id=task_id)
+        result = self.model.start_mail_extraction(task_id)
+        if result:
+            self.logger.info(
+                "HomeContentViewModel: メール抽出開始成功", task_id=task_id
+            )
+        else:
+            self.logger.error(
+                "HomeContentViewModel: メール抽出開始失敗", task_id=task_id
             )
         return result

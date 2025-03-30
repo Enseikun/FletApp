@@ -5,6 +5,13 @@ Outlookメールアイテム管理モデル
 - メールアイテムのデータ取得
 - 添付ファイルの取得と保存
 - 参加者情報の取得
+- メールアイテムの基本的な操作
+
+主なメソッド:
+- get_mail_items: メールアイテムの取得
+- get_attachments: 添付ファイル情報の取得
+- save_attachment: 添付ファイルの保存
+- get_participants: 参加者情報の取得
 """
 
 from datetime import datetime
@@ -275,3 +282,58 @@ class OutlookItemModel(OutlookBaseModel):
             self.logger.error(f"チャンクサイズの計算に失敗しました: {e}")
             # エラー時は安全なデフォルト値を返す
             return 25
+
+    def process_attachments(
+        self, mail_id: str, item: Dict[str, Any], save_path: str
+    ) -> bool:
+        """
+        添付ファイルを処理する
+
+        Args:
+            mail_id: メールID
+            item: メールアイテム
+            save_path: 保存先パス
+
+        Returns:
+            bool: 処理が成功したかどうか
+        """
+        try:
+            if not get_safe(item, "HasAttachments", False):
+                return True
+
+            attachments = self.get_attachments(mail_id)
+            for attachment in attachments:
+                if self.save_attachment(attachment, save_path):
+                    self.logger.info(
+                        f"添付ファイルを保存しました: {get_safe(attachment, 'FileName')}"
+                    )
+
+            return True
+        except Exception as e:
+            self.logger.error(f"添付ファイルの処理に失敗しました: {e}")
+            return False
+
+    def save_participants(self, mail_id: str, item: Dict[str, Any]) -> bool:
+        """
+        参加者情報を保存する
+
+        Args:
+            mail_id: メールID
+            item: メールアイテム
+
+        Returns:
+            bool: 保存が成功したかどうか
+        """
+        try:
+            participants = self.get_participants(mail_id)
+            if not participants:
+                self.logger.warning(f"参加者情報が見つかりませんでした: {mail_id}")
+                return True
+
+            self.logger.info(
+                f"参加者情報を取得しました: {len(participants)}件", mail_id=mail_id
+            )
+            return True
+        except Exception as e:
+            self.logger.error(f"参加者情報の保存に失敗しました: {e}")
+            return False

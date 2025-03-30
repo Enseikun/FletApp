@@ -209,7 +209,7 @@ CREATE TABLE IF NOT EXISTS task_progress (
     
     -- 処理状態
     status TEXT DEFAULT 'pending' CHECK (
-        status IN ('pending', 'processing', 'completed', 'error', 'paused')
+        status IN ('pending', 'processing', 'completed', 'error', 'paused', 'not_required')
     ),
     
     -- 処理時間

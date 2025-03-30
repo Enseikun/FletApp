@@ -5,8 +5,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from src.core.database import DatabaseManager
 from src.core.logger import get_logger
-from src.models.outlook.mail_processing_manager import MailProcessingManager
-from src.models.outlook.outlook_item_model import OutlookItemModel
+from src.models.outlook.outlook_extraction_service import OutlookExtractionService
 from src.util.object_util import get_safe
 
 
@@ -162,6 +161,78 @@ class HomeContentModel:
             self.logger.error(f"タスク削除エラー: {str(e)}")
             return False
 
+    def check_snapshot_and_extraction_plan(self, task_id: str) -> Dict[str, bool]:
+        """
+        スナップショットと抽出計画の存在を確認する
+
+        Args:
+            task_id: タスクID
+
+        Returns:
+            Dict[str, bool]: スナップショットと抽出計画の存在状況
+        """
+        result = {
+            "has_snapshot": False,
+            "has_extraction_plan": False,
+            "extraction_in_progress": False,
+            "extraction_completed": False,
+        }
+
+        try:
+            # items.dbに接続
+            items_db_path = os.path.join("data", "tasks", str(task_id), "items.db")
+            if not os.path.exists(items_db_path):
+                self.logger.warning(
+                    f"HomeContentModel: items.dbが見つかりません - {items_db_path}"
+                )
+                return result
+
+            items_db = DatabaseManager(items_db_path)
+
+            # スナップショットの存在確認
+            snapshot_query = "SELECT COUNT(*) as count FROM outlook_snapshot"
+            snapshot_result = items_db.execute_query(snapshot_query)
+            if snapshot_result and snapshot_result[0].get("count", 0) > 0:
+                result["has_snapshot"] = True
+
+            # 抽出計画の存在確認
+            plan_query = "SELECT COUNT(*) as count FROM mail_tasks WHERE task_id = ?"
+            plan_result = items_db.execute_query(plan_query, (task_id,))
+            if plan_result and plan_result[0].get("count", 0) > 0:
+                result["has_extraction_plan"] = True
+
+            # 抽出進捗の確認
+            progress_query = """
+            SELECT status FROM task_progress 
+            WHERE task_id = ? 
+            ORDER BY last_updated_at DESC LIMIT 1
+            """
+            progress_result = items_db.execute_query(progress_query, (task_id,))
+
+            if progress_result:
+                status = progress_result[0].get("status")
+                if status == "processing":
+                    result["extraction_in_progress"] = True
+                elif status == "completed":
+                    result["extraction_completed"] = True
+
+            items_db.disconnect()
+
+            self.logger.info(
+                "HomeContentModel: スナップショットと抽出計画の確認完了",
+                task_id=task_id,
+                result=result,
+            )
+            return result
+
+        except Exception as e:
+            self.logger.error(
+                "HomeContentModel: スナップショットと抽出計画の確認エラー",
+                task_id=task_id,
+                error=str(e),
+            )
+            return result
+
     def create_outlook_snapshot(self, task_id: str) -> bool:
         """
         outlook.dbのfoldersテーブルの状態をitems.dbのoutlook_snapshotテーブルに記録する
@@ -172,78 +243,32 @@ class HomeContentModel:
         Returns:
             bool: 記録が成功したかどうか
         """
-        outlook_db = None
-        items_db = None
         try:
-            self.logger.info(
-                "HomeContentModel: Outlookスナップショット作成開始", task_id=task_id
-            )
+            # OutlookExtractionServiceを使用してスナップショットを作成
+            extraction_service = OutlookExtractionService(task_id)
 
-            # outlook.dbのパスを設定
-            outlook_db_path = os.path.join("data", "outlook.db")
-            outlook_db = DatabaseManager(outlook_db_path)
-
-            # items.dbのパスを設定
-            items_db_path = os.path.join("data", "tasks", str(task_id), "items.db")
-            items_db = DatabaseManager(items_db_path)
-
-            # トランザクション開始
-            items_db.execute_update("BEGIN TRANSACTION")
-            outlook_db.execute_update("BEGIN TRANSACTION")
+            # 初期化に失敗した場合
+            if not extraction_service.initialize():
+                self.logger.error(
+                    "HomeContentModel: OutlookExtractionServiceの初期化に失敗しました",
+                    task_id=task_id,
+                )
+                return False
 
             try:
-                # outlook.dbからfoldersテーブルのデータを取得
-                folders_data = outlook_db.execute_query("SELECT * FROM folders")
-
-                # outlook_snapshotテーブルにデータを挿入
-                for folder in folders_data:
-                    query = """
-                    INSERT INTO outlook_snapshot (
-                        entry_id, store_id, name, path, parent_folder_id,
-                        folder_type, folder_class, item_count, unread_count,
-                        snapshot_time
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-                    """
-                    params = (
-                        get_safe(folder, "entry_id"),
-                        get_safe(folder, "store_id"),
-                        get_safe(folder, "name"),
-                        get_safe(folder, "path"),
-                        get_safe(folder, "parent_folder_id"),
-                        get_safe(folder, "folder_type"),  # オプショナルなフィールド
-                        get_safe(folder, "folder_class"),  # オプショナルなフィールド
-                        get_safe(folder, "item_count"),
-                        get_safe(folder, "unread_count"),
-                    )
-                    items_db.execute_update(query, params)
-
-                # 抽出計画を記録
-                success = self._create_extraction_plan(task_id, items_db, outlook_db)
-
-                if success:
-                    # トランザクションをコミット
-                    items_db.execute_update("COMMIT")
-                    outlook_db.execute_update("COMMIT")
-                    self.logger.info(
-                        "HomeContentModel: Outlookスナップショット作成成功",
-                        task_id=task_id,
-                    )
-                else:
-                    # 抽出計画作成失敗時はロールバック
-                    items_db.execute_update("ROLLBACK")
-                    outlook_db.execute_update("ROLLBACK")
-                    self.logger.error(
-                        "HomeContentModel: 抽出計画の作成に失敗しました",
-                        task_id=task_id,
-                    )
-
+                # スナップショット作成を実行
+                success = extraction_service.create_snapshot()
                 return success
-
             except Exception as e:
-                # エラー時はトランザクションをロールバック
-                items_db.execute_update("ROLLBACK")
-                outlook_db.execute_update("ROLLBACK")
-                raise e
+                self.logger.error(
+                    "HomeContentModel: スナップショット作成中にエラーが発生しました",
+                    task_id=task_id,
+                    error=str(e),
+                )
+                return False
+            finally:
+                # 必ずリソースを解放
+                extraction_service.cleanup()
 
         except Exception as e:
             self.logger.error(
@@ -253,12 +278,66 @@ class HomeContentModel:
             )
             return False
 
-        finally:
-            # データベース接続を確実に閉じる
-            if outlook_db:
-                outlook_db.disconnect()
-            if items_db:
-                items_db.disconnect()
+    def start_mail_extraction(self, task_id: str) -> bool:
+        """
+        メール抽出作業を開始する
+
+        Args:
+            task_id: タスクID
+
+        Returns:
+            bool: 開始が成功したかどうか
+        """
+        try:
+            # まずスナップショットと抽出計画の状態を確認
+            status = self.check_snapshot_and_extraction_plan(task_id)
+
+            # OutlookExtractionServiceを使用して抽出を開始
+            extraction_service = OutlookExtractionService(task_id)
+
+            # 初期化に失敗した場合
+            if not extraction_service.initialize():
+                self.logger.error(
+                    "HomeContentModel: OutlookExtractionServiceの初期化に失敗しました",
+                    task_id=task_id,
+                )
+                return False
+
+            try:
+                # 既に抽出が完了している場合は成功として返す
+                if status["extraction_completed"]:
+                    self.logger.info(
+                        "HomeContentModel: メール抽出は既に完了しています",
+                        task_id=task_id,
+                    )
+                    return True
+
+                # 抽出が進行中の場合も成功として返す
+                if status["extraction_in_progress"]:
+                    self.logger.info(
+                        "HomeContentModel: メール抽出は既に進行中です", task_id=task_id
+                    )
+                    return True
+
+                # 抽出作業を開始
+                success = extraction_service.start_extraction()
+                return success
+            except Exception as e:
+                self.logger.error(
+                    "HomeContentModel: メール抽出作業中にエラーが発生しました",
+                    task_id=task_id,
+                    error=str(e),
+                )
+                return False
+            finally:
+                # 必ずリソースを解放
+                extraction_service.cleanup()
+
+        except Exception as e:
+            self.logger.error(
+                "HomeContentModel: メール抽出作業エラー", task_id=task_id, error=str(e)
+            )
+            return False
 
     def _create_extraction_plan(
         self, task_id: str, items_db: DatabaseManager, outlook_db: DatabaseManager
@@ -381,218 +460,3 @@ class HomeContentModel:
                 "HomeContentModel: 抽出計画作成エラー", task_id=task_id, error=str(e)
             )
             return False
-
-    def start_mail_extraction(self, task_id: str) -> bool:
-        """
-        メール抽出作業を開始する
-
-        Args:
-            task_id: タスクID
-
-        Returns:
-            bool: 開始が成功したかどうか
-        """
-        try:
-            self.logger.info("HomeContentModel: メール抽出作業開始", task_id=task_id)
-
-            # タスク情報の取得
-            task_info = self._get_task_info(task_id)
-            if not task_info:
-                self.logger.error(
-                    "HomeContentModel: タスク情報が見つかりません", task_id=task_id
-                )
-                return False
-
-            # モデルの初期化
-            outlook_model = OutlookItemModel()
-            processing_manager = MailProcessingManager(outlook_model)
-
-            # メールアイテムの取得と処理
-            folder_id = get_safe(task_info, "from_folder_id")
-            filter_criteria = self._build_filter_criteria(task_info)
-
-            total_processed = 0
-            for chunk in outlook_model.get_mail_items(folder_id, filter_criteria):
-                # チャンク単位で処理
-                with self.db_manager.get_connection() as conn:
-                    success, results = processing_manager.process_chunk(chunk, conn)
-
-                    if not success:
-                        self.logger.error(
-                            "HomeContentModel: チャンク処理に失敗",
-                            task_id=task_id,
-                            chunk_size=len(chunk),
-                        )
-                        return False
-
-                    # 処理結果の保存
-                    for result in results:
-                        self._save_processing_results(conn, task_id, result)
-
-                total_processed += len(chunk)
-                self.logger.info(
-                    "HomeContentModel: チャンク処理完了",
-                    task_id=task_id,
-                    processed=total_processed,
-                )
-
-                # 進捗状況の更新
-                self._update_task_progress(task_id, total_processed)
-
-            self.logger.info(
-                "HomeContentModel: メール抽出作業完了",
-                task_id=task_id,
-                total_processed=total_processed,
-            )
-            return True
-
-        except Exception as e:
-            self.logger.error(
-                "HomeContentModel: メール抽出作業エラー", task_id=task_id, error=str(e)
-            )
-            return False
-
-    def _save_processing_results(
-        self, conn, task_id: str, result: Dict[str, Any]
-    ) -> None:
-        """
-        処理結果をデータベースに保存する
-
-        Args:
-            conn: データベース接続
-            task_id: タスクID
-            result: 処理結果
-        """
-        try:
-            cursor = conn.cursor()
-            mail_id = result["mail_id"]
-            mail_info = result["mail_info"]
-
-            # メール情報の保存
-            cursor.execute(
-                """
-                INSERT OR REPLACE INTO mail_items (
-                    entry_id, subject, received_time, sender_name,
-                    unread, has_attachments, size, categories
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    mail_id,
-                    mail_info["subject"],
-                    mail_info["received_time"],
-                    mail_info["sender_name"],
-                    mail_info["unread"],
-                    mail_info["has_attachments"],
-                    mail_info["size"],
-                    mail_info["categories"],
-                ),
-            )
-
-            # 添付ファイル情報の保存
-            for attachment in result["attachments"]:
-                cursor.execute(
-                    """
-                    INSERT OR REPLACE INTO attachments (
-                        mail_id, file_name, file_size, file_path
-                    ) VALUES (?, ?, ?, ?)
-                    """,
-                    (
-                        mail_id,
-                        attachment["file_name"],
-                        attachment["file_size"],
-                        attachment["file_path"],
-                    ),
-                )
-
-            # 参加者情報の保存
-            for participant in result["participants"]:
-                cursor.execute(
-                    """
-                    INSERT OR REPLACE INTO participants (
-                        mail_id, email_address, display_name, participant_type
-                    ) VALUES (?, ?, ?, ?)
-                    """,
-                    (
-                        mail_id,
-                        participant["email_address"],
-                        participant["display_name"],
-                        participant["participant_type"],
-                    ),
-                )
-
-            # タスク進捗の更新
-            cursor.execute(
-                """
-                UPDATE mail_tasks
-                SET status = 'completed',
-                    mail_fetch_status = 'completed',
-                    attachment_status = 'completed',
-                    updated_at = datetime('now')
-                WHERE task_id = ? AND message_id = ?
-                """,
-                (task_id, mail_id),
-            )
-
-        except Exception as e:
-            self.logger.error(f"処理結果の保存エラー: {e}")
-            raise
-
-    def _get_task_info(self, task_id: str) -> Optional[Dict[str, Any]]:
-        """
-        タスク情報を取得する
-
-        Args:
-            task_id: タスクID
-
-        Returns:
-            Optional[Dict[str, Any]]: タスク情報
-        """
-        try:
-            query = "SELECT * FROM task_info WHERE id = ?"
-            results = self.db_manager.execute_query(query, (task_id,))
-            return results[0] if results else None
-        except Exception as e:
-            self.logger.error(f"タスク情報の取得に失敗: {e}")
-            return None
-
-    def _build_filter_criteria(self, task_info: Dict[str, Any]) -> Optional[str]:
-        """
-        フィルタ条件を構築する
-
-        Args:
-            task_info: タスク情報
-
-        Returns:
-            Optional[str]: フィルタ条件
-        """
-        try:
-            start_date = get_safe(task_info, "start_date")
-            end_date = get_safe(task_info, "end_date")
-
-            if not start_date or not end_date:
-                return None
-
-            return f"[Sent] >= '{start_date}' AND [Sent] <= '{end_date}'"
-        except Exception as e:
-            self.logger.error(f"フィルタ条件の構築に失敗: {e}")
-            return None
-
-    def _update_task_progress(self, task_id: str, processed_count: int) -> None:
-        """
-        タスクの進捗状況を更新する
-
-        Args:
-            task_id: タスクID
-            processed_count: 処理済み件数
-        """
-        try:
-            query = """
-            UPDATE task_progress
-            SET processed_messages = ?,
-                last_updated_at = datetime('now')
-            WHERE task_id = ?
-            """
-            self.db_manager.execute_update(query, (processed_count, task_id))
-            self.db_manager.commit()
-        except Exception as e:
-            self.logger.error(f"進捗状況の更新に失敗: {e}")

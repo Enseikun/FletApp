@@ -155,18 +155,70 @@ class HomeContent(ft.Container):
                 has_main_viewmodel=self.main_viewmodel is not None,
             )
 
-            # Outlookのスナップショットを作成
+            # スナップショットの確認と抽出プロセスの開始は、ViewModelに委譲する
+            # ViewModelのset_current_task_idメソッド内でスナップショットと抽出処理が実行される
             if self.contents_viewmodel:
-                success = self.contents_viewmodel.create_outlook_snapshot(task_id)
-                if success:
-                    self.logger.info(
-                        f"HomeContent: Outlookスナップショット作成成功 - {task_id}"
-                    )
-                else:
-                    self.logger.error(
-                        f"HomeContent: Outlookスナップショット作成失敗 - {task_id}"
-                    )
+                # 現在の状態を確認
+                status_before = (
+                    self.contents_viewmodel.check_snapshot_and_extraction_plan(task_id)
+                )
 
+                # タスクID設定（この中でスナップショット作成と抽出処理が行われる）
+                self.contents_viewmodel.set_current_task_id(task_id)
+
+                # 処理後の状態を確認
+                status_after = (
+                    self.contents_viewmodel.check_snapshot_and_extraction_plan(task_id)
+                )
+
+                # 適切なユーザーフィードバックを表示
+                if hasattr(self, "page") and self.page:
+                    # 抽出が開始された場合
+                    if (
+                        not status_before["extraction_in_progress"]
+                        and status_after["extraction_in_progress"]
+                    ):
+                        self.page.snack_bar = ft.SnackBar(
+                            content=ft.Text(
+                                "メール抽出処理を開始しました。完了までしばらくお待ちください。"
+                            ),
+                            action="閉じる",
+                        )
+                        self.page.snack_bar.open = True
+                        self.page.update()
+                    # すでに抽出が進行中の場合
+                    elif status_after["extraction_in_progress"]:
+                        self.page.snack_bar = ft.SnackBar(
+                            content=ft.Text(
+                                "メール抽出処理が進行中です。ブラウザに表示されるまでお待ちください。"
+                            ),
+                            action="閉じる",
+                        )
+                        self.page.snack_bar.open = True
+                        self.page.update()
+                    # 抽出が完了している場合
+                    elif status_after["extraction_completed"]:
+                        self.page.snack_bar = ft.SnackBar(
+                            content=ft.Text(
+                                "メール抽出処理は完了しています。データをブラウザに表示します。"
+                            ),
+                            action="閉じる",
+                        )
+                        self.page.snack_bar.open = True
+                        self.page.update()
+                    # スナップショットのみ作成された場合
+                    elif (
+                        status_after["has_snapshot"]
+                        and not status_after["has_extraction_plan"]
+                    ):
+                        self.page.snack_bar = ft.SnackBar(
+                            content=ft.Text("Outlookスナップショットを作成しました。"),
+                            action="閉じる",
+                        )
+                        self.page.snack_bar.open = True
+                        self.page.update()
+
+            # 画面遷移
             if self.main_viewmodel:
                 self.main_viewmodel.set_current_task_id(task_id)
                 self.main_viewmodel.set_destination("preview")

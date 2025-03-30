@@ -1,0 +1,23 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+
+# 002_flet.mdc
+
+## 概要
+
+- FletはPythonでFlutterライクなフロントエンドを構築するための振興ライブラリです。
+- コミュニティが未熟ですが公式ドキュメントを参照しながら実装を進めます。
+
+## ft.UserControl の禁止
+
+- 最新のFletではUserControlは廃止されエラーが発生します。
+- オリジナルのコンポーネントはft.Containerを継承してください。
+
+## ft.Container の状態管理
+
+- アクションイベントはFlet標準で用意されているものを優先的に使用してください。
+公式ドキュメント(https://flet.dev/docs/controls/container/)
+

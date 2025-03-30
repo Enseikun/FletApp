@@ -294,11 +294,6 @@ class HomeContent(ft.Container):
                         self.page.close(dialog),
                         self.logger.info("HomeContent: 抽出完了確認", task_id=task_id),
                         self.page.update(),
-                        (
-                            self.navigate_to_preview(task_id, task_status)
-                            if task_status != "error"
-                            else None
-                        ),
                     ),
                 ),
             ],

@@ -1005,12 +1005,9 @@ class OutlookExtractionService:
             subject = mail_data.get("subject", "")
             if "GUARDIANWALL" in subject:
                 # データベース制約に合わせる
-                mail_data["message_type"] = "mail"
-                # 特別な処理タイプを示すフィールドに "GUARDIAN" を設定
-                mail_data["process_type"] = "GUARDIAN"
-                self.logger.info(
-                    f"メールタイプを'mail'に更新し、process_typeを'GUARDIAN'に設定しました: {subject}"
-                )
+                mail_data["message_type"] = "guardian"
+                # process_typeはNULLのままにする
+                self.logger.info(f"メールタイプを'guardian'に更新しました: {subject}")
 
             return mail_data
         except Exception as e:
@@ -1464,6 +1461,137 @@ class OutlookExtractionService:
                     if file_size == 0:
                         self.logger.warning(f"添付ファイルのサイズが0です: {file_path}")
 
+                    # .msg形式の添付ファイルの場合、メールアイテムとして処理
+                    extension = os.path.splitext(file_name)[1].lower()
+                    if extension == ".msg":
+                        self.logger.info(
+                            f"MSG形式の添付ファイルを処理します: {file_path}"
+                        )
+
+                        # 一時ディレクトリの作成
+                        import tempfile
+
+                        temp_dir = tempfile.mkdtemp()
+                        self.logger.info(f"一時ディレクトリを作成しました: {temp_dir}")
+
+                        try:
+                            # MSG形式のファイルをOutlookアイテムとして読み込む
+                            msg_item = outlook_service.get_item_from_msg(file_path)
+
+                            if not msg_item:
+                                self.logger.error(
+                                    f"MSG形式のファイルの読み込みに失敗しました: {file_path}"
+                                )
+                                continue
+
+                            # メールデータの構築
+                            # 送受信時間の取得と変換
+                            sent_time = get_safe(msg_item, "SentOn")
+                            received_time = get_safe(msg_item, "ReceivedTime")
+
+                            # datetime形式を文字列に変換
+                            sent_time_str = ""
+                            if sent_time:
+                                try:
+                                    sent_time_str = sent_time.strftime(
+                                        "%Y-%m-%d %H:%M:%S"
+                                    )
+                                except AttributeError:
+                                    sent_time_str = str(sent_time)
+
+                            received_time_str = ""
+                            if received_time:
+                                try:
+                                    received_time_str = received_time.strftime(
+                                        "%Y-%m-%d %H:%M:%S"
+                                    )
+                                except AttributeError:
+                                    received_time_str = str(received_time)
+
+                            # フォルダ名を取得
+                            folder_name = ""
+                            try:
+                                folder_query = """
+                                SELECT name FROM outlook_snapshot
+                                WHERE entry_id = ?
+                                """
+                                folder_result = self.items_db.execute_query(
+                                    folder_query, (mail_data["folder_id"],)
+                                )
+                                if folder_result:
+                                    folder_name = folder_result[0].get("name", "")
+                            except Exception as e:
+                                self.logger.error(f"フォルダ名の取得に失敗: {str(e)}")
+                                folder_name = "不明"
+
+                            # ConversationIDを取得
+                            conversation_id = get_safe(msg_item, "ConversationID", "")
+
+                            # MSG添付メールデータの構築
+                            msg_mail_data = {
+                                "entry_id": get_safe(msg_item, "EntryID", ""),
+                                "store_id": get_safe(msg_item, "StoreID", ""),
+                                "folder_id": mail_data[
+                                    "folder_id"
+                                ],  # 親メールと同じフォルダIDを使用
+                                "conversation_id": conversation_id,
+                                "message_type": "msg",  # .msg形式を示す
+                                "parent_entry_id": mail_data[
+                                    "entry_id"
+                                ],  # 親メールのentry_id
+                                "parent_folder_name": folder_name,  # 親メールのフォルダ名
+                                "subject": get_safe(msg_item, "Subject", ""),
+                                "sent_time": sent_time_str,
+                                "received_time": received_time_str,
+                                "body": get_safe(msg_item, "Body", ""),
+                                "html_body": get_safe(msg_item, "HTMLBody", ""),
+                                "unread": get_safe(msg_item, "UnRead", 0),
+                                "size": get_safe(msg_item, "Size", 0),
+                                "has_attachments": get_safe(
+                                    msg_item, "Attachments.Count", 0
+                                )
+                                > 0,
+                                "raw_item": msg_item,  # 生のOutlookアイテム
+                            }
+
+                            # 参加者情報の抽出
+                            msg_mail_data["participants"] = self._extract_participants(
+                                msg_item
+                            )
+
+                            # MSGメールの保存
+                            if self._save_mail_item(msg_mail_data):
+                                self.logger.info(
+                                    f"MSG形式のメールをDBに保存しました: {file_name}"
+                                )
+
+                                # MSGメール内の添付ファイルも処理する（必要に応じて）
+                                if msg_mail_data["has_attachments"]:
+                                    # 再帰的に添付ファイルを処理
+                                    self._process_attachments(msg_mail_data)
+                            else:
+                                self.logger.error(
+                                    f"MSG形式のメールの保存に失敗: {file_name}"
+                                )
+
+                        except Exception as e:
+                            self.logger.error(
+                                f"MSG形式のメール処理中にエラー: {str(e)}"
+                            )
+                        finally:
+                            # 一時ディレクトリの削除
+                            import shutil
+
+                            try:
+                                shutil.rmtree(temp_dir)
+                                self.logger.info(
+                                    f"一時ディレクトリを削除しました: {temp_dir}"
+                                )
+                            except Exception as e:
+                                self.logger.warning(
+                                    f"一時ディレクトリの削除に失敗: {str(e)}"
+                                )
+
                     # データベースに添付ファイル情報を登録
                     query = """
                     INSERT INTO attachments (mail_id, name, path)
@@ -1477,9 +1605,12 @@ class OutlookExtractionService:
                     self.logger.info(
                         f"添付ファイルを保存しました: {file_path}, サイズ: {file_size}バイト"
                     )
+
                 except Exception as e:
-                    self.logger.error(f"添付ファイル処理中のエラー: {str(e)}")
-                    # 個別の添付ファイルの処理に失敗しても続行する
+                    self.logger.error(
+                        f"添付ファイルの保存に失敗: {i}番目の添付ファイル, エラー: {str(e)}"
+                    )
+                    # 個別の添付ファイルのエラーはスキップし、次の添付ファイル処理を続行
 
             # mail_tasksテーブルの更新
             task_query = """

@@ -40,7 +40,7 @@ CREATE TABLE IF NOT EXISTS mail_items (
     folder_id TEXT NOT NULL, -- from_folder_id を所与、使わない
     conversation_id TEXT, -- OutlookのConversationID
     thread_id TEXT, -- このアプリケーションで付与
-    message_type TEXT CHECK (message_type IN ('email', 'meeting', 'task')),
+    message_type TEXT CHECK (message_type IN ('email', 'meeting', 'task', 'guardian', 'msg')),
     parent_entry_id TEXT, -- 自身が添付ファイルの場合, 元メッセージのentry_id
     parent_folder_name TEXT, -- 自身が添付ファイルの場合, 元メッセージのフォルダ名
     message_size INTEGER DEFAULT 0,

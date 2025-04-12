@@ -58,36 +58,6 @@ class OutlookExtractionService:
             items_db_path = f"data/tasks/{self.task_id}/items.db"
             self.items_db = DatabaseManager(items_db_path)
 
-            # hash_mappingテーブルの存在確認、なければ作成
-            try:
-                check_table_query = """
-                SELECT name FROM sqlite_master WHERE type='table' AND name='hash_mapping'
-                """
-                table_exists = self.items_db.execute_query(check_table_query)
-
-                if not table_exists:
-                    self.logger.info("hash_mappingテーブルを作成します")
-                    create_table_query = """
-                    CREATE TABLE hash_mapping (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        original_id TEXT NOT NULL,
-                        hash_value TEXT NOT NULL,
-                        type TEXT NOT NULL,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    )
-                    """
-                    self.items_db.execute_update(create_table_query)
-
-                    # インデックスの作成
-                    create_index_query = """
-                    CREATE INDEX idx_hash_mapping_original_id ON hash_mapping(original_id);
-                    CREATE INDEX idx_hash_mapping_hash_value ON hash_mapping(hash_value);
-                    """
-                    self.items_db.execute_update(create_index_query)
-                    self.logger.info("hash_mappingテーブルを作成しました")
-            except Exception as e:
-                self.logger.warning(f"hash_mappingテーブルの確認/作成に失敗: {str(e)}")
-
             # outlook.dbの接続
             outlook_db_path = "data/outlook.db"
             self.outlook_db = DatabaseManager(outlook_db_path)
@@ -794,69 +764,44 @@ class OutlookExtractionService:
                         task_id, "processing", attachment_status="processing"
                     )
 
-                    # EntryIDをハッシュ値に変換してパス長を短縮
-                    import hashlib
-
-                    mail_id_hash = hashlib.md5(mail_id.encode()).hexdigest()
-
-                    # 添付ファイル保存先ディレクトリ
-                    save_path = f"data/tasks/{self.task_id}/attachments/{mail_id_hash}"
-
-                    # メールアイテムが添付ファイルを持っているか確認
-                    has_attachments_query = """
-                    SELECT has_attachments, attachment_count 
+                    # メールアイテムのデータを取得
+                    mail_query = """
+                    SELECT 
+                        entry_id, subject, folder_id, has_attachments, attachment_count
                     FROM mail_items 
                     WHERE entry_id = ?
                     """
-                    mail_info = self.items_db.execute_query(
-                        has_attachments_query, (mail_id,)
-                    )
+                    mail_result = self.items_db.execute_query(mail_query, (mail_id,))
 
-                    has_attachments = False
-                    attachment_count = 0
-                    if mail_info:
-                        has_attachments = mail_info[0].get("has_attachments", 0) == 1
-                        attachment_count = mail_info[0].get("attachment_count", 0)
-
-                    # 添付ファイルがある場合のみ処理
-                    if has_attachments:
-                        self.logger.info(
-                            f"添付ファイル処理開始: {mail_id}, 予想ファイル数: {attachment_count}"
-                        )
-                        if item_model.process_attachments(
-                            mail_id, {"HasAttachments": True}, save_path
-                        ):
-                            self._update_mail_task_status(
-                                task_id, "processing", attachment_status="success"
-                            )
-                        else:
-                            self._update_mail_task_status(
-                                task_id,
-                                "processing",
-                                attachment_status="error",
-                                error_message="添付ファイル処理に失敗しました",
-                            )
-                    else:
-                        # 添付ファイルがない場合は処理不要
+                    if not mail_result:
+                        self.logger.error(f"メールデータが見つかりません: {mail_id}")
                         self._update_mail_task_status(
-                            task_id, "processing", attachment_status="not_required"
+                            task_id,
+                            "error",
+                            attachment_status="error",
+                            error_message="メールデータが見つかりません",
                         )
+                        continue
 
-                    # ハッシュ値と元のEntryIDのマッピングをデータベースに保存
-                    try:
-                        mapping_query = """
-                        INSERT OR REPLACE INTO hash_mapping (original_id, hash_value, type)
-                        VALUES (?, ?, 'attachment_path')
-                        """
-                        self.items_db.execute_update(
-                            mapping_query, (mail_id, mail_id_hash)
-                        )
+                    mail_data = mail_result[0]
+
+                    # 添付ファイル処理を実行
+                    if self._process_attachment_for_mail(mail_data):
                         self.logger.info(
-                            f"EntryIDとハッシュ値のマッピングを保存しました: {mail_id} -> {mail_id_hash}"
+                            f"メール {mail_id} の添付ファイル処理が完了しました"
                         )
-                    except Exception as e:
-                        self.logger.warning(f"マッピング情報の保存に失敗: {str(e)}")
+                    else:
+                        self.logger.error(
+                            f"メール {mail_id} の添付ファイル処理に失敗しました"
+                        )
+                        self._update_mail_task_status(
+                            task_id,
+                            "error",
+                            attachment_status="error",
+                            error_message="添付ファイル処理に失敗しました",
+                        )
 
+            self.logger.info("すべての添付ファイル処理が完了しました")
             return True
 
         except Exception as e:
@@ -951,7 +896,7 @@ class OutlookExtractionService:
 
             # 添付ファイルの処理
             if self.get_extraction_conditions().get("file_download", False):
-                if not self._process_attachments(mail_data):
+                if not self._process_attachment_for_mail(mail_data):
                     self.logger.warning(f"添付ファイルの処理に失敗: {entry_id}")
 
             # AIレビューの処理
@@ -963,6 +908,286 @@ class OutlookExtractionService:
 
         except Exception as e:
             self.logger.error(f"メール処理中にエラーが発生: {str(e)}")
+            return False
+
+    def _process_attachment_for_mail(self, mail_data: dict) -> bool:
+        """
+        単一メールの添付ファイルを処理する
+
+        Args:
+            mail_data: メールデータ
+
+        Returns:
+            bool: 処理が成功したかどうか
+        """
+        if not mail_data or not mail_data.get("has_attachments"):
+            # 添付ファイルがない場合は成功として扱う
+            return True
+
+        try:
+            mail_id = mail_data.get("entry_id")
+            if not mail_id:
+                self.logger.error("メールIDがありません")
+                return False
+
+            # 添付ファイル保存先ディレクトリを作成
+            save_dir = os.path.join("data", "tasks", self.task_id, "attachments")
+            os.makedirs(save_dir, exist_ok=True)
+            self.logger.info(
+                f"添付ファイル保存先ディレクトリを作成しました: {save_dir}"
+            )
+
+            # OutlookServiceを使用してメールアイテムを取得
+            outlook_service = OutlookService()
+            mail_item = mail_data.get("raw_item")
+
+            if not mail_item:
+                mail_item = outlook_service.get_item_by_id(mail_id)
+
+            if not mail_item:
+                self.logger.error(f"メールアイテムの取得に失敗: {mail_id}")
+                return False
+
+            if not hasattr(mail_item, "Attachments"):
+                self.logger.error("添付ファイル処理: Attachmentsプロパティがありません")
+                return False
+
+            # 添付ファイルの保存
+            attachments = mail_item.Attachments
+            if not attachments or attachments.Count == 0:
+                self.logger.warning(f"添付ファイルが見つかりませんでした: {mail_id}")
+                return True
+
+            # 実際に処理した添付ファイルの数
+            processed_count = 0
+            self.logger.info(
+                f"添付ファイル処理: {attachments.Count}個の添付ファイルを処理します"
+            )
+
+            for j in range(1, attachments.Count + 1):  # Outlookのインデックスは1始まり
+                try:
+                    attachment = attachments.Item(j)
+                    file_name = attachment.FileName
+                    self.logger.info(f"添付ファイル処理中: {file_name}")
+
+                    # 除外拡張子のチェック
+                    exclude_extensions = self.get_extraction_conditions().get(
+                        "exclude_extensions", ""
+                    )
+                    if exclude_extensions:
+                        extension = os.path.splitext(file_name)[1].lower()
+                        if extension and extension[1:] in [
+                            ext.strip().lower() for ext in exclude_extensions.split(",")
+                        ]:
+                            self.logger.info(
+                                f"除外拡張子のため保存をスキップ: {file_name}"
+                            )
+                            continue
+
+                    # ファイル保存
+                    file_path = os.path.join(save_dir, file_name)
+
+                    # 確実にディレクトリが存在することを再確認
+                    os.makedirs(os.path.dirname(file_path), exist_ok=True)
+
+                    # 添付ファイルを保存
+                    self.logger.info(f"添付ファイルを保存します: {file_path}")
+                    attachment.SaveAsFile(file_path)
+
+                    # ファイルが実際に作成されたか確認
+                    if not os.path.exists(file_path):
+                        self.logger.error(
+                            f"添付ファイルの保存に失敗: {file_path} - ファイルが作成されませんでした"
+                        )
+                        continue
+
+                    # ファイルサイズが0でないか確認
+                    file_size = os.path.getsize(file_path)
+                    if file_size == 0:
+                        self.logger.warning(f"添付ファイルのサイズが0です: {file_path}")
+
+                    # .msg形式の添付ファイルの場合、メールアイテムとして処理
+                    extension = os.path.splitext(file_name)[1].lower()
+                    if extension == ".msg":
+                        self.logger.info(
+                            f"MSG形式の添付ファイルを処理します: {file_path}"
+                        )
+
+                        # 一時ディレクトリの作成
+                        import tempfile
+
+                        temp_dir = tempfile.mkdtemp()
+                        self.logger.info(f"一時ディレクトリを作成しました: {temp_dir}")
+
+                        try:
+                            # MSG形式のファイルをOutlookアイテムとして読み込む
+                            msg_item = outlook_service.get_item_from_msg(file_path)
+
+                            if not msg_item:
+                                self.logger.error(
+                                    f"MSG形式のファイルの読み込みに失敗しました: {file_path}"
+                                )
+                                continue
+
+                            # メールデータの構築
+                            # 送受信時間の取得と変換
+                            sent_time = get_safe(msg_item, "SentOn")
+                            received_time = get_safe(msg_item, "ReceivedTime")
+
+                            # datetime形式を文字列に変換
+                            sent_time_str = ""
+                            if sent_time:
+                                try:
+                                    sent_time_str = sent_time.strftime(
+                                        "%Y-%m-%d %H:%M:%S"
+                                    )
+                                except AttributeError:
+                                    sent_time_str = str(sent_time)
+
+                            received_time_str = ""
+                            if received_time:
+                                try:
+                                    received_time_str = received_time.strftime(
+                                        "%Y-%m-%d %H:%M:%S"
+                                    )
+                                except AttributeError:
+                                    received_time_str = str(received_time)
+
+                            # フォルダ名を取得
+                            folder_name = ""
+                            try:
+                                folder_query = """
+                                SELECT name FROM outlook_snapshot
+                                WHERE entry_id = ?
+                                """
+                                folder_result = self.items_db.execute_query(
+                                    folder_query, (mail_data["folder_id"],)
+                                )
+                                if folder_result:
+                                    folder_name = folder_result[0].get("name", "")
+                            except Exception as e:
+                                self.logger.error(f"フォルダ名の取得に失敗: {str(e)}")
+                                folder_name = "不明"
+
+                            # ConversationIDを取得
+                            conversation_id = get_safe(msg_item, "ConversationID", "")
+
+                            # MSG添付メールデータの構築
+                            msg_mail_data = {
+                                "entry_id": get_safe(msg_item, "EntryID", ""),
+                                "store_id": get_safe(msg_item, "StoreID", ""),
+                                "folder_id": mail_data[
+                                    "folder_id"
+                                ],  # 親メールと同じフォルダIDを使用
+                                "conversation_id": conversation_id,
+                                "message_type": "msg",  # .msg形式を示す
+                                "parent_entry_id": mail_id,  # 親メールのentry_id
+                                "parent_folder_name": folder_name,  # 親メールのフォルダ名
+                                "subject": get_safe(msg_item, "Subject", ""),
+                                "sent_time": sent_time_str,
+                                "received_time": received_time_str,
+                                "body": get_safe(msg_item, "Body", ""),
+                                "html_body": get_safe(msg_item, "HTMLBody", ""),
+                                "unread": get_safe(msg_item, "UnRead", 0),
+                                "size": get_safe(msg_item, "Size", 0),
+                                "has_attachments": get_safe(
+                                    msg_item, "Attachments.Count", 0
+                                )
+                                > 0,
+                                "raw_item": msg_item,  # 生のOutlookアイテム
+                            }
+
+                            # 参加者情報の抽出
+                            msg_mail_data["participants"] = self._extract_participants(
+                                msg_item
+                            )
+
+                            # MSGメールの保存
+                            if self._save_mail_item(msg_mail_data):
+                                self.logger.info(
+                                    f"MSG形式のメールをDBに保存しました: {file_name}"
+                                )
+
+                                # MSGメール内の添付ファイルも処理する（必要に応じて）
+                                if msg_mail_data["has_attachments"]:
+                                    # 再帰的に添付ファイルを処理
+                                    self._process_attachment_for_mail(msg_mail_data)
+                            else:
+                                self.logger.error(
+                                    f"MSG形式のメールの保存に失敗: {file_name}"
+                                )
+
+                        except Exception as e:
+                            self.logger.error(
+                                f"MSG形式のメール処理中にエラー: {str(e)}"
+                            )
+                        finally:
+                            # 一時ディレクトリの削除
+                            import shutil
+
+                            try:
+                                shutil.rmtree(temp_dir)
+                                self.logger.info(
+                                    f"一時ディレクトリを削除しました: {temp_dir}"
+                                )
+                            except Exception as e:
+                                self.logger.warning(
+                                    f"一時ディレクトリの削除に失敗: {str(e)}"
+                                )
+
+                    # データベースに添付ファイル情報を登録
+                    query = """
+                    INSERT INTO attachments (mail_id, name, path)
+                    VALUES (?, ?, ?)
+                    """
+                    self.items_db.execute_update(query, (mail_id, file_name, file_path))
+
+                    processed_count += 1
+                    self.logger.info(
+                        f"添付ファイルを保存しました: {file_path}, サイズ: {file_size}バイト"
+                    )
+
+                except Exception as e:
+                    self.logger.error(
+                        f"添付ファイルの保存に失敗: {j}番目の添付ファイル, エラー: {str(e)}"
+                    )
+                    # 個別の添付ファイルのエラーはスキップし、次の添付ファイル処理を続行
+
+            # メールタスクの取得とタスクステータスの更新
+            task_query = """
+            SELECT id FROM mail_tasks
+            WHERE message_id = ? AND task_id = ?
+            """
+            task_result = self.items_db.execute_query(
+                task_query, (mail_id, self.task_id)
+            )
+
+            if task_result:
+                task_id = task_result[0]["id"]
+                attachment_status = "success" if processed_count > 0 else "error"
+                self._update_mail_task_status(
+                    task_id, "processing", attachment_status=attachment_status
+                )
+
+            # 実際に処理した添付ファイルの数がデータベースに保存されている数と異なる場合は更新
+            if processed_count != mail_data.get("attachment_count", 0):
+                update_query = """
+                UPDATE mail_items 
+                SET attachment_count = ?
+                WHERE entry_id = ?
+                """
+                self.items_db.execute_update(update_query, (processed_count, mail_id))
+                self.logger.info(
+                    f"添付ファイル数を更新しました: {mail_data.get('subject', 'Unknown')} ({processed_count}個)"
+                )
+
+            self.logger.info(
+                f"添付ファイル処理完了: {processed_count}個のファイルを保存"
+            )
+            return processed_count > 0 or attachments.Count == 0
+
+        except Exception as e:
+            self.logger.error(f"添付ファイル処理でエラーが発生: {str(e)}")
             return False
 
     def _extract_mail_content(self, entry_id: str) -> Optional[dict]:
@@ -1417,310 +1642,6 @@ class OutlookExtractionService:
             self.logger.error(f"参加者関連の保存に失敗: {str(e)}")
             return False
 
-    def _process_attachments(self, mail_data: dict) -> bool:
-        """
-        添付ファイルの処理
-
-        Args:
-            mail_data: メールデータ
-
-        Returns:
-            bool: 処理が成功したかどうか
-        """
-        if not mail_data or not mail_data.get("has_attachments"):
-            # 添付ファイルがない場合は成功として扱う
-            return True
-
-        try:
-            # EntryIDをハッシュ値に変換してパス長を短縮
-            import hashlib
-
-            entry_id_hash = hashlib.md5(mail_data["entry_id"].encode()).hexdigest()
-
-            # 添付ファイル保存先ディレクトリを作成
-            save_dir = os.path.join(
-                "data", "tasks", self.task_id, "attachments", entry_id_hash
-            )
-            os.makedirs(save_dir, exist_ok=True)
-            self.logger.info(
-                f"添付ファイル保存先ディレクトリを作成しました: {save_dir}"
-            )
-
-            # OutlookServiceを使用してメールアイテムを取得
-            outlook_service = OutlookService()
-            mail_item = outlook_service.get_item_by_id(mail_data["entry_id"])
-
-            if not mail_item:
-                self.logger.error(
-                    f"メールアイテムの取得に失敗: {mail_data['entry_id']}"
-                )
-                return False
-
-            if not hasattr(mail_item, "Attachments"):
-                self.logger.error("添付ファイル処理: Attachmentsプロパティがありません")
-                return False
-
-            # 添付ファイルの保存
-            attachments = mail_item.Attachments
-            if not attachments or attachments.Count == 0:
-                self.logger.warning(
-                    f"添付ファイルが見つかりませんでした: {mail_data['entry_id']}"
-                )
-                return True
-
-            # 実際に処理した添付ファイルの数
-            processed_count = 0
-            self.logger.info(
-                f"添付ファイル処理: {attachments.Count}個の添付ファイルを処理します"
-            )
-
-            for i in range(1, attachments.Count + 1):  # Outlookのインデックスは1始まり
-                try:
-                    attachment = attachments.Item(i)
-                    file_name = attachment.FileName
-                    self.logger.info(f"添付ファイル処理中: {file_name}")
-
-                    # 除外拡張子のチェック
-                    exclude_extensions = self.get_extraction_conditions().get(
-                        "exclude_extensions", ""
-                    )
-                    if exclude_extensions:
-                        extension = os.path.splitext(file_name)[1].lower()
-                        if extension and extension[1:] in [
-                            ext.strip().lower() for ext in exclude_extensions.split(",")
-                        ]:
-                            self.logger.info(
-                                f"除外拡張子のため保存をスキップ: {file_name}"
-                            )
-                            continue
-
-                    # ファイル保存
-                    file_path = os.path.join(save_dir, file_name)
-
-                    # 確実にディレクトリが存在することを再確認
-                    os.makedirs(os.path.dirname(file_path), exist_ok=True)
-
-                    # 添付ファイルを保存
-                    self.logger.info(f"添付ファイルを保存します: {file_path}")
-                    attachment.SaveAsFile(file_path)
-
-                    # ファイルが実際に作成されたか確認
-                    if not os.path.exists(file_path):
-                        self.logger.error(
-                            f"添付ファイルの保存に失敗: {file_path} - ファイルが作成されませんでした"
-                        )
-                        continue
-
-                    # ファイルサイズが0でないか確認
-                    file_size = os.path.getsize(file_path)
-                    if file_size == 0:
-                        self.logger.warning(f"添付ファイルのサイズが0です: {file_path}")
-
-                    # .msg形式の添付ファイルの場合、メールアイテムとして処理
-                    extension = os.path.splitext(file_name)[1].lower()
-                    if extension == ".msg":
-                        self.logger.info(
-                            f"MSG形式の添付ファイルを処理します: {file_path}"
-                        )
-
-                        # 一時ディレクトリの作成
-                        import tempfile
-
-                        temp_dir = tempfile.mkdtemp()
-                        self.logger.info(f"一時ディレクトリを作成しました: {temp_dir}")
-
-                        try:
-                            # MSG形式のファイルをOutlookアイテムとして読み込む
-                            msg_item = outlook_service.get_item_from_msg(file_path)
-
-                            if not msg_item:
-                                self.logger.error(
-                                    f"MSG形式のファイルの読み込みに失敗しました: {file_path}"
-                                )
-                                continue
-
-                            # メールデータの構築
-                            # 送受信時間の取得と変換
-                            sent_time = get_safe(msg_item, "SentOn")
-                            received_time = get_safe(msg_item, "ReceivedTime")
-
-                            # datetime形式を文字列に変換
-                            sent_time_str = ""
-                            if sent_time:
-                                try:
-                                    sent_time_str = sent_time.strftime(
-                                        "%Y-%m-%d %H:%M:%S"
-                                    )
-                                except AttributeError:
-                                    sent_time_str = str(sent_time)
-
-                            received_time_str = ""
-                            if received_time:
-                                try:
-                                    received_time_str = received_time.strftime(
-                                        "%Y-%m-%d %H:%M:%S"
-                                    )
-                                except AttributeError:
-                                    received_time_str = str(received_time)
-
-                            # フォルダ名を取得
-                            folder_name = ""
-                            try:
-                                folder_query = """
-                                SELECT name FROM outlook_snapshot
-                                WHERE entry_id = ?
-                                """
-                                folder_result = self.items_db.execute_query(
-                                    folder_query, (mail_data["folder_id"],)
-                                )
-                                if folder_result:
-                                    folder_name = folder_result[0].get("name", "")
-                            except Exception as e:
-                                self.logger.error(f"フォルダ名の取得に失敗: {str(e)}")
-                                folder_name = "不明"
-
-                            # ConversationIDを取得
-                            conversation_id = get_safe(msg_item, "ConversationID", "")
-
-                            # MSG添付メールデータの構築
-                            msg_mail_data = {
-                                "entry_id": get_safe(msg_item, "EntryID", ""),
-                                "store_id": get_safe(msg_item, "StoreID", ""),
-                                "folder_id": mail_data[
-                                    "folder_id"
-                                ],  # 親メールと同じフォルダIDを使用
-                                "conversation_id": conversation_id,
-                                "message_type": "msg",  # .msg形式を示す
-                                "parent_entry_id": mail_data[
-                                    "entry_id"
-                                ],  # 親メールのentry_id
-                                "parent_folder_name": folder_name,  # 親メールのフォルダ名
-                                "subject": get_safe(msg_item, "Subject", ""),
-                                "sent_time": sent_time_str,
-                                "received_time": received_time_str,
-                                "body": get_safe(msg_item, "Body", ""),
-                                "html_body": get_safe(msg_item, "HTMLBody", ""),
-                                "unread": get_safe(msg_item, "UnRead", 0),
-                                "size": get_safe(msg_item, "Size", 0),
-                                "has_attachments": get_safe(
-                                    msg_item, "Attachments.Count", 0
-                                )
-                                > 0,
-                                "raw_item": msg_item,  # 生のOutlookアイテム
-                            }
-
-                            # 参加者情報の抽出
-                            msg_mail_data["participants"] = self._extract_participants(
-                                msg_item
-                            )
-
-                            # MSGメールの保存
-                            if self._save_mail_item(msg_mail_data):
-                                self.logger.info(
-                                    f"MSG形式のメールをDBに保存しました: {file_name}"
-                                )
-
-                                # MSGメール内の添付ファイルも処理する（必要に応じて）
-                                if msg_mail_data["has_attachments"]:
-                                    # 再帰的に添付ファイルを処理
-                                    self._process_attachments(msg_mail_data)
-                            else:
-                                self.logger.error(
-                                    f"MSG形式のメールの保存に失敗: {file_name}"
-                                )
-
-                        except Exception as e:
-                            self.logger.error(
-                                f"MSG形式のメール処理中にエラー: {str(e)}"
-                            )
-                        finally:
-                            # 一時ディレクトリの削除
-                            import shutil
-
-                            try:
-                                shutil.rmtree(temp_dir)
-                                self.logger.info(
-                                    f"一時ディレクトリを削除しました: {temp_dir}"
-                                )
-                            except Exception as e:
-                                self.logger.warning(
-                                    f"一時ディレクトリの削除に失敗: {str(e)}"
-                                )
-
-                    # データベースに添付ファイル情報を登録
-                    query = """
-                    INSERT INTO attachments (mail_id, name, path)
-                    VALUES (?, ?, ?)
-                    """
-                    self.items_db.execute_update(
-                        query, (mail_data["entry_id"], file_name, file_path)
-                    )
-
-                    processed_count += 1
-                    self.logger.info(
-                        f"添付ファイルを保存しました: {file_path}, サイズ: {file_size}バイト"
-                    )
-
-                except Exception as e:
-                    self.logger.error(
-                        f"添付ファイルの保存に失敗: {i}番目の添付ファイル, エラー: {str(e)}"
-                    )
-                    # 個別の添付ファイルのエラーはスキップし、次の添付ファイル処理を続行
-
-            # mail_tasksテーブルの更新
-            task_query = """
-            SELECT id FROM mail_tasks
-            WHERE message_id = ? AND task_id = ?
-            """
-            task_result = self.items_db.execute_query(
-                task_query, (mail_data["entry_id"], self.task_id)
-            )
-
-            if task_result:
-                task_id = task_result[0]["id"]
-                attachment_status = "success" if processed_count > 0 else "error"
-                self._update_mail_task_status(
-                    task_id, "processing", attachment_status=attachment_status
-                )
-
-            # ハッシュ値と元のEntryIDのマッピングをデータベースに保存
-            try:
-                mapping_query = """
-                INSERT OR REPLACE INTO hash_mapping (original_id, hash_value, type)
-                VALUES (?, ?, 'attachment_path')
-                """
-                self.items_db.execute_update(
-                    mapping_query, (mail_data["entry_id"], entry_id_hash)
-                )
-                self.logger.info(
-                    f"EntryIDとハッシュ値のマッピングを保存しました: {mail_data['entry_id']} -> {entry_id_hash}"
-                )
-            except Exception as e:
-                self.logger.warning(f"マッピング情報の保存に失敗: {str(e)}")
-
-            # 実際に処理した添付ファイルの数がデータベースに保存されている数と異なる場合は更新
-            if processed_count != mail_data.get("attachment_count", 0):
-                update_query = """
-                UPDATE mail_items 
-                SET attachment_count = ?
-                WHERE entry_id = ?
-                """
-                self.items_db.execute_update(
-                    update_query, (processed_count, mail_data["entry_id"])
-                )
-                self.logger.info(
-                    f"添付ファイル数を更新しました: {mail_data.get('subject', 'Unknown')} ({processed_count}個)"
-                )
-
-            self.logger.info(
-                f"添付ファイル処理完了: {processed_count}個のファイルを保存"
-            )
-            return processed_count > 0 or attachments.Count == 0
-
-        except Exception as e:
-            self.logger.error(f"添付ファイル処理でエラーが発生: {str(e)}")
-            return False
-
     def _process_ai_review(self, mail_id: str) -> bool:
         """
         AIレビューの処理
@@ -1735,7 +1656,7 @@ class OutlookExtractionService:
             # メールデータを取得
             mail_query = """
             SELECT 
-                entry_id, subject, sender, body, sent_time, received_time,
+                entry_id, subject, body, sent_time, received_time,
                 has_attachments, conversation_id
             FROM mail_items 
             WHERE entry_id = ?

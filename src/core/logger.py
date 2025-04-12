@@ -145,9 +145,20 @@ class Applogger:
 
             caller_info = self._get_caller_info()
 
+            # CDispatchやその他のシリアライズできないオブジェクトを安全に処理
+            safe_kwargs = {}
+            for key, value in kwargs.items():
+                try:
+                    # 試験的にJSON化してみる
+                    json.dumps({key: value})
+                    safe_kwargs[key] = value
+                except (TypeError, OverflowError):
+                    # JSON化できない場合は文字列化して保存
+                    safe_kwargs[key] = str(value)
+
             log_details = {
                 "timestamp": datetime.now().isoformat(),
-                **kwargs,
+                **safe_kwargs,
             }
 
             self.logger.log(

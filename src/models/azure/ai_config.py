@@ -16,8 +16,8 @@ class AIConfig:
         return cls(
             api_key="",
             api_base_url="",
-            api_version="2024-02-15-preview",
-            model_id="gpt-4o-mini-2024-07-18",
+            api_version="2025-01-01-preview",
+            model_id="gpt-4o",
             encoding_model="gpt-4o",
             timeout=30,
         )

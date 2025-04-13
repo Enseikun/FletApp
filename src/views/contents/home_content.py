@@ -166,41 +166,22 @@ class HomeContent(ft.Container):
         def on_dialog_result(e):
             if e.control.data == "yes":
                 self.logger.info("HomeContent: メール抽出承認", task_id=task_id)
-                # ViewModelに確認結果を伝え、抽出処理を実行
-                success = self.contents_viewmodel.handle_extraction_confirmation(
-                    task_id, True
-                )
-                if success:
-                    # 抽出開始メッセージを表示
-                    self.page.snack_bar = ft.SnackBar(
-                        content=ft.Text(
-                            "メール抽出処理を開始しました。完了までしばらくお待ちください。"
-                        ),
-                        action="閉じる",
-                    )
-                    self.page.snack_bar.open = True
-                    self.page.update()
+                # 非同期処理をpage.run_taskで実行
+                if hasattr(self, "page") and self.page:
 
-                    # 画面遷移を行う
-                    if self.main_viewmodel:
-                        self.main_viewmodel.set_current_task_id(task_id)
-                        self.main_viewmodel.set_destination("preview")
-                    else:
-                        self.home_viewmodel.select_task(task_id)
+                    async def run_confirmation_task():
+                        await self._handle_extraction_confirmation(task_id, True)
+
+                    self.page.run_task(run_confirmation_task)
             else:
                 self.logger.info("HomeContent: メール抽出キャンセル", task_id=task_id)
-                # ViewModelにキャンセルを伝える
-                self.contents_viewmodel.handle_extraction_confirmation(task_id, False)
+                # キャンセル時も非同期処理
+                if hasattr(self, "page") and self.page:
 
-                # キャンセルメッセージを表示
-                self.page.snack_bar = ft.SnackBar(
-                    content=ft.Text("メール抽出をキャンセルしました。"),
-                    action="閉じる",
-                )
-                self.page.snack_bar.open = True
-                self.page.update()
+                    async def run_cancel_task():
+                        await self._handle_extraction_confirmation(task_id, False)
 
-                # キャンセル時は画面遷移しない
+                    self.page.run_task(run_cancel_task)
 
         # 確認ダイアログを作成
         dialog = ft.AlertDialog(
@@ -239,6 +220,62 @@ class HomeContent(ft.Container):
             self.logger.debug(
                 "HomeContent: メール抽出確認ダイアログ表示完了", task_id=task_id
             )
+
+    async def _handle_extraction_confirmation(self, task_id, confirmed):
+        """メール抽出確認の非同期処理"""
+        try:
+            # ViewModelに確認結果を伝え、抽出処理を実行
+            success = await self.contents_viewmodel.handle_extraction_confirmation(
+                task_id, confirmed
+            )
+
+            if confirmed:
+                if success:
+                    # 抽出開始メッセージを表示
+                    if hasattr(self, "page") and self.page:
+                        self.page.snack_bar = ft.SnackBar(
+                            content=ft.Text(
+                                "メール抽出処理を開始しました。完了までしばらくお待ちください。"
+                            ),
+                            action="閉じる",
+                        )
+                        self.page.snack_bar.open = True
+                        self.page.update()
+
+                        # 画面遷移を行う
+                        if self.main_viewmodel:
+                            self.main_viewmodel.set_current_task_id(task_id)
+                            self.main_viewmodel.set_destination("preview")
+                        else:
+                            # HomeViewModelのselect_taskメソッドを非同期で呼び出す
+                            self.page.run_task(
+                                lambda: self._handle_home_viewmodel_select_task(task_id)
+                            )
+            else:
+                # キャンセルメッセージを表示
+                if hasattr(self, "page") and self.page:
+                    self.page.snack_bar = ft.SnackBar(
+                        content=ft.Text("メール抽出をキャンセルしました。"),
+                        action="閉じる",
+                    )
+                    self.page.snack_bar.open = True
+                    self.page.update()
+                # キャンセル時は画面遷移しない
+        except Exception as e:
+            self.logger.error(
+                "HomeContent: 抽出確認処理でエラー発生",
+                task_id=task_id,
+                confirmed=confirmed,
+                error=str(e),
+            )
+            # エラーメッセージを表示
+            if hasattr(self, "page") and self.page:
+                self.page.snack_bar = ft.SnackBar(
+                    content=ft.Text("メール抽出処理の開始中にエラーが発生しました。"),
+                    action="閉じる",
+                )
+                self.page.snack_bar.open = True
+                self.page.update()
 
     def show_extraction_completed_dialog(self, task_id, status):
         """
@@ -325,14 +362,16 @@ class HomeContent(ft.Container):
                     if hasattr(self, "page") and self.page:
                         self.page.update()
                 else:
-                    # HomeViewModelのselect_taskメソッドを使用
-                    result = self.home_viewmodel.select_task(task_id)
-                    self.logger.info(
-                        f"HomeContent: HomeViewModelを使用して画面遷移 - {task_id}, 結果: {result}"
-                    )
-                    # 確実に更新されるようにページ更新を追加
+                    # HomeViewModelのselect_taskメソッドを使用（非同期版）
                     if hasattr(self, "page") and self.page:
-                        self.page.update()
+
+                        async def run_select_task():
+                            await self._handle_home_viewmodel_select_task(task_id)
+
+                        self.page.run_task(run_select_task)
+                        self.logger.info(
+                            f"HomeContent: HomeViewModelを使用して画面遷移タスク開始 - {task_id}"
+                        )
             except Exception as e:
                 self.logger.error(
                     "HomeContent: プレビュー画面への遷移でエラー発生",
@@ -358,15 +397,28 @@ class HomeContent(ft.Container):
             has_contents_viewmodel=self.contents_viewmodel is not None,
         )
 
+        # 非同期処理を実行するために、page.run_taskを使用
+        if hasattr(self, "page") and self.page:
+            # コルーチンオブジェクトをasyncio.run_coroutineでラップする
+            async def run_task():
+                await self._handle_task_selection(task_id)
+
+            self.page.run_task(run_task)
+            self.logger.info(f"HomeContent: 非同期タスク実行開始 - {task_id}")
+
+    async def _handle_task_selection(self, task_id):
+        """タスク選択の非同期処理"""
         # タスクIDを設定
         try:
             self.logger.debug(
-                "HomeContent: main_viewmodelの状態確認",
+                "HomeContent: 非同期処理開始",
+                task_id=task_id,
                 has_main_viewmodel=self.main_viewmodel is not None,
             )
 
             # タスクID設定（この中でスナップショット作成と抽出確認ダイアログの表示が行われる）
-            result = self.contents_viewmodel.set_current_task_id(task_id)
+            result = await self.contents_viewmodel.set_current_task_id(task_id)
+            self.logger.debug(f"HomeContent: set_current_task_id結果 - {result}")
 
             if not result:
                 self.logger.error(f"HomeContent: タスクID設定に失敗 - {task_id}")
@@ -381,6 +433,7 @@ class HomeContent(ft.Container):
 
             # set_current_task_id 後に一度だけ状態を確認
             status = self.contents_viewmodel.check_snapshot_and_extraction_plan(task_id)
+            self.logger.debug(f"HomeContent: 抽出状態確認 - {status}")
 
             # 適切なユーザーフィードバックを表示（抽出確認ダイアログが表示されない場合のみ）
             if hasattr(self, "page") and self.page:
@@ -424,14 +477,32 @@ class HomeContent(ft.Container):
                     )
                 else:
                     # HomeViewModelのselect_taskメソッドを使用
-                    self.home_viewmodel.select_task(task_id)
+                    await self._handle_home_viewmodel_select_task(task_id)
                     self.logger.info(
-                        f"HomeContent: HomeViewModelを使用して画面遷移 - {task_id}"
+                        f"HomeContent: HomeViewModelを使用して画面遷移完了 - {task_id}"
                     )
         except Exception as e:
             self.logger.error(
                 "HomeContent: タスクID設定または画面遷移でエラー発生", error=str(e)
             )
+
+    async def _handle_home_viewmodel_select_task(self, task_id):
+        """HomeViewModelのselect_taskメソッドを非同期で呼び出す"""
+        try:
+            self.logger.debug(f"HomeContent: select_task開始 - {task_id}")
+            # HomeViewModelのselect_taskメソッドを非同期で呼び出す
+            result = await self.home_viewmodel.select_task(task_id)
+            self.logger.info(
+                f"HomeContent: HomeViewModelのselect_task完了 - {task_id}, 結果: {result}"
+            )
+            return result
+        except Exception as e:
+            self.logger.error(
+                "HomeContent: HomeViewModelのselect_task呼び出しでエラー発生",
+                task_id=task_id,
+                error=str(e),
+            )
+            return False
 
     def on_task_delete(self, task_id, e):
         """タスク削除時の処理"""

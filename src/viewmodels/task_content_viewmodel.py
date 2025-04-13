@@ -3,12 +3,14 @@
 入力データの保持とModelへのデータ受け渡しを担当
 """
 
+import asyncio
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from src.core.logger import get_logger
 from src.models.outlook.outlook_account_model import OutlookAccountModel
 from src.models.task_content_model import TaskContentModel
+from src.views.components.progress_dialog import ProgressDialog
 
 
 class TaskContentViewModel:
@@ -22,6 +24,9 @@ class TaskContentViewModel:
         # Modelの初期化
         self._outlook_account_model = OutlookAccountModel()
         self._task_content_model = TaskContentModel()
+
+        # ProgressDialogのインスタンスを取得
+        self._progress_dialog = ProgressDialog()
 
         # 入力データの初期化
         self._init_input_data()
@@ -151,17 +156,33 @@ class TaskContentViewModel:
     async def connect_outlook(self) -> bool:
         """Outlookに接続してフォルダ一覧を取得"""
         try:
+            # プログレスダイアログを表示（不確定モード）
+            # ページコンテキストを使用した方法
+            await self._progress_dialog.show_async(
+                "Outlook接続中", "Outlookアカウントに接続しています...", 0, None
+            )
+
+            await asyncio.sleep(0.1)
+
             # アカウント情報を保存
             success = self._outlook_account_model.save_account_folders()
             if not success:
+                await self._progress_dialog.close_async()
                 return False
 
             # フォルダ一覧を更新
             self._folders = self._outlook_account_model.get_folder_paths()
+
+            # ダイアログを閉じる
+            await self._progress_dialog.close_async()
             return True
 
         except Exception as e:
-            print(f"Outlook接続エラー: {str(e)}")
+            self.logger.error(f"Outlook接続エラー: {str(e)}")
+            try:
+                await self._progress_dialog.close_async()
+            except:
+                pass
             return False
 
     def get_folder_paths(self) -> List[str]:

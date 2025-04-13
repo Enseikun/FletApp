@@ -1,9 +1,11 @@
+import asyncio
 import os
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from src.core.database import DatabaseManager
 from src.core.logger import get_logger
 from src.models.home_content_model import HomeContentModel
+from src.views.components.progress_dialog import ProgressDialog
 
 
 class HomeContentViewModel:
@@ -21,6 +23,10 @@ class HomeContentViewModel:
         self.main_viewmodel = None  # MainViewModelへの参照を保持するためのプロパティ
         self.extraction_confirmation_callback = None  # 抽出確認コールバック
         self.extraction_completed_callback = None  # 抽出完了コールバック
+
+        # ProgressDialogのインスタンスを取得
+        self._progress_dialog = ProgressDialog()
+
         self.logger.info("HomeContentViewModel: 初期化完了")
 
     def get_tasks_data(self) -> List[Tuple[int, str]]:
@@ -79,7 +85,7 @@ class HomeContentViewModel:
         self.extraction_completed_callback = callback
         self.logger.info("HomeContentViewModel: 抽出完了コールバックを設定しました")
 
-    def set_current_task_id(self, task_id: str) -> bool:
+    async def set_current_task_id(self, task_id: str) -> bool:
         """
         現在選択されているタスクIDを設定する
 
@@ -112,7 +118,7 @@ class HomeContentViewModel:
                 self.logger.info(
                     f"HomeContentViewModel: スナップショットが存在しないため作成します - {task_id}"
                 )
-                snapshot_success = self.create_outlook_snapshot(task_id)
+                snapshot_success = await self.create_outlook_snapshot(task_id)
                 if not snapshot_success:
                     self.logger.error(
                         "HomeContentViewModel: スナップショットの作成に失敗しました",
@@ -141,7 +147,7 @@ class HomeContentViewModel:
                     self.extraction_confirmation_callback(task_id, status)
                 else:
                     # コールバックが設定されていない場合は直接抽出を開始（従来の動作）
-                    self._start_extraction_without_confirmation(task_id)
+                    await self._start_extraction_without_confirmation(task_id)
 
             elif status["extraction_in_progress"]:
                 self.logger.info(
@@ -161,7 +167,7 @@ class HomeContentViewModel:
 
         return success
 
-    def _start_extraction_without_confirmation(self, task_id: str) -> bool:
+    async def _start_extraction_without_confirmation(self, task_id: str) -> bool:
         """
         確認なしでメール抽出を開始する（内部メソッド）
 
@@ -171,7 +177,7 @@ class HomeContentViewModel:
         Returns:
             bool: 開始が成功したかどうか
         """
-        extraction_success = self.start_mail_extraction(task_id)
+        extraction_success = await self.start_mail_extraction(task_id)
         if not extraction_success:
             self.logger.error(
                 "HomeContentViewModel: メール抽出の開始に失敗しました",
@@ -189,7 +195,9 @@ class HomeContentViewModel:
 
             return True
 
-    def handle_extraction_confirmation(self, task_id: str, confirmed: bool) -> bool:
+    async def handle_extraction_confirmation(
+        self, task_id: str, confirmed: bool
+    ) -> bool:
         """
         メール抽出確認ダイアログの結果を処理する
 
@@ -225,7 +233,7 @@ class HomeContentViewModel:
                 return True
 
             # 抽出が進行中でも完了でもない場合に抽出を開始
-            return self._start_extraction_without_confirmation(task_id)
+            return await self._start_extraction_without_confirmation(task_id)
         else:
             self.logger.info(
                 "HomeContentViewModel: ユーザーがメール抽出をキャンセルしました",
@@ -294,7 +302,7 @@ class HomeContentViewModel:
         )
         return result
 
-    def create_outlook_snapshot(self, task_id: str) -> bool:
+    async def create_outlook_snapshot(self, task_id: str) -> bool:
         """
         outlook.dbのfoldersテーブルの状態をitems.dbのoutlook_snapshotテーブルに記録する
 
@@ -307,18 +315,50 @@ class HomeContentViewModel:
         self.logger.info(
             "HomeContentViewModel: Outlookスナップショット作成開始", task_id=task_id
         )
-        result = self.model.create_outlook_snapshot(task_id)
-        if result:
-            self.logger.info(
-                "HomeContentViewModel: Outlookスナップショット作成成功", task_id=task_id
-            )
-        else:
-            self.logger.error(
-                "HomeContentViewModel: Outlookスナップショット作成失敗", task_id=task_id
-            )
-        return result
 
-    def start_mail_extraction(self, task_id: str) -> bool:
+        try:
+            # プログレスダイアログを表示（不確定モード）
+            await self._progress_dialog.show_async(
+                "スナップショット作成中",
+                "Outlookフォルダのスナップショットを作成しています...",
+                0,
+                None,
+            )
+
+            await asyncio.sleep(0.1)
+
+            # スナップショットを作成
+            result = self.model.create_outlook_snapshot(task_id)
+
+            # 結果に応じてログを出力
+            if result:
+                self.logger.info(
+                    "HomeContentViewModel: Outlookスナップショット作成成功",
+                    task_id=task_id,
+                )
+            else:
+                self.logger.error(
+                    "HomeContentViewModel: Outlookスナップショット作成失敗",
+                    task_id=task_id,
+                )
+
+            # ダイアログを閉じる
+            await self._progress_dialog.close_async()
+            return result
+
+        except Exception as e:
+            self.logger.error(
+                "HomeContentViewModel: スナップショット作成中にエラー発生",
+                task_id=task_id,
+                error=str(e),
+            )
+            try:
+                await self._progress_dialog.close_async()
+            except:
+                pass
+            return False
+
+    async def start_mail_extraction(self, task_id: str) -> bool:
         """
         メール抽出作業を開始する
 
@@ -329,16 +369,43 @@ class HomeContentViewModel:
             bool: 開始が成功したかどうか
         """
         self.logger.info("HomeContentViewModel: メール抽出開始", task_id=task_id)
-        result = self.model.start_mail_extraction(task_id)
-        if result:
-            self.logger.info(
-                "HomeContentViewModel: メール抽出開始成功", task_id=task_id
+
+        try:
+            # プログレスダイアログを表示（不確定モード）
+            await self._progress_dialog.show_async(
+                "メール抽出中", "メールの抽出準備をしています...", 0, None
             )
-        else:
+
+            await asyncio.sleep(0.1)
+
+            # メール抽出を開始
+            result = self.model.start_mail_extraction(task_id)
+
+            # 結果に応じてログを出力
+            if result:
+                self.logger.info(
+                    "HomeContentViewModel: メール抽出開始成功", task_id=task_id
+                )
+            else:
+                self.logger.error(
+                    "HomeContentViewModel: メール抽出開始失敗", task_id=task_id
+                )
+
+            # ダイアログを閉じる
+            await self._progress_dialog.close_async()
+            return result
+
+        except Exception as e:
             self.logger.error(
-                "HomeContentViewModel: メール抽出開始失敗", task_id=task_id
+                "HomeContentViewModel: メール抽出中にエラー発生",
+                task_id=task_id,
+                error=str(e),
             )
-        return result
+            try:
+                await self._progress_dialog.close_async()
+            except:
+                pass
+            return False
 
     def check_extraction_completed(self, task_id: str) -> bool:
         """

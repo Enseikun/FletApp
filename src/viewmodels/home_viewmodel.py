@@ -24,7 +24,7 @@ class HomeViewModel:
 
         return self.tasks
 
-    def select_task(self, task_id):
+    async def select_task(self, task_id):
         """タスクを選択する"""
         self.selected_task_id = task_id
 
@@ -36,7 +36,7 @@ class HomeViewModel:
         # メインViewModelに選択されたタスクIDを設定
         if self.main_viewmodel:
             # content_viewmodelにタスクIDを設定し、成功したかどうかを確認
-            success = self.content_viewmodel.set_current_task_id(task_id)
+            success = await self.content_viewmodel.set_current_task_id(task_id)
 
             if not success:
                 # エラーがあった場合は画面遷移をしない

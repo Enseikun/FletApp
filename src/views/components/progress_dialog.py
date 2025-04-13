@@ -36,7 +36,6 @@ class ProgressDialog:
         """
         self._page = page
         self._progress_bar = ft.ProgressBar(
-            width=300,
             color=Colors.PRIMARY,
             bgcolor="#eeeeee",
         )
@@ -52,11 +51,13 @@ class ProgressDialog:
 
         self._dialog = ft.AlertDialog(
             title=ft.Text(""),
-            content=self._content_column,
-            actions=[
-                ft.TextButton("OK", on_click=self._close_dialog),
-            ],
-            modal=True,  # モーダルダイアログに設定
+            content=ft.Container(
+                content=self._content_column,
+                height=40,  # 高さのみ固定
+                # 幅は指定せず、テキストに応じて自動調整
+            ),
+            modal=True,
+            shape=ft.RoundedRectangleBorder(radius=4),
         )
 
     async def show_async(

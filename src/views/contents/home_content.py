@@ -7,7 +7,6 @@ from src.core.logger import get_logger
 from src.viewmodels.home_content_viewmodel import HomeContentViewModel
 from src.viewmodels.home_viewmodel import HomeViewModel
 from src.views.components.add_button import AddButton
-from src.views.components.task_list_item import TaskListItem
 from src.views.components.text_with_subtitle_with_delete_icon import (
     TextWithSubtitleWithDeleteIcon,
 )

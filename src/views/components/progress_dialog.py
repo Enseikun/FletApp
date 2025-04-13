@@ -56,10 +56,15 @@ class ProgressDialog:
             actions=[
                 ft.TextButton("OK", on_click=self._close_dialog),
             ],
+            modal=True,  # モーダルダイアログに設定
         )
 
     async def show_async(
-        self, title: str, content: str, current_value: float = 0, max_value: float = 0
+        self,
+        title: str,
+        content: str,
+        current_value: float = 0,
+        max_value: float = None,
     ):
         """
         ダイアログを非同期で表示
@@ -67,7 +72,7 @@ class ProgressDialog:
             title (str): ダイアログのタイトル
             content (str): ダイアログの内容
             current_value (float): 現在の進捗値
-            max_value (float): 進捗の最大値（0の場合はIndeterminate mode）
+            max_value (float): 進捗の最大値（Noneの場合はIndeterminate mode）
         """
         if not self._dialog or not self._page:
             raise RuntimeError(
@@ -78,15 +83,17 @@ class ProgressDialog:
         self._content_column.controls[0].value = content
 
         # ProgressBarの状態を設定
-        if max_value > 0:
+        if max_value is not None and max_value > 0:
+            # 0.0から1.0の範囲に正規化する
             self._progress_bar.value = current_value / max_value
         else:
+            # 不確定モード
             self._progress_bar.value = None
 
-        self._page.dialog = self._dialog
-        self._dialog.open = True
+        # ダイアログを表示
+        self._page.open(self._dialog)
         self._is_open = True
-        await self._page.update_async()
+        self._page.update()  # 同期版を使用
 
     async def update_progress_async(self, current_value: float, max_value: float):
         """
@@ -96,27 +103,28 @@ class ProgressDialog:
             max_value (float): 進捗の最大値（0の場合はIndeterminate mode）
         """
         if max_value > 0:
+            # 0.0から1.0の範囲に正規化する
             self._progress_bar.value = current_value / max_value
         else:
             self._progress_bar.value = None
 
         if self._page and self._is_open:
-            await self._page.update_async()
+            self._page.update()  # 同期版を使用
 
     async def close_async(self):
         """
         ダイアログを非同期で閉じる
         """
         if self._is_open:
-            self._dialog.open = False
+            self._page.close(self._dialog)
             self._is_open = False
-            await self._page.update_async()
+            self._page.update()  # 同期版を使用
 
     def _close_dialog(self, e):
         """
         ダイアログを閉じる（同期版）
         """
-        self._dialog.open = False
+        self._page.close(self._dialog)
         self._is_open = False
         self._page.update()
 
@@ -136,12 +144,14 @@ class ProgressDialog:
         self._content_column.controls[0].value = content
 
         if max_value > 0:
+            # 0.0から1.0の範囲に正規化する
             self._progress_bar.value = current_value / max_value
         else:
+            # 不確定モード
             self._progress_bar.value = None
 
-        self._page.dialog = self._dialog
-        self._dialog.open = True
+        # ダイアログを表示
+        self._page.open(self._dialog)
         self._is_open = True
         self._page.update()
 
@@ -150,6 +160,7 @@ class ProgressDialog:
         進捗状況を更新（同期版）
         """
         if max_value > 0:
+            # 0.0から1.0の範囲に正規化する
             self._progress_bar.value = current_value / max_value
         else:
             self._progress_bar.value = None

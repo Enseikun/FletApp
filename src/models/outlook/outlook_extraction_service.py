@@ -27,6 +27,7 @@ Outlookからのメール抽出サービス
 
 import datetime
 import os
+import re
 from typing import Optional
 
 from markdownify import markdownify
@@ -84,6 +85,45 @@ class OutlookExtractionService:
         if self.tasks_db:
             self.tasks_db.disconnect()
 
+    def _format_date_string(self, date_value) -> str:
+        """
+        日付値を文字列形式に変換する
+
+        Args:
+            date_value: 変換する日付値（文字列またはdatetimeオブジェクト）
+
+        Returns:
+            str: 変換後の日付文字列（YYYY-MM-DD HH:MM:SS形式）
+        """
+        if not date_value:
+            return ""
+
+        try:
+            # datetimeオブジェクトの場合は文字列に変換
+            if hasattr(date_value, "strftime"):
+                return date_value.strftime("%Y-%m-%d %H:%M:%S")
+            # 既に文字列の場合はそのまま使用
+            return str(date_value)
+        except AttributeError:
+            # 変換できない場合は文字列としてそのまま返す
+            return str(date_value)
+
+    def _format_outlook_date_filter(self, date_str: str) -> str:
+        """
+        日付文字列をOutlookフィルター用に変換する
+
+        Args:
+            date_str: 元の日付文字列
+
+        Returns:
+            str: Outlook用に変換された日付文字列
+        """
+        if not date_str:
+            return ""
+
+        parts = date_str.replace("-", "/").rsplit(":", 1)
+        return parts[0] if len(parts) > 1 else date_str.replace("-", "/")
+
     def get_extraction_conditions(self) -> Optional[dict]:
         """
         抽出条件を取得する
@@ -121,20 +161,9 @@ class OutlookExtractionService:
             start_date = get_safe(task_info, "start_date")
             end_date = get_safe(task_info, "end_date")
 
-            # 日付形式を変換（「-」を「/」に変更、秒を削除）
-            start_date_formatted = ""
-            if start_date:
-                parts = start_date.replace("-", "/").rsplit(":", 1)
-                start_date_formatted = (
-                    parts[0] if len(parts) > 1 else start_date.replace("-", "/")
-                )
-
-                end_date_formatted = ""
-                if end_date:
-                    parts = end_date.replace("-", "/").rsplit(":", 1)
-                    end_date_formatted = (
-                        parts[0] if len(parts) > 1 else end_date.replace("-", "/")
-                    )
+            # 日付形式を変換（共通関数を使用）
+            start_date_formatted = self._format_outlook_date_filter(start_date)
+            end_date_formatted = self._format_outlook_date_filter(end_date)
 
             # Outlookのフィルター形式に変換
             date_filter = ""
@@ -253,6 +282,35 @@ class OutlookExtractionService:
                 error_details=str(e),
             )
             return False
+
+    def _clean_unicode_text(self, text: str) -> str:
+        """
+        無効なUnicode文字（サロゲートペア文字）を削除または置換する
+
+        Args:
+            text: 処理するテキスト
+
+        Returns:
+            str: 無効な文字を削除したテキスト
+        """
+        if not isinstance(text, str):
+            return ""
+
+        try:
+            # サロゲートペア文字をチェック
+            # unicodedata.is_normalized使用も可能だが、より直接的に対処
+            # 文字列をUTF-8で一度エンコードしてデコードし、エラーは置換する
+            cleaned_text = text.encode("utf-8", "replace").decode("utf-8")
+
+            # パターンD800-DFFF（サロゲート領域）の文字を削除
+            # サロゲートペアになっていない不正なサロゲート文字を削除
+            cleaned_text = re.sub(r"[\uD800-\uDFFF]", "", cleaned_text)
+
+            return cleaned_text
+        except Exception as e:
+            self.logger.error(f"Unicode文字列のクリーニングに失敗: {str(e)}")
+            # エラーが発生した場合は、可能な限りエンコード可能な部分だけを返す
+            return text.encode("ascii", "ignore").decode("ascii")
 
     def _create_extraction_plan(self) -> bool:
         """
@@ -373,20 +431,9 @@ class OutlookExtractionService:
                 # OutlookItemModelを使用して対象メールの基本情報のみを取得
                 outlook_item_model = OutlookItemModel()
 
-                # 日付形式を変換（「-」を「/」に変更、秒を削除）
-                start_date_formatted = ""
-                if start_date:
-                    parts = start_date.replace("-", "/").rsplit(":", 1)
-                    start_date_formatted = (
-                        parts[0] if len(parts) > 1 else start_date.replace("-", "/")
-                    )
-
-                end_date_formatted = ""
-                if end_date:
-                    parts = end_date.replace("-", "/").rsplit(":", 1)
-                    end_date_formatted = (
-                        parts[0] if len(parts) > 1 else end_date.replace("-", "/")
-                    )
+                # 日付形式を変換（共通関数を使用）
+                start_date_formatted = self._format_outlook_date_filter(start_date)
+                end_date_formatted = self._format_outlook_date_filter(end_date)
 
                 # ジェネレータからすべてのチャンクを取得してリストに結合
                 mail_items_basic = []
@@ -431,27 +478,31 @@ class OutlookExtractionService:
                 """
 
                 for mail_item in mail_items_basic:
-                    # pywintypes.datetimeオブジェクトを文字列に変換
+                    # 日時データを取得して変換
                     sent_time = get_safe(mail_item, "SentOn") or get_safe(
                         mail_item, "ReceivedTime"
                     )
 
-                    # pywintypes.datetimeオブジェクトをISO形式の文字列に変換
-                    sent_time_str = None
-                    if sent_time:
-                        try:
-                            # datetimeオブジェクトの場合は文字列に変換
-                            sent_time_str = sent_time.strftime("%Y-%m-%d %H:%M:%S")
-                        except AttributeError:
-                            # 既に文字列の場合はそのまま使用
-                            sent_time_str = str(sent_time)
+                    # 共通関数を使用して日時を文字列に変換
+                    sent_time_str = self._format_date_string(sent_time)
+
+                    # 無効なUnicode文字（サロゲートペア）を含む件名をクリーニング
+                    subject = get_safe(mail_item, "Subject")
+                    cleaned_subject = self._clean_unicode_text(subject)
+
+                    # サロゲートペア文字が削除された場合にログに記録
+                    if subject != cleaned_subject:
+                        self.logger.info(
+                            f"件名から無効なUnicode文字を削除しました: {subject} -> {cleaned_subject}",
+                            task_id=self.task_id,
+                        )
 
                     self.items_db.execute_update(
                         mail_tasks_query,
                         (
                             self.task_id,
                             get_safe(mail_item, "EntryID"),
-                            get_safe(mail_item, "Subject"),
+                            cleaned_subject,
                             sent_time_str,
                             current_time,
                         ),
@@ -894,13 +945,20 @@ class OutlookExtractionService:
             if not self._save_mail_item(mail_data):
                 return False
 
+            # 抽出条件を一度だけ取得
+            conditions = self.get_extraction_conditions()
+            if not conditions:
+                return False
+
             # 添付ファイルの処理
-            if self.get_extraction_conditions().get("file_download", False):
-                if not self._process_attachment_for_mail(mail_data):
+            if conditions.get("file_download", False):
+                if not self._process_attachment_for_mail(
+                    mail_data, conditions.get("exclude_extensions", "")
+                ):
                     self.logger.warning(f"添付ファイルの処理に失敗: {entry_id}")
 
             # AIレビューの処理
-            if self.get_extraction_conditions().get("ai_review", False):
+            if conditions.get("ai_review", False):
                 if not self._process_ai_review(entry_id):
                     self.logger.warning(f"AIレビューの処理に失敗: {entry_id}")
 
@@ -910,12 +968,15 @@ class OutlookExtractionService:
             self.logger.error(f"メール処理中にエラーが発生: {str(e)}")
             return False
 
-    def _process_attachment_for_mail(self, mail_data: dict) -> bool:
+    def _process_attachment_for_mail(
+        self, mail_data: dict, exclude_extensions: str = ""
+    ) -> bool:
         """
         単一メールの添付ファイルを処理する
 
         Args:
             mail_data: メールデータ
+            exclude_extensions: 除外する拡張子（カンマ区切り）
 
         Returns:
             bool: 処理が成功したかどうか
@@ -971,9 +1032,6 @@ class OutlookExtractionService:
                     self.logger.info(f"添付ファイル処理中: {file_name}")
 
                     # 除外拡張子のチェック
-                    exclude_extensions = self.get_extraction_conditions().get(
-                        "exclude_extensions", ""
-                    )
                     if exclude_extensions:
                         extension = os.path.splitext(file_name)[1].lower()
                         if extension and extension[1:] in [
@@ -1035,23 +1093,8 @@ class OutlookExtractionService:
                             received_time = get_safe(msg_item, "ReceivedTime")
 
                             # datetime形式を文字列に変換
-                            sent_time_str = ""
-                            if sent_time:
-                                try:
-                                    sent_time_str = sent_time.strftime(
-                                        "%Y-%m-%d %H:%M:%S"
-                                    )
-                                except AttributeError:
-                                    sent_time_str = str(sent_time)
-
-                            received_time_str = ""
-                            if received_time:
-                                try:
-                                    received_time_str = received_time.strftime(
-                                        "%Y-%m-%d %H:%M:%S"
-                                    )
-                                except AttributeError:
-                                    received_time_str = str(received_time)
+                            sent_time_str = self._format_date_string(sent_time)
+                            received_time_str = self._format_date_string(received_time)
 
                             # フォルダ名を取得
                             folder_name = ""
@@ -1213,20 +1256,9 @@ class OutlookExtractionService:
             sent_time = get_safe(mail_item, "SentOn")
             received_time = get_safe(mail_item, "ReceivedTime")
 
-            # datetime形式を文字列に変換（形式: YYYY-MM-DD HH:MM:SS）
-            sent_time_str = ""
-            if sent_time:
-                try:
-                    sent_time_str = sent_time.strftime("%Y-%m-%d %H:%M:%S")
-                except AttributeError:
-                    sent_time_str = str(sent_time)
-
-            received_time_str = ""
-            if received_time:
-                try:
-                    received_time_str = received_time.strftime("%Y-%m-%d %H:%M:%S")
-                except AttributeError:
-                    received_time_str = str(received_time)
+            # 共通関数を使用して日時を文字列に変換
+            sent_time_str = self._format_date_string(sent_time)
+            received_time_str = self._format_date_string(received_time)
 
             # ConversationIDを取得（Exchange環境でのみ利用可能）
             conversation_id = get_safe(mail_item, "ConversationID", "")

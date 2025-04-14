@@ -4,6 +4,7 @@
 """
 
 import asyncio
+from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional
 
 import flet as ft
@@ -1832,3 +1833,57 @@ class MailContentViewer(ft.Container):
             ],
             spacing=5,
         )
+
+    def get_formatted_date(self, date_str):
+        """日付を整形する"""
+        try:
+            # 日付文字列のフォーマットが異なる場合に対応するよう複数のパターンを試す
+            for fmt in [
+                "%Y-%m-%d %H:%M:%S",
+                "%Y/%m/%d %H:%M:%S",
+                "%Y-%m-%dT%H:%M:%S",
+                "%Y-%m-%d %H:%M:%S.%f",
+            ]:
+                try:
+                    dt = datetime.strptime(date_str, fmt)
+                    # 日本語の曜日を取得
+                    weekday = ["月", "火", "水", "木", "金", "土", "日"][dt.weekday()]
+                    # 日本語形式で日付を整形
+                    return f"{dt.year}年{dt.month}月{dt.day}日({weekday}) {dt.hour:02d}:{dt.minute:02d}"
+                except ValueError:
+                    continue
+
+            # すべてのパターンが失敗した場合はそのまま返す
+            return date_str
+        except Exception:
+            return date_str
+
+    def reset(self):
+        """コンポーネントの状態をリセット"""
+        # コンテンツをクリア
+        if hasattr(self, "header_container") and self.header_container:
+            # 件名をクリア
+            if hasattr(self, "subject_text") and self.subject_text:
+                self.subject_text.value = ""
+
+            # 送信者情報をクリア
+            if hasattr(self, "sender_text") and self.sender_text:
+                self.sender_text.value = ""
+
+            # 日付をクリア
+            if hasattr(self, "date_text") and self.date_text:
+                self.date_text.value = ""
+
+        # 本文コンテナをクリア
+        if hasattr(self, "content_container") and self.content_container:
+            self.content_container.content = None
+
+        # 添付ファイルコンテナをクリア
+        if hasattr(self, "attachments_container") and self.attachments_container:
+            self.attachments_container.content = None
+
+        # 現在表示中のメールIDをクリア
+        self.current_mail_id = None
+
+        # 表示中のメールデータをクリア
+        self.current_mail = None

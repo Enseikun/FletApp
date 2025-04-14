@@ -342,6 +342,15 @@ class HomeContent(ft.Container):
         task_status = status.get("task_status", "unknown")
         task_message = status.get("task_message", "情報がありません")
 
+        # ステータス情報を詳細にログ出力
+        self.logger.debug(
+            "HomeContent: タスク状態情報",
+            task_id=task_id,
+            task_status=task_status,
+            task_message=task_message,
+            status_dict=str(status),
+        )
+
         # 状態に応じたメッセージとタイトルを設定
         if task_status == "completed":
             title = "メール抽出完了"
@@ -593,6 +602,19 @@ class HomeContent(ft.Container):
                     # タスクを削除
                     success = self.home_viewmodel.delete_task(task_id)
                     if success:
+                        # 削除したタスクが現在表示中のタスクの場合は、current_task_idをクリアする
+                        if self.main_viewmodel:
+                            current_task_id = self.main_viewmodel.get_current_task_id()
+                            if current_task_id == task_id:
+                                # 現在のタスクIDをクリア
+                                self.main_viewmodel.set_current_task_id(None)
+                                # ホーム画面に戻す（プレビュー画面を初期化するため）
+                                self.main_viewmodel.set_destination("home")
+                                self.logger.info(
+                                    "HomeContent: 現在表示中のタスクを削除したため、ホーム画面に戻します",
+                                    task_id=task_id,
+                                )
+
                         # タスクリストを再取得して更新
                         tasks = self.home_viewmodel.load_tasks()
                         self.update_task_list(tasks)

@@ -137,6 +137,37 @@ class HomeContentModel:
             bool: 削除が成功したかどうか
         """
         try:
+            # items.dbパスを事前に定義
+            items_db_path = os.path.join("data", "tasks", str(task_id), "items.db")
+
+            # items.dbが存在する場合、確実に接続を解放する処理
+            if os.path.exists(items_db_path):
+                try:
+                    # 複数回接続解放を試みる
+                    for attempt in range(3):
+                        try:
+                            # 一時的なデータベース接続を作成して閉じる（既存の接続を強制的にクローズするため）
+                            tmp_db = DatabaseManager(items_db_path)
+                            tmp_db.disconnect()
+                            self.logger.info(
+                                f"items.dbの接続解放試行 {attempt+1}/3 成功: {items_db_path}"
+                            )
+                            break
+                        except Exception as db_ex:
+                            self.logger.warning(
+                                f"items.dbの接続解放試行 {attempt+1}/3 失敗: {str(db_ex)}"
+                            )
+                            # 少し長めに待機
+                            time.sleep(0.5)
+                except Exception as db_ex:
+                    self.logger.warning(
+                        f"タスクのデータベース接続解放中にエラー: {str(db_ex)}"
+                    )
+                    # エラーが発生しても削除処理を継続する
+
+                # 接続解放後に追加の待機時間
+                time.sleep(0.5)
+
             # データベース操作を先に完了
             self.db_manager.execute_update(
                 "DELETE FROM task_info WHERE id = ?", (task_id,)
@@ -147,7 +178,6 @@ class HomeContentModel:
             self.db_manager.disconnect()
 
             # タスク固有のitems.dbがある場合、それも確認して閉じる
-            items_db_path = os.path.join("data", "tasks", str(task_id), "items.db")
             if os.path.exists(items_db_path):
                 try:
                     # 一時的なデータベース接続を作成して閉じる（既存の接続を強制的にクローズするため）
@@ -155,7 +185,7 @@ class HomeContentModel:
                     tmp_db.disconnect()
 
                     # 少し待機して、接続が完全に閉じられるのを確認
-                    time.sleep(0.2)
+                    time.sleep(0.5)
                 except Exception as db_ex:
                     self.logger.warning(
                         f"タスクのデータベース接続解放中にエラー: {str(db_ex)}"
@@ -169,7 +199,7 @@ class HomeContentModel:
                     shutil.rmtree(task_dir)
                 except PermissionError:
                     # ファイルが使用中の場合は少し待ってから再試行
-                    time.sleep(0.5)  # 待機時間を長めに設定
+                    time.sleep(1.0)  # 待機時間を長めに設定
                     try:
                         shutil.rmtree(task_dir)
                     except Exception as rm_ex:

@@ -616,3 +616,41 @@ class MailList(ft.Container):
     def get_conversation_mails(self, conversation_id):
         """会話に含まれるメール一覧を取得"""
         return self.conversation_containers.get(conversation_id, [])
+
+    def do_scroll_top(self):
+        """リストをトップにスクロール"""
+        if hasattr(self, "scroll_container") and self.scroll_container:
+            self.scroll_container.scroll_to(offset=0, duration=300)
+
+    def reset(self):
+        """コンポーネントの状態をリセット"""
+        # メールリストをクリア
+        if hasattr(self, "mail_items") and self.mail_items:
+            self.mail_items.clear()
+
+        # 会話グループをクリア
+        if hasattr(self, "conversation_groups") and self.conversation_groups:
+            self.conversation_groups.clear()
+
+        # 表示中のメールリストをクリア
+        if hasattr(self, "list_view") and self.list_view:
+            self.list_view.controls.clear()
+
+        # 検索ボックスをクリア
+        if hasattr(self, "search_box") and self.search_box:
+            self.search_box.value = ""
+
+        # ソート順をデフォルトに戻す
+        if hasattr(self, "sort_dropdown") and self.sort_dropdown:
+            self.sort_dropdown.value = "date_desc"
+
+        # 会話グループフラグをリセット
+        if (
+            hasattr(self, "group_by_conversation_toggle")
+            and self.group_by_conversation_toggle
+        ):
+            self.group_by_conversation_toggle.value = False
+
+        # 選択状態をクリア
+        self.selected_mail_id = None
+        self.selected_conversation_id = None

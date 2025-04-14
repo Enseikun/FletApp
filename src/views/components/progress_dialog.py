@@ -26,6 +26,8 @@ class ProgressDialog:
             cls._instance._page = None
             cls._instance._progress_bar = None
             cls._instance._is_open = False
+            cls._instance._close_button = None
+            cls._instance._button_clicked = asyncio.Event()
         return cls._instance
 
     @property
@@ -54,12 +56,25 @@ class ProgressDialog:
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
         )
 
+        # ボタン用のコンテナ（初期状態では非表示）
+        self._button_container = ft.Container(
+            content=ft.Row(
+                controls=[],
+                alignment=ft.MainAxisAlignment.CENTER,
+            ),
+            visible=False,
+            margin=ft.margin.only(top=10),
+        )
+
+        # メッセージとプログレスバーの後にボタンコンテナを追加
+        self._content_column.controls.append(self._button_container)
+
         self._dialog = ft.AlertDialog(
             title=ft.Text(""),
             content=ft.Container(
                 content=self._content_column,
-                height=40,  # 高さのみ固定
-                # 幅は指定せず、テキストに応じて自動調整
+                # width=400,
+                height=40,
             ),
             modal=True,
             shape=ft.RoundedRectangleBorder(radius=4),
@@ -188,3 +203,63 @@ class ProgressDialog:
         if self._is_open:
             self._content_column.controls[0].value = content
             self._page.update()  # 同期版を使用
+
+    async def add_close_button_async(self, button_text: str = "OK"):
+        """
+        閉じるボタンを非同期で追加
+        Args:
+            button_text (str): ボタンのテキスト
+        """
+        if not self._dialog or not self._page:
+            raise RuntimeError(
+                "ダイアログが初期化されていません。initialize()を呼び出してください。"
+            )
+
+        if not self._is_open:
+            return
+
+        # イベントをリセット
+        self._button_clicked.clear()
+
+        # ボタンのクリックハンドラ
+        def on_button_click(e):
+            # ボタンがクリックされたらイベントをセット
+            asyncio.create_task(self._set_button_clicked())
+
+        # ボタンを作成
+        self._close_button = ft.ElevatedButton(
+            text=button_text,
+            on_click=on_button_click,
+            style=ft.ButtonStyle(
+                shape=ft.RoundedRectangleBorder(radius=4),
+            ),
+        )
+
+        # ボタンコンテナにボタンを追加
+        row = self._button_container.content
+        row.controls = [self._close_button]
+        self._button_container.visible = True
+
+        # UI更新
+        self._page.update()
+
+    async def _set_button_clicked(self):
+        """内部メソッド: ボタンがクリックされたことを記録"""
+        self._button_clicked.set()
+
+    async def wait_for_close(self, timeout: float = None):
+        """
+        ユーザーがボタンをクリックするまで待機
+        Args:
+            timeout (float): タイムアウト時間（秒）。Noneの場合は無限に待機
+
+        Returns:
+            bool: タイムアウトせずにボタンがクリックされたかどうか
+        """
+        try:
+            await asyncio.wait_for(self._button_clicked.wait(), timeout)
+            # ボタンクリック後にダイアログを閉じる
+            await self.close_async()
+            return True
+        except asyncio.TimeoutError:
+            return False

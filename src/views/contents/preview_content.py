@@ -162,6 +162,43 @@ class PreviewContent(ft.Container):
         self.load_data()
         self.logger.info("PreviewContent: マウント処理完了")
 
+    def will_unmount(self):
+        """コンポーネントがアンマウントされる前の処理"""
+        self.logger.info("PreviewContent: アンマウント処理開始")
+
+        try:
+            # ViewModelリソース解放
+            if hasattr(self, "viewmodel") and self.viewmodel:
+                self.viewmodel.close()
+                self.logger.debug("PreviewContent: ViewModelのリソースを解放")
+                self.viewmodel = None
+
+            # 会話コンテナのリセット
+            if (
+                hasattr(self, "conversation_containers")
+                and self.conversation_containers
+            ):
+                self.conversation_containers.clear()
+                self.logger.debug("PreviewContent: 会話コンテナをクリア")
+
+            # メールリストとメールコンテンツビューアーのリセット
+            if hasattr(self, "mail_list_component"):
+                self.mail_list_component.reset()
+                self.logger.debug("PreviewContent: メールリストをリセット")
+
+            if hasattr(self, "mail_content_viewer"):
+                self.mail_content_viewer.reset()
+                self.logger.debug(
+                    "PreviewContent: メールコンテンツビューアーをリセット"
+                )
+
+            # タスクIDをクリア
+            self.task_id = None
+
+            self.logger.info("PreviewContent: アンマウント処理完了")
+        except Exception as e:
+            self.logger.error(f"PreviewContent: アンマウント処理中にエラー - {str(e)}")
+
     def load_data(self):
         """データを読み込む"""
         self.logger.info("PreviewContent: データ読み込み開始")

@@ -205,17 +205,125 @@ class HomeContentViewModel:
             # メール抽出を開始
             result = self.model.start_mail_extraction(task_id)
 
-            # ProgressDialogを閉じる（抽出は非同期で進行中）
-            await self._progress_dialog.close_async()
-
-            await asyncio.sleep(0.1)
             # 結果に応じてログを出力
             if result:
                 self.logger.info(
                     "HomeContentViewModel: メール抽出開始成功", task_id=task_id
                 )
 
-                # 抽出が完了したか確認（すぐに完了する場合もあるため）
+                # メールの抽出処理中であることをダイアログに表示
+                await self._progress_dialog.update_message_async(
+                    "メールの抽出処理を実行中です。完了までお待ちください..."
+                )
+
+                # 抽出の完了を監視
+                is_completed = False
+                progress_check_count = 0
+
+                while not is_completed:
+                    # 抽出状態をチェック
+                    status = self.check_snapshot_and_extraction_plan(task_id)
+
+                    # データベースからも直接状態を確認（より確実に完了を検出するため）
+                    extraction_completed, progress_info = (
+                        await self._check_extraction_status_from_db(
+                            task_id, with_progress=True
+                        )
+                    )
+
+                    if status["extraction_completed"] or extraction_completed:
+                        is_completed = True
+                        self.logger.info(
+                            "HomeContentViewModel: メール抽出が完了しました",
+                            task_id=task_id,
+                        )
+                    else:
+                        # 進捗情報を取得して表示
+                        completed_count = progress_info.get("completed_count", 0)
+                        total_count = progress_info.get("total_count", 0)
+
+                        # 進捗メッセージを作成
+                        progress_message = "メールの抽出処理を実行中です。"
+                        if total_count > 0:
+                            progress_message += (
+                                f"\n処理済み: {completed_count}/{total_count} メール"
+                            )
+                            # プログレスバーを更新（completed_countがtotal_countより大きくならないように注意）
+                            actual_completed = min(completed_count, total_count)
+                            await self._progress_dialog.update_progress_async(
+                                actual_completed, total_count
+                            )
+                        else:
+                            progress_message += "\n準備中..."
+
+                        # 定期的に処理状態も表示
+                        progress_check_count += 1
+                        if progress_check_count % 5 == 0:  # 5回ごとに詳細情報を表示
+                            process_status = progress_info.get("process_details", "")
+                            if process_status:
+                                progress_message += f"\n{process_status}"
+
+                        # 進捗状況をダイアログに表示
+                        await self._progress_dialog.update_message_async(
+                            progress_message
+                        )
+
+                        # 少し待機してから再チェック
+                        await asyncio.sleep(1.0)
+
+                # 抽出が完了したことをダイアログに表示
+                await self._progress_dialog.update_message_async(
+                    "メール抽出が完了しました。"
+                )
+
+                # 抽出完了ダイアログを表示する前に少し待機
+                await asyncio.sleep(1.0)
+
+                # ダイアログを閉じる
+                await self._progress_dialog.close_async()
+
+                # 抽出が完了したか確認（完了イベント通知のため）
+                await self.check_extraction_completed(task_id)
+
+                # 抽出結果の詳細を取得
+                _, final_progress = await self._check_extraction_status_from_db(
+                    task_id, with_progress=True
+                )
+
+                # 抽出結果サマリーを作成
+                total_count = final_progress.get("total_count", 0)
+                completed_count = final_progress.get("completed_count", 0)
+                error_count = (
+                    total_count - completed_count
+                    if total_count > completed_count
+                    else 0
+                )
+
+                result_message = "メール抽出が完了しました。\n\n"
+                result_message += f"処理結果:\n"
+                result_message += f"- 合計: {total_count} メール\n"
+                result_message += f"- 成功: {completed_count} メール\n"
+
+                if error_count > 0:
+                    result_message += f"- エラー: {error_count} メール\n"
+
+                # 添付ファイル情報がある場合は表示
+                if (
+                    "attachment_total" in final_progress
+                    and final_progress["attachment_total"] > 0
+                ):
+                    att_total = final_progress.get("attachment_total", 0)
+                    att_completed = final_progress.get("attachment_completed", 0)
+                    result_message += f"- 添付ファイル: {att_completed}/{att_total}\n"
+
+                # 完了メッセージとOKボタンを表示
+                await self._progress_dialog.update_message_async(result_message)
+                await self._progress_dialog.add_close_button_async("OK")
+
+                # ユーザーがボタンをクリックするまで待機
+                await self._progress_dialog.wait_for_close()
+
+                # ダイアログが閉じられた後、通知を行う
                 await self.check_extraction_completed(task_id)
 
                 await asyncio.sleep(0.1)
@@ -224,6 +332,8 @@ class HomeContentViewModel:
                 self.logger.error(
                     "HomeContentViewModel: メール抽出開始失敗", task_id=task_id
                 )
+                # 抽出開始失敗時はダイアログを閉じる
+                await self._progress_dialog.close_async()
                 return False
 
         except Exception as e:
@@ -231,10 +341,28 @@ class HomeContentViewModel:
                 "HomeContentViewModel: メール抽出処理中にエラー発生",
                 task_id=task_id,
                 error=str(e),
+                stack=str(e.__traceback__),
             )
-            # エラー発生時はダイアログを確実に閉じる
-            if self._progress_dialog.is_open:
-                await self._progress_dialog.close_async()
+            try:
+                # エラー発生時はダイアログのメッセージを更新して表示
+                if self._progress_dialog.is_open:
+                    error_message = (
+                        f"メール抽出処理中にエラーが発生しました:\n\n{str(e)}"
+                    )
+                    await self._progress_dialog.update_message_async(error_message)
+
+                    # OKボタンを表示してユーザーの確認を待つ
+                    await self._progress_dialog.add_close_button_async("OK")
+                    await self._progress_dialog.wait_for_close(
+                        timeout=60.0
+                    )  # 最大1分待機
+            except Exception as dialog_ex:
+                self.logger.error(
+                    "HomeContentViewModel: エラー処理中に例外発生",
+                    error=str(dialog_ex),
+                )
+                # どうしてもダイアログが閉じられない場合は無視
+                pass
 
             await asyncio.sleep(0.1)
             return False
@@ -339,6 +467,51 @@ class HomeContentViewModel:
             task_id=task_id,
         )
         result = self.model.check_snapshot_and_extraction_plan(task_id)
+
+        # 抽出が完了している場合は、task_statusとtask_messageも取得
+        if result["extraction_completed"]:
+            try:
+                # items.dbへのパスを設定
+                items_db_path = os.path.join("data", "tasks", str(task_id), "items.db")
+
+                if os.path.exists(items_db_path):
+                    # DatabaseManagerを使用してデータベースに接続
+                    items_db = DatabaseManager(items_db_path)
+
+                    # task_progressテーブルから最新の状態を取得
+                    progress_query = """
+                    SELECT status, last_error FROM task_progress 
+                    WHERE task_id = ? 
+                    ORDER BY last_updated_at DESC LIMIT 1
+                    """
+                    progress_result = items_db.execute_query(progress_query, (task_id,))
+
+                    if progress_result:
+                        task_status = progress_result[0].get("status")
+                        task_message = progress_result[0].get("last_error", "")
+
+                        # task_statusとtask_messageを結果に追加
+                        result["task_status"] = task_status
+                        result["task_message"] = task_message
+
+                        self.logger.debug(
+                            "HomeContentViewModel: タスク状態情報を取得しました",
+                            task_id=task_id,
+                            status=task_status,
+                        )
+
+                    # データベース接続を閉じる
+                    items_db.disconnect()
+            except Exception as e:
+                self.logger.error(
+                    "HomeContentViewModel: タスク状態取得中にエラー発生",
+                    task_id=task_id,
+                    error=str(e),
+                )
+                # エラーが発生した場合はデフォルト値を設定
+                result["task_status"] = "unknown"
+                result["task_message"] = "状態取得エラー: " + str(e)
+
         self.logger.info(
             "HomeContentViewModel: スナップショットと抽出計画の確認完了",
             task_id=task_id,
@@ -360,6 +533,12 @@ class HomeContentViewModel:
         try:
             # 抽出状態を確認
             status = self.check_snapshot_and_extraction_plan(task_id)
+            self.logger.debug(
+                "HomeContentViewModel: 抽出完了確認開始",
+                task_id=task_id,
+                has_status=status is not None,
+                extraction_completed=status.get("extraction_completed", False),
+            )
 
             # データベース接続が必要なため、モデルに処理を委譲
             items_db_path = os.path.join("data", "tasks", str(task_id), "items.db")
@@ -391,6 +570,12 @@ class HomeContentViewModel:
 
             task_status = progress_result[0].get("status")
             task_message = progress_result[0].get("last_error", "")
+            self.logger.debug(
+                "HomeContentViewModel: タスク状態取得",
+                task_id=task_id,
+                task_status=task_status,
+                task_message=task_message,
+            )
 
             # 処理が完了またはエラーの場合
             is_completed = task_status in ["completed", "error"]
@@ -409,10 +594,25 @@ class HomeContentViewModel:
 
                 # 完了コールバックが設定されている場合は呼び出す
                 if self.extraction_completed_callback:
+                    self.logger.debug(
+                        "HomeContentViewModel: 抽出完了コールバックを呼び出します",
+                        task_id=task_id,
+                        status_info=str(status),
+                    )
                     self.extraction_completed_callback(task_id, status)
+                else:
+                    self.logger.warning(
+                        "HomeContentViewModel: 抽出完了コールバックが設定されていません",
+                        task_id=task_id,
+                    )
 
                 return True
 
+            self.logger.debug(
+                "HomeContentViewModel: 抽出はまだ完了していません",
+                task_id=task_id,
+                task_status=task_status,
+            )
             return False
 
         except Exception as e:
@@ -422,6 +622,151 @@ class HomeContentViewModel:
                 error=str(e),
             )
             return False
+        finally:
+            # データベース接続が閉じられていることを確認
+            if items_db:
+                items_db.disconnect()
+
+    async def _check_extraction_status_from_db(
+        self, task_id: str, with_progress: bool = False
+    ) -> Tuple[bool, Dict[str, Any]]:
+        """
+        データベースから抽出状態を確認する
+
+        Args:
+            task_id: タスクID
+            with_progress: 進捗情報を含めて確認するかどうか
+
+        Returns:
+            Tuple[bool, Dict[str, Any]]: 抽出が完了しているかどうかと進捗情報
+        """
+        items_db = None
+        try:
+            # データベース接続が必要なため、モデルに処理を委譲
+            items_db_path = os.path.join("data", "tasks", str(task_id), "items.db")
+
+            if not os.path.exists(items_db_path):
+                self.logger.warning(
+                    "HomeContentViewModel: items.dbが見つかりません",
+                    db_path=items_db_path,
+                )
+                return False, {}
+
+            # DatabaseManagerを直接使用
+            items_db = DatabaseManager(items_db_path)
+
+            # 進捗情報を格納する辞書
+            progress_info = {}
+
+            # task_progressテーブルから最新の状態を取得
+            progress_query = """
+            SELECT status, last_error FROM task_progress 
+            WHERE task_id = ? 
+            ORDER BY last_updated_at DESC LIMIT 1
+            """
+            progress_result = items_db.execute_query(progress_query, (task_id,))
+
+            if not progress_result:
+                self.logger.warning(
+                    "HomeContentViewModel: task_progressテーブルに情報がありません",
+                    task_id=task_id,
+                )
+                return False, progress_info
+
+            task_status = progress_result[0].get("status")
+            task_message = progress_result[0].get("last_error", "")
+
+            # 進捗情報を辞書に追加
+            progress_info["task_status"] = task_status
+            progress_info["task_message"] = task_message
+
+            # with_progressが指定されている場合は進捗状況の詳細を取得
+            if with_progress:
+                # メールタスクの総数を取得
+                total_query = """
+                SELECT COUNT(*) as total FROM mail_tasks 
+                WHERE task_id = ?
+                """
+                total_result = items_db.execute_query(total_query, (task_id,))
+                total_count = total_result[0].get("total", 0) if total_result else 0
+
+                # 完了したメールタスクの数を取得
+                completed_query = """
+                SELECT COUNT(*) as completed FROM mail_tasks 
+                WHERE task_id = ? AND status IN ('completed', 'error')
+                """
+                completed_result = items_db.execute_query(completed_query, (task_id,))
+                completed_count = (
+                    completed_result[0].get("completed", 0) if completed_result else 0
+                )
+
+                # 添付ファイル処理状況
+                attachment_query = """
+                SELECT 
+                    COUNT(*) as total,
+                    SUM(CASE WHEN attachment_status = 'completed' THEN 1 ELSE 0 END) as completed
+                FROM mail_tasks 
+                WHERE task_id = ? AND has_attachments = 1
+                """
+                attachment_result = items_db.execute_query(attachment_query, (task_id,))
+
+                # 進捗情報を辞書に追加
+                progress_info["total_count"] = total_count
+                progress_info["completed_count"] = completed_count
+                if attachment_result:
+                    progress_info["attachment_total"] = attachment_result[0].get(
+                        "total", 0
+                    )
+                    progress_info["attachment_completed"] = attachment_result[0].get(
+                        "completed", 0
+                    )
+
+                # 最近処理したメールの情報を取得（上位3つ）
+                recent_query = """
+                SELECT subject, status, last_updated_at 
+                FROM mail_tasks 
+                WHERE task_id = ? 
+                ORDER BY last_updated_at DESC LIMIT 3
+                """
+                recent_result = items_db.execute_query(recent_query, (task_id,))
+                if recent_result:
+                    progress_info["recent_mails"] = recent_result
+
+            # 処理が完了またはエラーの場合
+            is_completed = task_status in ["completed", "error"]
+
+            if is_completed:
+                self.logger.info(
+                    "HomeContentViewModel: メール抽出が完了しています",
+                    task_id=task_id,
+                    status=task_status,
+                    error_message=task_message,
+                )
+
+                # ステータス情報を更新
+                progress_info["extraction_completed"] = True
+                progress_info["extraction_in_progress"] = False
+                progress_info["has_snapshot"] = True
+
+                # 完了コールバックが設定されている場合は呼び出す
+                if self.extraction_completed_callback and not with_progress:
+                    self.extraction_completed_callback(task_id, progress_info)
+
+                return True, progress_info
+
+            # 完了していない場合も進捗情報を返す
+            progress_info["extraction_completed"] = False
+            progress_info["extraction_in_progress"] = task_status == "processing"
+
+            return False, progress_info
+
+        except Exception as e:
+            self.logger.error(
+                "HomeContentViewModel: 抽出完了確認中にエラー発生",
+                task_id=task_id,
+                error=str(e),
+            )
+            return False, {}
         finally:
             # データベース接続が閉じられていることを確認
             if items_db:

@@ -281,8 +281,34 @@ class PreviewContentViewModel:
 
     def close(self):
         """リソースを解放"""
-        self.logger.info("PreviewContentViewModel: リソース解放")
-        self.model.close()
+        self.logger.info("PreviewContentViewModel: リソース解放開始")
+
+        # キャッシュされたメールリストをクリア
+        if hasattr(self, "cached_mail_list") and self.cached_mail_list:
+            self.cached_mail_list = []
+            self.logger.debug(
+                "PreviewContentViewModel: キャッシュされたメールリストをクリア"
+            )
+
+        # サンプルデータをクリア
+        if hasattr(self, "sample_mails") and self.sample_mails:
+            self.sample_mails = []
+            self.logger.debug("PreviewContentViewModel: サンプルデータをクリア")
+
+        # モデルが存在する場合のみcloseを呼び出す
+        if hasattr(self, "model") and self.model:
+            try:
+                self.model.close()
+                self.logger.debug("PreviewContentViewModel: モデルのリソースを解放")
+            except Exception as e:
+                self.logger.error(
+                    f"PreviewContentViewModel: モデル解放中にエラー: {str(e)}"
+                )
+
+        # task_idをクリア
+        self.task_id = None
+
+        self.logger.info("PreviewContentViewModel: リソース解放完了")
 
     def get_conversation_risk_score(self, mails: List[Dict]) -> Dict:
         """会話のリスクスコアを取得

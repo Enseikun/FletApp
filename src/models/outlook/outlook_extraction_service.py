@@ -1270,11 +1270,13 @@ class OutlookExtractionService:
                 "folder_id": get_safe(mail_item.Parent, "EntryID", ""),
                 "conversation_id": conversation_id,
                 "message_type": "email",  # デフォルトはemail
-                "subject": get_safe(mail_item, "Subject", ""),
+                "subject": self._clean_unicode_text(get_safe(mail_item, "Subject", "")),
                 "sent_time": sent_time_str,
                 "received_time": received_time_str,
-                "body": get_safe(mail_item, "Body", ""),
-                "html_body": get_safe(mail_item, "HTMLBody", ""),
+                "body": self._clean_unicode_text(get_safe(mail_item, "Body", "")),
+                "html_body": self._clean_unicode_text(
+                    get_safe(mail_item, "HTMLBody", "")
+                ),
                 "unread": get_safe(mail_item, "UnRead", 0),
                 "size": get_safe(mail_item, "Size", 0),
                 "has_attachments": get_safe(mail_item, "Attachments.Count", 0) > 0,

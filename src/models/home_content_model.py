@@ -143,8 +143,24 @@ class HomeContentModel:
             )
             self.db_manager.commit()
 
-            # データベース接続を確実に閉じる
+            # メインデータベース接続を確実に閉じる
             self.db_manager.disconnect()
+
+            # タスク固有のitems.dbがある場合、それも確認して閉じる
+            items_db_path = os.path.join("data", "tasks", str(task_id), "items.db")
+            if os.path.exists(items_db_path):
+                try:
+                    # 一時的なデータベース接続を作成して閉じる（既存の接続を強制的にクローズするため）
+                    tmp_db = DatabaseManager(items_db_path)
+                    tmp_db.disconnect()
+
+                    # 少し待機して、接続が完全に閉じられるのを確認
+                    time.sleep(0.2)
+                except Exception as db_ex:
+                    self.logger.warning(
+                        f"タスクのデータベース接続解放中にエラー: {str(db_ex)}"
+                    )
+                    # エラーが発生しても削除処理を継続する
 
             # ディレクトリ削除を試みる
             task_dir = os.path.join("data", "tasks", str(task_id))
@@ -153,8 +169,14 @@ class HomeContentModel:
                     shutil.rmtree(task_dir)
                 except PermissionError:
                     # ファイルが使用中の場合は少し待ってから再試行
-                    time.sleep(0.1)
-                    shutil.rmtree(task_dir)
+                    time.sleep(0.5)  # 待機時間を長めに設定
+                    try:
+                        shutil.rmtree(task_dir)
+                    except Exception as rm_ex:
+                        self.logger.error(
+                            f"2回目のディレクトリ削除試行でエラー: {str(rm_ex)}"
+                        )
+                        return False
 
             return True
         except Exception as e:

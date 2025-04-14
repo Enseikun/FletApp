@@ -28,6 +28,11 @@ class ProgressDialog:
             cls._instance._is_open = False
         return cls._instance
 
+    @property
+    def is_open(self):
+        """ダイアログが開いているかどうかを返す"""
+        return self._is_open
+
     def initialize(self, page: ft.Page):
         """
         ダイアログの初期化
@@ -168,3 +173,18 @@ class ProgressDialog:
 
         if self._page and self._is_open:
             self._page.update()
+
+    async def update_message_async(self, content: str):
+        """
+        ダイアログのメッセージを非同期で更新
+        Args:
+            content (str): 新しいダイアログの内容
+        """
+        if not self._dialog or not self._page:
+            raise RuntimeError(
+                "ダイアログが初期化されていません。initialize()を呼び出してください。"
+            )
+
+        if self._is_open:
+            self._content_column.controls[0].value = content
+            self._page.update()  # 同期版を使用

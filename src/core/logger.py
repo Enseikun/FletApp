@@ -3,6 +3,7 @@ import json
 import logging
 import logging.config
 import logging.handlers
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -115,6 +116,34 @@ class Applogger:
             print(f"ロガーの初期化に失敗しました: {e}")
             raise
 
+    def _clean_unicode_text(self, text) -> str:
+        """
+        無効なUnicode文字（サロゲートペア文字）を削除または置換する
+
+        Args:
+            text: 処理するテキスト（str型以外も受け付ける）
+
+        Returns:
+            str: 無効な文字を削除したテキスト
+        """
+        if not isinstance(text, str):
+            return str(text)
+
+        try:
+            # サロゲートペア文字をチェック
+            # 文字列をUTF-8で一度エンコードしてデコードし、エラーは置換する
+            cleaned_text = text.encode("utf-8", "replace").decode("utf-8")
+
+            # パターンD800-DFFF（サロゲート領域）の文字を削除
+            # サロゲートペアになっていない不正なサロゲート文字を削除
+            cleaned_text = re.sub(r"[\uD800-\uDFFF]", "", cleaned_text)
+
+            return cleaned_text
+        except Exception as e:
+            # エラーが発生した場合は、可能な限りエンコード可能な部分だけを返す
+            print(f"Unicode文字列のクリーニングに失敗: {str(e)}")
+            return text.encode("ascii", "ignore").decode("ascii")
+
     def _get_caller_info(self) -> str:
         """呼び出し元の情報を取得する"""
         try:
@@ -145,28 +174,50 @@ class Applogger:
 
             caller_info = self._get_caller_info()
 
+            # メッセージの無効なUnicode文字を処理
+            message = self._clean_unicode_text(message)
+
             # CDispatchやその他のシリアライズできないオブジェクトを安全に処理
             safe_kwargs = {}
             for key, value in kwargs.items():
                 try:
+                    # 文字列値の場合はUnicodeクリーニングを適用
+                    if isinstance(value, str):
+                        value = self._clean_unicode_text(value)
+
                     # 試験的にJSON化してみる
                     json.dumps({key: value})
                     safe_kwargs[key] = value
                 except (TypeError, OverflowError):
                     # JSON化できない場合は文字列化して保存
-                    safe_kwargs[key] = str(value)
+                    try:
+                        # 文字列化してからUnicodeクリーニングを適用
+                        value_str = self._clean_unicode_text(str(value))
+                        safe_kwargs[key] = value_str
+                    except Exception:
+                        # それでも失敗する場合は安全な値に置き換え
+                        safe_kwargs[key] = "<エンコードできない値>"
 
             log_details = {
                 "timestamp": datetime.now().isoformat(),
                 **safe_kwargs,
             }
 
+            # detailsのJSON文字列化時にエラーが発生しないようにする
+            try:
+                details_json = json.dumps(log_details, ensure_ascii=False, indent=4)
+            except Exception:
+                # JSON化できない場合は最小限の情報だけを含める
+                details_json = json.dumps(
+                    {"timestamp": log_details["timestamp"]}, ensure_ascii=False
+                )
+
             self.logger.log(
                 log_level,
                 message,
                 extra={
                     "location": caller_info,
-                    "details": json.dumps(log_details, ensure_ascii=False, indent=4),
+                    "details": details_json,
                 },
             )
         except Exception as e:
@@ -191,6 +242,9 @@ class Applogger:
         標準ロガーとの互換性のために*argsを受け入れる
         """
         if args:  # 標準ロガー形式での呼び出し
+            # メッセージの無効なUnicode文字を処理
+            message = self._clean_unicode_text(message)
+
             # 標準ロガー形式の場合は、extraを明示的に追加
             self.logger.error(
                 message,

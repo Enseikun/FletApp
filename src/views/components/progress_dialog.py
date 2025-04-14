@@ -4,6 +4,7 @@
 """
 
 import asyncio
+import logging
 
 import flet as ft
 
@@ -115,6 +116,8 @@ class ProgressDialog:
         self._page.open(self._dialog)
         self._is_open = True
         self._page.update()  # 同期版を使用
+        # UI更新後に少し待機して描画が完了する余地を与える
+        await asyncio.sleep(0.05)
 
     async def update_progress_async(self, current_value: float, max_value: float):
         """
@@ -123,14 +126,33 @@ class ProgressDialog:
             current_value (float): 現在の進捗値
             max_value (float): 進捗の最大値（0の場合はIndeterminate mode）
         """
+        # ログ追加：設定前の値
+        prev_value = self._progress_bar.value
+
         if max_value > 0:
             # 0.0から1.0の範囲に正規化する
-            self._progress_bar.value = current_value / max_value
+            normalized_value = current_value / max_value
+            self._progress_bar.value = normalized_value
+
+            # ログ追加：設定後の値
+            logger = logging.getLogger("flet_app")
+            logger.debug(
+                f"ProgressDialog: プログレスバー更新 (Linerモード) - 前={prev_value}, "
+                f"新={normalized_value} (値={current_value}/{max_value})"
+            )
         else:
             self._progress_bar.value = None
 
+            # ログ追加：Indeterminateモードに設定
+            logger = logging.getLogger("flet_app")
+            logger.debug(
+                f"ProgressDialog: プログレスバー更新 (Indeterminateモード) - 前={prev_value}"
+            )
+
         if self._page and self._is_open:
             self._page.update()  # 同期版を使用
+            # UI更新後に少し待機して描画が完了する余地を与える
+            await asyncio.sleep(0.02)
 
     async def close_async(self):
         """
@@ -140,6 +162,8 @@ class ProgressDialog:
             self._page.close(self._dialog)
             self._is_open = False
             self._page.update()  # 同期版を使用
+            # UI更新後に少し待機して描画が完了する余地を与える
+            await asyncio.sleep(0.05)
 
     def _close_dialog(self, e):
         """
@@ -203,6 +227,8 @@ class ProgressDialog:
         if self._is_open:
             self._content_column.controls[0].value = content
             self._page.update()  # 同期版を使用
+            # UI更新後に少し待機して描画が完了する余地を与える
+            await asyncio.sleep(0.02)
 
     async def add_close_button_async(self, button_text: str = "OK"):
         """
@@ -242,6 +268,8 @@ class ProgressDialog:
 
         # UI更新
         self._page.update()
+        # UI更新後に少し待機して描画が完了する余地を与える
+        await asyncio.sleep(0.05)
 
     async def _set_button_clicked(self):
         """内部メソッド: ボタンがクリックされたことを記録"""

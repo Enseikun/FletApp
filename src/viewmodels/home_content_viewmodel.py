@@ -1,6 +1,6 @@
 import asyncio
 import os
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, AsyncGenerator, Callable, Dict, List, Optional, Tuple
 
 from src.core.database import DatabaseManager
 from src.core.logger import get_logger
@@ -216,60 +216,8 @@ class HomeContentViewModel:
                     "メールの抽出処理を実行中です。完了までお待ちください..."
                 )
 
-                # 抽出の完了を監視
-                is_completed = False
-                progress_check_count = 0
-
-                while not is_completed:
-                    # 抽出状態をチェック
-                    status = self.check_snapshot_and_extraction_plan(task_id)
-
-                    # データベースからも直接状態を確認（より確実に完了を検出するため）
-                    extraction_completed, progress_info = (
-                        await self._check_extraction_status_from_db(
-                            task_id, with_progress=True
-                        )
-                    )
-
-                    if status["extraction_completed"] or extraction_completed:
-                        is_completed = True
-                        self.logger.info(
-                            "HomeContentViewModel: メール抽出が完了しました",
-                            task_id=task_id,
-                        )
-                    else:
-                        # 進捗情報を取得して表示
-                        completed_count = progress_info.get("completed_count", 0)
-                        total_count = progress_info.get("total_count", 0)
-
-                        # 進捗メッセージを作成
-                        progress_message = "メールの抽出処理を実行中です。"
-                        if total_count > 0:
-                            progress_message += (
-                                f"\n処理済み: {completed_count}/{total_count} メール"
-                            )
-                            # プログレスバーを更新（completed_countがtotal_countより大きくならないように注意）
-                            actual_completed = min(completed_count, total_count)
-                            await self._progress_dialog.update_progress_async(
-                                actual_completed, total_count
-                            )
-                        else:
-                            progress_message += "\n準備中..."
-
-                        # 定期的に処理状態も表示
-                        progress_check_count += 1
-                        if progress_check_count % 5 == 0:  # 5回ごとに詳細情報を表示
-                            process_status = progress_info.get("process_details", "")
-                            if process_status:
-                                progress_message += f"\n{process_status}"
-
-                        # 進捗状況をダイアログに表示
-                        await self._progress_dialog.update_message_async(
-                            progress_message
-                        )
-
-                        # 少し待機してから再チェック
-                        await asyncio.sleep(1.0)
+                # 新しいポーリング関数を使用して進捗を監視
+                await self.poll_extraction_progress(task_id, 2.0)
 
                 # 抽出が完了したことをダイアログに表示
                 await self._progress_dialog.update_message_async(
@@ -660,7 +608,11 @@ class HomeContentViewModel:
 
             # task_progressテーブルから最新の状態を取得
             progress_query = """
-            SELECT status, last_error FROM task_progress 
+            SELECT status, last_error, 
+                total_messages as total,
+                processed_messages as processed,
+                successful_messages as completed
+            FROM task_progress 
             WHERE task_id = ? 
             ORDER BY last_updated_at DESC LIMIT 1
             """
@@ -680,57 +632,87 @@ class HomeContentViewModel:
             progress_info["task_status"] = task_status
             progress_info["task_message"] = task_message
 
+            # 進捗情報を追加 - task_progressテーブルから直接取得
+            total_count = progress_result[0].get("total", 0)
+            processed_count = progress_result[0].get("processed", 0)
+            completed_count = progress_result[0].get("completed", 0)
+
+            # 進捗情報を辞書に追加
+            progress_info["total_count"] = total_count
+            progress_info["processed_count"] = processed_count
+            progress_info["completed_count"] = completed_count
+
             # with_progressが指定されている場合は進捗状況の詳細を取得
             if with_progress:
-                # メールタスクの総数を取得
-                total_query = """
-                SELECT COUNT(*) as total FROM mail_tasks 
-                WHERE task_id = ?
-                """
-                total_result = items_db.execute_query(total_query, (task_id,))
-                total_count = total_result[0].get("total", 0) if total_result else 0
-
-                # 完了したメールタスクの数を取得
-                completed_query = """
-                SELECT COUNT(*) as completed FROM mail_tasks 
-                WHERE task_id = ? AND status IN ('completed', 'error')
-                """
-                completed_result = items_db.execute_query(completed_query, (task_id,))
-                completed_count = (
-                    completed_result[0].get("completed", 0) if completed_result else 0
-                )
+                # 既に上で基本的な進捗情報を取得しているので、追加情報のみ取得
 
                 # 添付ファイル処理状況
-                attachment_query = """
-                SELECT 
-                    COUNT(*) as total,
-                    SUM(CASE WHEN attachment_status = 'completed' THEN 1 ELSE 0 END) as completed
-                FROM mail_tasks 
-                WHERE task_id = ? AND has_attachments = 1
-                """
-                attachment_result = items_db.execute_query(attachment_query, (task_id,))
-
-                # 進捗情報を辞書に追加
-                progress_info["total_count"] = total_count
-                progress_info["completed_count"] = completed_count
-                if attachment_result:
-                    progress_info["attachment_total"] = attachment_result[0].get(
-                        "total", 0
+                try:
+                    # 添付ファイル処理状況を取得するクエリを修正
+                    attachment_query = """
+                    SELECT 
+                        COUNT(*) as total,
+                        SUM(CASE WHEN attachment_status = 'success' THEN 1 ELSE 0 END) as completed
+                    FROM mail_tasks 
+                    WHERE task_id = ? AND mail_id IS NOT NULL
+                    """
+                    attachment_result = items_db.execute_query(
+                        attachment_query, (task_id,)
                     )
-                    progress_info["attachment_completed"] = attachment_result[0].get(
-                        "completed", 0
+                    if attachment_result:
+                        progress_info["attachment_total"] = attachment_result[0].get(
+                            "total", 0
+                        )
+                        progress_info["attachment_completed"] = attachment_result[
+                            0
+                        ].get("completed", 0)
+                except Exception as e:
+                    self.logger.error(
+                        "HomeContentViewModel: 添付ファイル情報取得エラー",
+                        task_id=task_id,
+                        error=str(e),
                     )
+                    # エラーが発生した場合は添付ファイル情報を0に設定
+                    progress_info["attachment_total"] = 0
+                    progress_info["attachment_completed"] = 0
 
-                # 最近処理したメールの情報を取得（上位3つ）
+                # 最近処理したメールの情報を取得
                 recent_query = """
-                SELECT subject, status, last_updated_at 
+                SELECT subject, status, 
+                    CASE 
+                        WHEN completed_at IS NOT NULL THEN completed_at
+                        WHEN started_at IS NOT NULL THEN started_at
+                        ELSE created_at
+                    END as latest_time
                 FROM mail_tasks 
                 WHERE task_id = ? 
-                ORDER BY last_updated_at DESC LIMIT 3
+                ORDER BY 
+                    CASE 
+                        WHEN completed_at IS NOT NULL THEN completed_at
+                        WHEN started_at IS NOT NULL THEN started_at
+                        ELSE created_at
+                    END DESC LIMIT 3
                 """
-                recent_result = items_db.execute_query(recent_query, (task_id,))
-                if recent_result:
-                    progress_info["recent_mails"] = recent_result
+                try:
+                    recent_result = items_db.execute_query(recent_query, (task_id,))
+                    if recent_result:
+                        progress_info["recent_mails"] = recent_result
+                except Exception as e:
+                    self.logger.error(
+                        "HomeContentViewModel: 最近処理したメール情報取得エラー",
+                        task_id=task_id,
+                        error=str(e),
+                    )
+
+                # スキーマエラーが発生しても進捗状況を表示できるように
+                # デバッグ情報を追加
+                self.logger.debug(
+                    "HomeContentViewModel: 進捗状況の数値",
+                    task_id=task_id,
+                    total_count=total_count,
+                    processed_count=processed_count,
+                    completed_count=completed_count,
+                )
 
             # 処理が完了またはエラーの場合
             is_completed = task_status in ["completed", "error"]
@@ -771,3 +753,251 @@ class HomeContentViewModel:
             # データベース接続が閉じられていることを確認
             if items_db:
                 items_db.disconnect()
+
+    async def poll_extraction_progress(
+        self, task_id: str, poll_interval: float = 2.0
+    ) -> None:
+        """
+        メール抽出の進捗状況を定期的にポーリングして表示する
+
+        Args:
+            task_id: タスクID
+            poll_interval: ポーリング間隔（秒）
+        """
+        self.logger.info(
+            "HomeContentViewModel: メール抽出進捗ポーリング開始",
+            task_id=task_id,
+            interval=poll_interval,
+        )
+
+        # インジケーターをインジケーターモードで表示
+        await self._progress_dialog.update_progress_async(0, 0)
+        # 描画を更新する余地を与える
+        await asyncio.sleep(0.1)
+
+        await self._progress_dialog.update_message_async(
+            "メールの抽出処理を実行中です。完了までお待ちください..."
+        )
+        # 描画を更新する余地を与える
+        await asyncio.sleep(0.1)
+
+        # 非同期ジェネレータを使用して進捗情報を取得
+        progress_check_count = 0
+        first_try = True
+        showed_linear_mode = False
+
+        async for progress_info in self.get_extraction_progress_updates(
+            task_id, poll_interval
+        ):
+            try:
+                # エラーが発生した場合の処理
+                if "error" in progress_info:
+                    self.logger.error(
+                        "HomeContentViewModel: 進捗取得中にエラー",
+                        task_id=task_id,
+                        error=progress_info["error"],
+                    )
+                    # 描画を更新する余地を与える
+                    await asyncio.sleep(0.1)
+                    continue
+
+                # 完了していれば終了
+                if progress_info.get("is_completed", False):
+                    self.logger.info(
+                        "HomeContentViewModel: メール抽出が完了しました",
+                        task_id=task_id,
+                    )
+                    # 描画を更新する余地を与える
+                    await asyncio.sleep(0.1)
+                    break
+
+                # 進捗情報を取得して表示
+                completed_count = progress_info.get("completed_count", 0)
+                processed_count = progress_info.get("processed_count", 0)
+                total_count = progress_info.get("total_count", 0)
+
+                # 進捗メッセージを作成
+                progress_message = "メールの抽出処理を実行中です。"
+
+                # 進捗状況の数値を詳細にログ出力（デバッグ用）
+                self.logger.debug(
+                    "HomeContentViewModel: 進捗バー更新前の数値",
+                    task_id=task_id,
+                    total_count=total_count,
+                    processed_count=processed_count,
+                    completed_count=completed_count,
+                    is_first=first_try,
+                )
+
+                # 総数が取得できている場合はリニアモードで表示
+                if total_count > 0:
+                    # メールの総数と処理済み数を表示
+                    progress_message += (
+                        f"\n処理済み: {processed_count}/{total_count} メール"
+                    )
+                    if completed_count > 0:
+                        progress_message += f" (完了: {completed_count})"
+
+                    # Linerモードでプログレスバーを更新
+                    # 完了数がtotal_countを超えないようにする
+                    actual_processed = min(processed_count, total_count)
+
+                    # プログレスバーを更新
+                    await self._progress_dialog.update_progress_async(
+                        actual_processed, total_count
+                    )
+
+                    showed_linear_mode = True
+
+                    self.logger.debug(
+                        "HomeContentViewModel: Linerモードでプログレスバー更新",
+                        task_id=task_id,
+                        actual_processed=actual_processed,
+                        total_count=total_count,
+                    )
+                else:
+                    progress_message += "\n準備中..."
+
+                    # まだリニアモードになっていない場合はインデターミネートモードを維持
+                    if not showed_linear_mode:
+                        # インジケーターモードを維持
+                        await self._progress_dialog.update_progress_async(0, 0)
+                        self.logger.debug(
+                            "HomeContentViewModel: Indeterminateモードでプログレスバー更新",
+                            task_id=task_id,
+                        )
+
+                # 初回フラグをオフに
+                first_try = False
+
+                # 描画を更新する余地を与える
+                await asyncio.sleep(0.1)
+
+                # 定期的に処理状態も表示
+                progress_check_count += 1
+                if progress_check_count % 5 == 0:  # 5回ごとに詳細情報を表示
+                    process_status = progress_info.get("process_details", "")
+                    if process_status:
+                        progress_message += f"\n{process_status}"
+
+                    # 最近処理したメール情報があれば表示
+                    recent_mails = progress_info.get("recent_mails", [])
+                    if recent_mails and len(recent_mails) > 0:
+                        recent_mail = recent_mails[0]
+                        subject = recent_mail.get("subject", "")
+                        if subject:
+                            # 長すぎる件名は省略
+                            if len(subject) > 30:
+                                subject = subject[:27] + "..."
+                            progress_message += f"\n最新: {subject}"
+
+                # 進捗状況をダイアログに表示
+                await self._progress_dialog.update_message_async(progress_message)
+                # 描画を更新する余地を与える
+                await asyncio.sleep(0.1)
+
+            except Exception as e:
+                self.logger.error(
+                    "HomeContentViewModel: 進捗表示中にエラー発生",
+                    task_id=task_id,
+                    error=str(e),
+                )
+                # 描画を更新する余地を与える
+                await asyncio.sleep(0.1)
+                # エラーが発生しても継続
+
+        self.logger.info(
+            "HomeContentViewModel: メール抽出進捗ポーリング終了",
+            task_id=task_id,
+        )
+        return True
+
+    async def get_extraction_progress_updates(
+        self, task_id: str, poll_interval: float = 2.0
+    ) -> AsyncGenerator[Dict[str, Any], None]:
+        """
+        メール抽出の進捗状況を定期的にポーリングし、進捗情報をyieldする非同期ジェネレータ
+
+        Args:
+            task_id: タスクID
+            poll_interval: ポーリング間隔（秒）
+
+        Yields:
+            Dict[str, Any]: 進捗情報を含む辞書
+        """
+        self.logger.info(
+            "HomeContentViewModel: メール抽出進捗ジェネレーター開始",
+            task_id=task_id,
+            interval=poll_interval,
+        )
+
+        # 抽出の完了を監視
+        is_completed = False
+
+        # 指定された間隔でポーリング
+        while not is_completed:
+            try:
+                # 抽出状態をチェック
+                status = self.check_snapshot_and_extraction_plan(task_id)
+
+                # 少し待機して他の処理にCPUを渡す
+                await asyncio.sleep(0.05)
+
+                # データベースから直接状態を確認
+                extraction_completed, progress_info = (
+                    await self._check_extraction_status_from_db(
+                        task_id, with_progress=True
+                    )
+                )
+
+                # 少し待機して他の処理にCPUを渡す
+                await asyncio.sleep(0.05)
+
+                # 状態情報を追加
+                progress_info["is_completed"] = extraction_completed or status.get(
+                    "extraction_completed", False
+                )
+                progress_info["is_in_progress"] = status.get(
+                    "extraction_in_progress", False
+                )
+
+                # 進捗情報をyield
+                yield progress_info
+
+                # 完了していれば終了
+                if progress_info["is_completed"]:
+                    is_completed = True
+                    self.logger.info(
+                        "HomeContentViewModel: メール抽出が完了しました(ジェネレーター)",
+                        task_id=task_id,
+                    )
+                    break
+
+            except Exception as e:
+                self.logger.error(
+                    "HomeContentViewModel: 進捗確認中にエラー発生(ジェネレーター)",
+                    task_id=task_id,
+                    error=str(e),
+                )
+                # エラー情報を含む進捗情報をyield
+                yield {"error": str(e), "is_completed": False, "is_in_progress": False}
+
+                # エラー発生時は少し待機
+                await asyncio.sleep(0.05)
+
+            # 指定された間隔待機してから再チェック（ただし描画更新の余地を考慮して分割）
+            # poll_intervalを小さく分割して、複数回のsleepに分ける
+            remaining_interval = max(
+                0, poll_interval - 0.1
+            )  # 既に0.1秒待機したので引く
+            if remaining_interval > 0:
+                # 最大5回に分割して待機
+                split_count = 5
+                split_interval = remaining_interval / split_count
+                for _ in range(split_count):
+                    await asyncio.sleep(split_interval)
+
+        self.logger.info(
+            "HomeContentViewModel: メール抽出進捗ジェネレーター終了",
+            task_id=task_id,
+        )

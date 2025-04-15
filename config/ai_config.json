@@ -1,0 +1,33 @@
+{
+    "api_key": "",
+    "api_base_url": "",
+    "api_version": "2024-02-15-preview",
+    "timeout": 30,
+    "token_timeout": 300,
+    "models": [
+        {
+            "model_id": "gpt-4o",
+            "encoding_model": "gpt-4o",
+            "max_tokens": {
+                "input": 128000,
+                "output": 16384
+            },
+            "rate_limits": {
+                "tpm": 1000000,
+                "rpm": 6000
+            }
+        },
+        {
+            "model_id": "gpt-4o-mini",
+            "encoding_model": "gpt-4o-mini",
+            "max_tokens": {
+                "input": 128000,
+                "output": 16384
+            },
+            "rate_limits": {
+                "tpm": 1000000,
+                "rpm": 6000
+            }
+        }
+    ]
+}

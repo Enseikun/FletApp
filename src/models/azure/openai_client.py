@@ -4,17 +4,26 @@ import openai
 from tiktoken import encoding_for_model
 
 from src.core.logger import get_logger
-from src.models.azure.ai_config import AIConfig
+from src.models.azure.ai_config_loader import AIConfigLoader
 
 
 class OpenAIClient:
-    def __init__(self, system_prompt: str):
-        config = AIConfig.init()
+    def __init__(self, system_prompt: str, model_id: str):
+        config = AIConfigLoader()
         self.api_key = config.api_key
         self.api_base_url = config.api_base_url
         self.api_version = config.api_version
-        self.model_id = config.model_id
-        self.encoder = encoding_for_model(config.encoding_model)
+        self.model_id = model_id
+        self.timeout = config.timeout
+
+        # モデルの設定を見つける
+        encoding_model = None
+        for model in config.models:
+            if model.model_id == model_id:
+                encoding_model = model.encoding_model
+                break
+
+        self.encoder = encoding_for_model(encoding_model) if encoding_model else None
 
         self.client = openai.AsyncAzureOpenAI(
             api_key=self.api_key,
@@ -24,12 +33,18 @@ class OpenAIClient:
         )
 
         self.system_prompt = system_prompt
-        self.system_prompt_tokens = len(self.encoder.encode(self.system_prompt))
+        self.system_prompt_tokens = (
+            len(self.encoder.encode(self.system_prompt)) if self.encoder else 0
+        )
 
         self.logger = get_logger()
 
     def estimate_tokens(self, prompt: str) -> int:
-        return self.system_prompt_tokens + len(self.encoder.encode(prompt)) + 3
+        return (
+            self.system_prompt_tokens + len(self.encoder.encode(prompt)) + 3
+            if self.encoder
+            else 0
+        )
 
     async def execute_prompt(self, prompt: str) -> Optional[str]:
         if not prompt:
@@ -45,7 +60,7 @@ class OpenAIClient:
                 model=self.model_id,
                 messages=messages,
                 temperature=0.0,
-                timeout=30,
+                timeout=self.timeout,
             )
 
             return response.choices[0].message.content

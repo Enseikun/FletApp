@@ -66,12 +66,17 @@ class HomeContentViewModel:
     ) -> None:
         """
         メール抽出確認ダイアログを表示するためのコールバックを設定する
+        このメソッドはレガシー機能であり、現在の実装では必要ありません。
+        抽出は直接_start_extraction_without_confirmationメソッドを使用して開始されます。
 
         Args:
             callback: タスクIDとステータス情報を引数に取るコールバック関数
         """
-        self.extraction_confirmation_callback = callback
-        self.logger.info("HomeContentViewModel: 抽出確認コールバックを設定しました")
+        self.logger.info(
+            "HomeContentViewModel: 抽出確認コールバックは不要（レガシー機能）"
+        )
+        # コールバックは設定せず、直接抽出を使用する設計に変更
+        self.extraction_confirmation_callback = None
 
     def set_extraction_completed_callback(
         self, callback: Callable[[str, Dict[str, bool]], None]
@@ -123,17 +128,13 @@ class HomeContentViewModel:
                     f"HomeContentViewModel: メール抽出は既に完了しています - {task_id}"
                 )
             else:
-                # 抽出が進行中でも完了でもない場合は確認ダイアログを表示
+                # 抽出が進行中でも完了でもない場合は直接抽出を開始
                 self.logger.info(
-                    f"HomeContentViewModel: メール抽出確認ダイアログを表示します - {task_id}"
+                    f"HomeContentViewModel: 抽出を直接開始します - {task_id}"
                 )
 
-                # 確認コールバックが設定されている場合は呼び出す
-                if self.extraction_confirmation_callback:
-                    self.extraction_confirmation_callback(task_id, status)
-                else:
-                    # コールバックが設定されていない場合は直接抽出を開始
-                    await self._start_extraction_without_confirmation(task_id)
+                # 直接抽出を開始 (コールバックは使用しない)
+                await self._start_extraction_without_confirmation(task_id)
 
         # MainViewModelが設定されている場合通知
         if self.main_viewmodel and success:

@@ -40,11 +40,10 @@ class HomeContent(ft.Container):
             # HomeContentViewModelにMainViewModelを設定
             self.contents_viewmodel.main_viewmodel = self.main_viewmodel
 
-        # 抽出確認コールバックを設定
-        self.contents_viewmodel.set_extraction_confirmation_callback(
-            self.show_extraction_confirmation_dialog
+        # 抽出確認コールバックの設定は不要（直接抽出メソッドが使用されるため）
+        self.logger.info(
+            "HomeContent: 抽出確認コールバックは設定しません（レガシー機能）"
         )
-        self.logger.info("HomeContent: 抽出確認コールバックを設定しました")
 
         # 抽出完了コールバックを設定
         self.contents_viewmodel.set_extraction_completed_callback(
@@ -174,59 +173,6 @@ class HomeContent(ft.Container):
     def _close_dialog(self, e):
         """ダイアログを閉じるコールバック関数"""
         self._close_current_dialog()
-
-    def show_extraction_confirmation_dialog(self, task_id, status):
-        """
-        メール抽出確認ダイアログを表示する - ViewModelで直接抽出するように変更されたため、
-        このメソッドはレガシーコードとして残されています。現在の実装では使用されません。
-
-        Args:
-            task_id: タスクID
-            status: スナップショットと抽出計画の状態
-        """
-        self.logger.info(
-            "HomeContent: レガシーメソッドshow_extraction_confirmation_dialogが呼び出されました",
-            task_id=task_id,
-        )
-
-        # 非同期処理をpage.run_taskで実行
-        if hasattr(self, "page") and self.page:
-
-            async def run_extraction_task():
-                await self._handle_extraction_confirmation(task_id, True)
-
-            self.page.run_task(run_extraction_task)
-
-    async def _handle_extraction_confirmation(self, task_id, confirmed):
-        """
-        メール抽出確認の非同期処理 - 確認ダイアログなしで直接抽出を開始するように変更
-
-        Args:
-            task_id: タスクID
-            confirmed: 確認結果（常にTrueとして扱う）
-        """
-        try:
-            # ViewModelに確認結果を伝え、抽出処理を実行
-            success = await self.contents_viewmodel.handle_extraction_confirmation(
-                task_id, True  # 常に確認されたものとして扱う
-            )
-
-            if success:
-                # 抽出が開始されたらすぐにプレビュー画面に遷移
-                if self.main_viewmodel:
-                    self.main_viewmodel.set_current_task_id(task_id)
-                    self.main_viewmodel.set_destination("preview")
-                else:
-                    # HomeViewModelのselect_taskメソッドを非同期で呼び出す
-                    await self._handle_home_viewmodel_select_task(task_id)
-
-        except Exception as e:
-            self.logger.error(
-                "HomeContent: 抽出確認処理でエラー発生",
-                task_id=task_id,
-                confirmed=confirmed,
-                error=str(e),
-            )
 
     def show_extraction_completed_dialog(self, task_id, status):
         """

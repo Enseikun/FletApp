@@ -7,17 +7,18 @@ from datetime import datetime
 from typing import Deque, Final, Optional, Protocol, Set, Tuple
 
 from src.core.logger import get_logger
+from src.models.azure.ai_config_loader import AIConfigLoader
 
 
 # Observer Protocol
 class TokenObserver(Protocol):
     """トークンの完了と追加を通知"""
 
-    async def on_token_completed(self, token: str) -> None:
+    async def on_token_completed(self, token_count: int) -> None:
         """トークンが完了したときに呼び出される"""
         ...
 
-    async def on_token_added(self, token: str) -> None:
+    async def on_token_added(self, token_count: int) -> None:
         """トークンが追加されたときに呼び出される"""
         ...
 
@@ -55,13 +56,14 @@ class TokenRateLimiter(TokenObserver):
     """トークンの状態変更を監視（TokenObserverとして実装）"""
 
     def __init__(self) -> None:
+        config = AIConfigLoader()
         self.max_tpm = 600 * 1000 * 0.6
         self.window_size = 60
         self.token_history: Deque[Tuple[datetime, int]] = deque()
         self.lock = Lock()
         self.active_tokens = 0
         self.waiting_tokens: Deque[Tuple[int, asyncio.Event, datetime]] = deque()
-        self.timeout = 300
+        self.timeout = config.token_timeout  # 設定ファイルから取得
         self.cleanup_threshold = 100
         self.logger = get_logger()
 
@@ -105,7 +107,7 @@ class TokenRateLimiter(TokenObserver):
 
     async def _process_waiting_tokens(self) -> None:
         while self.waiting_tokens:
-            token_count, event = self.waiting_tokens[0]
+            token_count, event, timestamp = self.waiting_tokens[0]
             if await self._can_process_tokens(token_count):
                 self.waiting_tokens.popleft()
                 self.active_tokens += token_count

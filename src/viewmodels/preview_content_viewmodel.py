@@ -298,8 +298,18 @@ class PreviewContentViewModel:
         # モデルが存在する場合のみcloseを呼び出す
         if hasattr(self, "model") and self.model:
             try:
-                self.model.close()
+                # リソース解放前に参照を切る
+                model = self.model
+                self.model = None
+
+                # モデルのリソースを解放
+                model.close()
                 self.logger.debug("PreviewContentViewModel: モデルのリソースを解放")
+
+                # 明示的にガベージコレクションを実行
+                import gc
+
+                gc.collect()
             except Exception as e:
                 self.logger.error(
                     f"PreviewContentViewModel: モデル解放中にエラー: {str(e)}"
@@ -307,6 +317,11 @@ class PreviewContentViewModel:
 
         # task_idをクリア
         self.task_id = None
+
+        # 最終的なガベージコレクションを実行
+        import gc
+
+        gc.collect()
 
         self.logger.info("PreviewContentViewModel: リソース解放完了")
 

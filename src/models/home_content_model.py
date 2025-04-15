@@ -257,6 +257,14 @@ class HomeContentModel:
             if os.path.exists(items_db_path):
                 self._release_resources(items_db_path)
 
+            # 明示的にガベージコレクションを実行
+            import gc
+
+            gc.collect()
+
+            # 削除前に追加の待機時間を設定
+            time.sleep(1.0)
+
             # ディレクトリ削除を先に試みる
             if os.path.exists(task_dir):
                 directory_deleted = self._try_remove_directory(task_dir)
@@ -294,7 +302,12 @@ class HomeContentModel:
                     # 一時的なデータベース接続を作成して閉じる（既存の接続を強制的にクローズするため）
                     tmp_db = DatabaseManager(db_path)
                     # 明示的にVACUUMを実行してリソースを解放
+                    tmp_db.execute_update("PRAGMA optimize")
+                    tmp_db.execute_update("PRAGMA wal_checkpoint(FULL)")
                     tmp_db.execute_update("VACUUM")
+                    # DB解放前に同期を強制
+                    tmp_db.execute_update("PRAGMA synchronous = OFF")
+                    tmp_db.commit()
                     tmp_db.disconnect()
                     self.logger.info(
                         f"データベース接続解放試行 {attempt+1}/3 成功: {db_path}"
@@ -305,12 +318,17 @@ class HomeContentModel:
                         f"データベース接続解放試行 {attempt+1}/3 失敗: {str(db_ex)}"
                     )
                     # 少し長めに待機
-                    time.sleep(0.5)
+                    time.sleep(1.0)
         except Exception as e:
             self.logger.warning(f"リソース解放中にエラー: {str(e)}")
 
+        # 明示的にガベージコレクションを実行
+        import gc
+
+        gc.collect()
+
         # 接続解放後に追加の待機時間
-        time.sleep(0.5)
+        time.sleep(1.0)
 
     def _release_directory_resources(self, directory_path: str) -> None:
         """

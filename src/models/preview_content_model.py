@@ -533,15 +533,49 @@ class PreviewContentModel:
 
     def close(self):
         """データベース接続を閉じる"""
-        if self.db_manager:
-            self.db_manager.disconnect()
-
-        # 一時DBファイルを削除
         try:
-            if os.path.exists(self.preview_db_path):
-                os.remove(self.preview_db_path)
+            # データベース接続が存在する場合
+            if self.db_manager:
+                try:
+                    # リソース解放用のSQLコマンドを実行
+                    self.db_manager.execute_update("PRAGMA optimize")
+                    self.db_manager.execute_update("PRAGMA wal_checkpoint(FULL)")
+                    self.db_manager.execute_update("VACUUM")
+                    # DB解放前に同期を強制
+                    self.db_manager.execute_update("PRAGMA synchronous = OFF")
+                    self.db_manager.commit()
+                    # 接続を閉じる
+                    self.db_manager.disconnect()
+                    logging.info("データベース接続を閉じました")
+                except Exception as e:
+                    logging.error(f"データベース接続を閉じる際にエラー: {str(e)}")
+                finally:
+                    # 参照を確実に解放
+                    self.db_manager = None
+
+            # 一時DBファイルを削除
+            try:
+                if os.path.exists(self.preview_db_path):
+                    os.remove(self.preview_db_path)
+                    logging.info(
+                        f"一時DBファイルを削除しました: {self.preview_db_path}"
+                    )
+            except Exception as e:
+                logging.warning(f"一時DBファイル削除エラー: {str(e)}")
+
+            # タスクIDをクリア
+            self.task_id = None
+
+            # 明示的にガベージコレクションを実行
+            import gc
+
+            gc.collect()
+
         except Exception as e:
-            logging.warning(f"一時DBファイル削除エラー: {str(e)}")
+            logging.error(f"リソース解放中に予期せぬエラー: {str(e)}")
+
+        # 最終的に参照を確実に解放
+        self.db_manager = None
 
     def download_attachment(self, file_id: str) -> bool:
         """添付ファイルをダウンロード

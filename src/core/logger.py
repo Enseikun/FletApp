@@ -148,18 +148,26 @@ class Applogger:
         """呼び出し元の情報を取得する"""
         try:
             caller_frame = inspect.currentframe()
-            frame = None
-            if caller_frame:
-                # 適切な呼び出し階層を取得
-                frame = caller_frame.f_back.f_back
-            if frame:
-                return f"{frame.f_code.co_filename}:{frame.f_code.co_name}:{frame.f_lineno}"
+            frame = caller_frame
+
+            # Apploggerクラス内のファイルパスを取得
+            logger_file = __file__
+
+            # Apploggerクラス外の呼び出し元を見つけるまでフレームを辿る
+            while frame:
+                if frame.f_code.co_filename != logger_file:
+                    return f"{frame.f_code.co_filename}:{frame.f_code.co_name}:{frame.f_lineno}"
+                frame = frame.f_back
+
+            return "Unknown"
+        except Exception as e:
+            print(f"呼び出し元の情報を取得できませんでした: {e}")
+            return "Unknown"
         finally:
             # 循環参照を防ぐためにフレームを削除
             del caller_frame
             if "frame" in locals():
                 del frame
-        return "Unknown"
 
     def log(self, message: str, level: str = "INFO", **kwargs) -> None:
         """ログを記録する

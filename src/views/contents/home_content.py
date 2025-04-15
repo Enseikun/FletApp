@@ -177,129 +177,49 @@ class HomeContent(ft.Container):
 
     def show_extraction_confirmation_dialog(self, task_id, status):
         """
-        メール抽出確認ダイアログを表示する
+        メール抽出確認ダイアログを表示する - ViewModelで直接抽出するように変更されたため、
+        このメソッドはレガシーコードとして残されています。現在の実装では使用されません。
 
         Args:
             task_id: タスクID
             status: スナップショットと抽出計画の状態
         """
         self.logger.info(
-            "HomeContent: メール抽出確認ダイアログ表示", task_id=task_id, status=status
+            "HomeContent: レガシーメソッドshow_extraction_confirmation_dialogが呼び出されました",
+            task_id=task_id,
         )
 
-        def on_dialog_result(e):
-            # まずダイアログを閉じる
-            self._close_current_dialog()
+        # 非同期処理をpage.run_taskで実行
+        if hasattr(self, "page") and self.page:
 
-            if e.control.data == "yes":
-                self.logger.info("HomeContent: メール抽出承認", task_id=task_id)
-                # 非同期処理をpage.run_taskで実行
-                if hasattr(self, "page") and self.page:
+            async def run_extraction_task():
+                await self._handle_extraction_confirmation(task_id, True)
 
-                    async def run_confirmation_task():
-                        await self._handle_extraction_confirmation(task_id, True)
-
-                    self.page.run_task(run_confirmation_task)
-            else:
-                self.logger.info("HomeContent: メール抽出キャンセル", task_id=task_id)
-                # キャンセル時も非同期処理
-                if hasattr(self, "page") and self.page:
-
-                    async def run_cancel_task():
-                        await self._handle_extraction_confirmation(task_id, False)
-
-                    self.page.run_task(run_cancel_task)
-
-        # 確認ダイアログを作成
-        dialog = ft.AlertDialog(
-            modal=True,
-            title=ft.Text("メール抽出の開始"),
-            content=ft.Column(
-                [
-                    ft.Text("メールの抽出処理を開始しますか？"),
-                    ft.Text(
-                        "※処理には時間がかかる場合があります", size=12, italic=True
-                    ),
-                ],
-                spacing=10,
-                tight=True,
-            ),
-            actions=[
-                ft.TextButton(
-                    "キャンセル",
-                    on_click=on_dialog_result,
-                    data="no",
-                ),
-                ft.TextButton(
-                    "OK",
-                    on_click=on_dialog_result,
-                    data="yes",
-                ),
-            ],
-            actions_alignment=ft.MainAxisAlignment.END,
-            shape=ft.RoundedRectangleBorder(radius=AppTheme.CONTAINER_BORDER_RADIUS),
-        )
-
-        # ダイアログを表示
-        self._show_dialog(dialog)
-        self.logger.debug(
-            "HomeContent: メール抽出確認ダイアログ表示完了", task_id=task_id
-        )
+            self.page.run_task(run_extraction_task)
 
     async def _handle_extraction_confirmation(self, task_id, confirmed):
-        """メール抽出確認の非同期処理"""
+        """
+        メール抽出確認の非同期処理 - 確認ダイアログなしで直接抽出を開始するように変更
+
+        Args:
+            task_id: タスクID
+            confirmed: 確認結果（常にTrueとして扱う）
+        """
         try:
             # ViewModelに確認結果を伝え、抽出処理を実行
             success = await self.contents_viewmodel.handle_extraction_confirmation(
-                task_id, confirmed
+                task_id, True  # 常に確認されたものとして扱う
             )
 
-            if confirmed:
-                if success:
-                    # 抽出が開始されたらすぐにプレビュー画面に遷移
-                    if self.main_viewmodel:
-                        self.main_viewmodel.set_current_task_id(task_id)
-                        self.main_viewmodel.set_destination("preview")
-                    else:
-                        # HomeViewModelのselect_taskメソッドを非同期で呼び出す
-                        await self._handle_home_viewmodel_select_task(task_id)
+            if success:
+                # 抽出が開始されたらすぐにプレビュー画面に遷移
+                if self.main_viewmodel:
+                    self.main_viewmodel.set_current_task_id(task_id)
+                    self.main_viewmodel.set_destination("preview")
                 else:
-                    # 抽出開始に失敗した場合はエラーダイアログを表示
-                    if hasattr(self, "page") and self.page:
-                        # ダイアログを作成
-                        dialog = ft.AlertDialog(
-                            modal=True,
-                            title=ft.Text("エラー"),
-                            content=ft.Text(
-                                "メール抽出処理の開始中にエラーが発生しました。"
-                            ),
-                            actions=[
-                                ft.TextButton("OK", on_click=self._close_dialog),
-                            ],
-                            actions_alignment=ft.MainAxisAlignment.END,
-                            shape=ft.RoundedRectangleBorder(
-                                radius=AppTheme.CONTAINER_BORDER_RADIUS
-                            ),
-                        )
-                        self._show_dialog(dialog)
-            else:
-                # キャンセルメッセージを表示
-                if hasattr(self, "page") and self.page:
-                    # ダイアログを作成
-                    dialog = ft.AlertDialog(
-                        modal=True,
-                        title=ft.Text("メール抽出キャンセル"),
-                        content=ft.Text("メール抽出をキャンセルしました。"),
-                        actions=[
-                            ft.TextButton("OK", on_click=self._close_dialog),
-                        ],
-                        actions_alignment=ft.MainAxisAlignment.END,
-                        shape=ft.RoundedRectangleBorder(
-                            radius=AppTheme.CONTAINER_BORDER_RADIUS
-                        ),
-                    )
-                    self._show_dialog(dialog)
-                # キャンセル時は画面遷移しない
+                    # HomeViewModelのselect_taskメソッドを非同期で呼び出す
+                    await self._handle_home_viewmodel_select_task(task_id)
+
         except Exception as e:
             self.logger.error(
                 "HomeContent: 抽出確認処理でエラー発生",
@@ -307,22 +227,6 @@ class HomeContent(ft.Container):
                 confirmed=confirmed,
                 error=str(e),
             )
-            # エラーメッセージを表示
-            if hasattr(self, "page") and self.page:
-                # ダイアログを作成
-                dialog = ft.AlertDialog(
-                    modal=True,
-                    title=ft.Text("エラー"),
-                    content=ft.Text("メール抽出処理の開始中にエラーが発生しました。"),
-                    actions=[
-                        ft.TextButton("OK", on_click=self._close_dialog),
-                    ],
-                    actions_alignment=ft.MainAxisAlignment.END,
-                    shape=ft.RoundedRectangleBorder(
-                        radius=AppTheme.CONTAINER_BORDER_RADIUS
-                    ),
-                )
-                self._show_dialog(dialog)
 
     def show_extraction_completed_dialog(self, task_id, status):
         """
@@ -492,9 +396,38 @@ class HomeContent(ft.Container):
                 has_main_viewmodel=self.main_viewmodel is not None,
             )
 
-            # タスクID設定（この中でスナップショット作成と抽出確認ダイアログの表示が行われる）
+            # タスクの状態を確認
+            status = self.contents_viewmodel.check_snapshot_and_extraction_plan(task_id)
+            self.logger.debug(f"HomeContent: タスク状態確認 - {status}")
+
+            # 抽出が完了している場合は、直接プレビュー画面に遷移
+            if status["extraction_completed"]:
+                self.logger.info(
+                    "HomeContent: 抽出は完了しています。プレビュー画面に遷移します"
+                )
+                self.navigate_to_preview(
+                    task_id, status.get("task_status", "completed")
+                )
+                return
+
+            # 抽出が進行中の場合は、進捗ダイアログを表示してプレビュー画面に遷移
+            if status["extraction_in_progress"]:
+                self.logger.info(
+                    "HomeContent: 抽出は進行中です。プレビュー画面に遷移します"
+                )
+                # ここでは確認なしで直接プレビュー画面に遷移
+                if self.main_viewmodel:
+                    self.main_viewmodel.set_current_task_id(task_id)
+                    self.main_viewmodel.set_destination("preview")
+                else:
+                    await self._handle_home_viewmodel_select_task(task_id)
+                return
+
+            # 抽出が進行中でも完了でもない場合は、抽出確認ダイアログを表示せずに直接抽出開始
+            self.logger.info("HomeContent: 抽出を開始します")
+
+            # タスクID設定
             result = await self.contents_viewmodel.set_current_task_id(task_id)
-            self.logger.debug(f"HomeContent: set_current_task_id結果 - {result}")
 
             if not result:
                 self.logger.error(f"HomeContent: タスクID設定に失敗 - {task_id}")
@@ -515,55 +448,24 @@ class HomeContent(ft.Container):
                     self._show_dialog(dialog)
                 return
 
-            # set_current_task_id 後に一度だけ状態を確認
-            status = self.contents_viewmodel.check_snapshot_and_extraction_plan(task_id)
-            self.logger.debug(f"HomeContent: 抽出状態確認 - {status}")
+            # 直接抽出を開始 - ProgressDialogを表示し、完了を待機
+            success = (
+                await self.contents_viewmodel._start_extraction_without_confirmation(
+                    task_id
+                )
+            )
 
-            # 適切なユーザーフィードバックを表示（抽出確認ダイアログが表示されない場合のみ）
-            if hasattr(self, "page") and self.page:
-                # すでに抽出が進行中の場合
-                if status["extraction_in_progress"]:
-                    # ダイアログを作成
-                    dialog = ft.AlertDialog(
-                        modal=True,
-                        title=ft.Text("抽出処理中"),
-                        content=ft.Text(
-                            "メール抽出処理が進行中です。完了までしばらくお待ちください。"
-                        ),
-                        actions=[
-                            ft.TextButton("OK", on_click=self._close_dialog),
-                        ],
-                        actions_alignment=ft.MainAxisAlignment.END,
-                        shape=ft.RoundedRectangleBorder(
-                            radius=AppTheme.CONTAINER_BORDER_RADIUS
-                        ),
-                    )
-                    self._show_dialog(dialog)
-                # 抽出が完了している場合 - 完了ダイアログを表示する
-                elif status["extraction_completed"]:
-                    self.logger.info(
-                        "HomeContent: 抽出完了済み - 完了ダイアログを表示します"
-                    )
-                    # 完了ダイアログを表示
-                    self.show_extraction_completed_dialog(task_id, status)
-                    # 直接画面遷移はせず、ダイアログのOKボタンクリック時に遷移します
-                    return
-
-            # 確認ダイアログが表示される場合は、ダイアログ内で画面遷移を行うため、
-            # 抽出が進行中の場合のみ、ここで画面遷移を行う（完了済みはダイアログ内で処理）
-            if status["extraction_in_progress"]:
+            if success:
+                # 抽出が成功したらプレビュー画面に遷移
                 if self.main_viewmodel:
                     self.main_viewmodel.set_current_task_id(task_id)
                     self.main_viewmodel.set_destination("preview")
-                    self.logger.info(
-                        f"HomeContent: MainViewModelを使用して画面遷移 - {task_id}"
-                    )
                 else:
-                    # HomeViewModelのselect_taskメソッドを使用
                     await self._handle_home_viewmodel_select_task(task_id)
-                    self.logger.info(
-                        f"HomeContent: HomeViewModelを使用して画面遷移完了 - {task_id}"
-                    )
+            else:
+                self.logger.error(f"HomeContent: メール抽出に失敗 - {task_id}")
+                # エラーメッセージはProgressDialogで既に表示されているので、ここでは何もしない
+
         except Exception as e:
             self.logger.error(
                 "HomeContent: タスクID設定または画面遷移でエラー発生", error=str(e)

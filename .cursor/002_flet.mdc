@@ -1,7 +1,7 @@
 ---
 description: 
 globs: 
-alwaysApply: true
+alwaysApply: false
 ---
 
 # 002_flet.mdc
@@ -11,13 +11,166 @@ alwaysApply: true
 - FletはPythonでFlutterライクなフロントエンドを構築するための振興ライブラリです。
 - コミュニティが未熟ですが公式ドキュメントを参照しながら実装を進めます。
 
-## ft.UserControl の禁止
+## コンポーネント構造と初期化
 
-- 最新のFletではUserControlは廃止されエラーが発生します。
-- オリジナルのコンポーネントはft.Containerを継承してください。
+- カスタムコンポーネントは `ft.Container` を継承して実装すること（`ft.UserControl` は廃止されているため使用しないこと）
+- コンポーネント初期化時には必ず `super().__init__()` を最初に呼び出すこと
+- ページの `AppBar` や `BottomAppBar` はコンポーネント初期化時に設定すること
+- 親コンポーネントを追加する前に、すべての子コンポーネントを初期化すること
+- ビューモデルの初期化→コンポーネントの初期化→レイアウト構成の順で実装すること
+
+```python
+class MyComponent(ft.Container):
+    def __init__(self, page=None):
+        super().__init__()  # 必ず最初に呼び出す
+        self.page = page
+        
+        # ページがある場合のみAppBarを設定
+        if self.page is not None:
+            self.page.appbar = ft.AppBar(title=ft.Text("タイトル"))
+```
+
+## コンポーネントの追加順序
+
+- ページにコンポーネントを追加した後は必ず `page.update()` を呼び出すこと
+- 親コンポーネントを追加する前に、すべての子コンポーネントを初期化すること
+- ページの `on_view_ready` イベントで初期デスティネーションや初期表示内容を設定すること
+
+```python
+def main(page: ft.Page):
+    # 1. ページの基本設定
+    page.title = "アプリ名"
+    
+    # 2. コンポーネントの初期化
+    main_component = MainComponent(page)
+    
+    # 3. ページへの追加
+    page.add(main_component)
+    
+    # 4. 更新の反映
+    page.update()
+```
+
+## コンポーネントのライフサイクル管理
+
+- 一時的な使用のイベントリスナーは使用後に必ず削除すること
+- `page.on_disconnect`、`page.on_connect`、`page.on_close` イベントを使ってセッション状態を適切に管理すること
+- `page.on_view_ready` イベントは初期化完了後の処理に使用すること
 
 ## ft.Container の状態管理
 
-- アクションイベントはFlet標準で用意されているものを優先的に使用してください。
-公式ドキュメント(https://flet.dev/docs/controls/container/)
+- アクションイベントはFlet標準で用意されているものを優先的に使用してください
+- コンテナのイベントハンドラ（on_click, on_hover, on_long_press）を活用し、独自実装は避けてください
+- インタラクティブな要素として使用する場合は `ink=True` を設定して視覚的フィードバックを提供してください
+- 状態変更後は必ず `update()` メソッドを呼び出して UI を更新してください
+- カスタムコンポーネントでは `StateManagementMixin` などのミックスインを継承し、状態管理を統一してください
+- コンテンツ更新時には `content` プロパティを設定後、`update()` を呼び出してください
+- アニメーション効果を追加する場合は `animate` プロパティを活用してください
+- 状態に応じたスタイル変更には `ComponentState` 列挙型を活用すること
+- 公式ドキュメント: https://flet.dev/docs/controls/container/
 
+## レイアウト管理
+
+- レスポンシブデザインには `ResponsiveRow` を活用してください
+- コンポーネントのサイズ指定には絶対値ではなく、相対値や `expand` プロパティを優先してください
+- 複雑なレイアウトは `Row`、`Column`、`Stack` と `Container` を組み合わせて実装してください
+- モバイルでの表示を考慮し、`page.on_resize` イベントでレイアウト調整を行ってください
+- `padding`、`margin`、`alignment` を適切に設定し、見やすいUIを心がけてください
+- `expand=True` を使用して親コンテナのスペースを最大限活用すること
+
+## パフォーマンス最適化
+
+- 大量のアイテムを表示する場合は `ListView` を使用し、スクロール可能にしてください
+- 必要な時だけ `update()` を呼び出し、過剰な更新を避けてください
+- 重い処理は非同期関数に分離し、UI スレッドをブロックしないようにしてください
+- 大きなコンポーネントは必要に応じて遅延ロードするようにしてください
+- 画像などの大きなリソースは適切にキャッシュしてください
+- デバッグモードでは `flet.app(view=flet.WEB_BROWSER)` を使用し、開発ツールでパフォーマンスを確認してください
+- UI更新が頻繁に必要な場合は `on_scroll_interval` でイベントの発火頻度を調整すること
+
+## 非同期処理と状態管理
+
+- 長時間実行される処理は `page.run_task()` または `asyncio.create_task()` を使用して非同期で実行してください
+- API 呼び出しなどの処理中は `ProgressRing` や `ProgressBar` でユーザーに進捗を表示してください
+- 非同期処理の結果を UI に反映する際は `page.update()` を忘れないでください
+- エラーハンドリングを適切に行い、ユーザーにフィードバックを提供してください
+- オブザーバーパターンを活用し、ViewModelの変更を効率的に反映してください
+- ビューモデルパターンを活用して状態管理と表示ロジックを分離すること
+- コンポーネント間の通信にはオブザーバーパターンを使用すること
+
+### Fletでの非同期処理の正しい実装方法
+
+- `page.run_task()` にラムダ関数で直接コルーチン（async関数）を渡さないこと
+- 正しい実装パターンとして、内部で非同期関数を呼び出す同期関数を定義し渡すこと:
+
+```python
+# 誤った実装（動作しない）
+page.run_task(lambda: my_async_function(param))
+
+# 正しい実装（推奨）
+async def task_wrapper():
+    await my_async_function(param)
+    
+page.run_task(task_wrapper)
+```
+
+- ボタンなどのイベントハンドラから非同期関数を呼び出す場合は、必ず`page.run_task`を使用すること:
+
+```python
+# 正しいボタンイベント実装
+btn = ft.ElevatedButton(
+    "処理実行",
+    on_click=lambda e: page.run_task(run_async_operation)
+)
+```
+
+- 非同期処理中にUIを更新するには`asyncio.sleep(短い時間)`を使用して制御を一時的にUIスレッドに戻すこと
+- 同期処理（time.sleepなど）はUIをブロックするため、長時間実行される処理では絶対に使用しないこと
+- 同期メソッドと非同期メソッドの両方を提供する場合は、内部実装を共有せず、それぞれ独立して実装すること
+- 進捗状況を示すUIコンポーネント（ProgressBar、ProgressRing）を必ず使用し、ユーザーに処理状況を伝えること
+
+- 非同期処理チェーンでは、各レイヤーが適切に非同期処理を伝播するようにすること
+- ViewModelの非同期メソッドをViewから呼び出す場合は必ず `await` キーワードを使用すること
+- 複数の非同期処理を連続で行う場合は、できるだけ一つの非同期関数内でチェーンすること（ネストを避ける）
+- すべての非同期処理に適切なエラーハンドリングを実装すること（try-except）
+- シングルトンパターンで実装されたダイアログなどのコンポーネントを使用する場合は、非同期メソッドでの呼び出しにも対応すること
+
+```python
+# 良い実装例
+async def perform_operation(self, task_id):
+    try:
+        # ダイアログを表示
+        await self._progress_dialog.show_async(
+            "処理中", "データを処理しています...", 0, None
+        )
+        
+        # 処理を実行
+        result = await self._viewmodel.process_data(task_id)
+        
+        # 結果に応じて処理
+        if result:
+            self.logger.info("処理成功")
+        else:
+            self.logger.error("処理失敗")
+            
+        # 必ずダイアログを閉じる
+        await self._progress_dialog.close_async()
+        return result
+        
+    except Exception as e:
+        self.logger.error(f"エラー発生: {str(e)}")
+        # エラー時も必ずダイアログを閉じる
+        try:
+            await self._progress_dialog.close_async()
+        except:
+            pass
+        return False
+```
+
+## エラー処理
+
+- エラーが発生した場合は `page.error()` メソッドを使用して適切なエラーメッセージを表示すること
+- `try-except` ブロックで予期せぬエラーをキャッチし、ログに記録すること
+- ユーザー入力の検証を適切に行い、エラー状態を視覚的に表示すること
+- 非同期処理のエラーは必ず捕捉し、UIにフィードバックすること
+- リソースの解放（ダイアログを閉じるなど）はfinallyブロックで確実に行うこと

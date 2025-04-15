@@ -183,7 +183,10 @@ class TaskContent(ft.Container):
                 ft.Container(
                     content=ft.Column(
                         controls=[
-                            self.outlook_connect_button,
+                            ft.Container(
+                                content=self.outlook_connect_button,
+                                alignment=ft.alignment.center,
+                            ),
                             ft.Container(
                                 content=ft.Row(
                                     [self.cancel_button],
@@ -207,6 +210,8 @@ class TaskContent(ft.Container):
 
         # 最初のキャンセルボタンのコンテナを保持
         self.initial_cancel_container = content.controls[2].content.controls[1]
+        # Outlook接続ボタンのコンテナを保持
+        self.outlook_connect_container = content.controls[2].content.controls[0]
 
     async def _update_folders(self):
         """フォルダ選択肢を更新"""
@@ -246,6 +251,10 @@ class TaskContent(ft.Container):
                 # フォームを表示
                 self.form_container.visible = True
                 self.form_container.update()
+                # Outlook接続ボタンを削除
+                self.outlook_connect_container.parent.controls.remove(
+                    self.outlook_connect_container
+                )
                 # 最初のキャンセルボタンを削除
                 self.initial_cancel_container.parent.controls.remove(
                     self.initial_cancel_container
@@ -257,9 +266,10 @@ class TaskContent(ft.Container):
         except Exception as ex:
             self.logger.error(f"Outlook接続中にエラーが発生しました: {str(ex)}")
         finally:
-            # ボタンを再有効化
-            self.outlook_connect_button.disabled = False
-            self.outlook_connect_button.update()
+            # ボタンを再有効化（失敗した場合のみ）
+            if not self.form_container.visible:
+                self.outlook_connect_button.disabled = False
+                self.outlook_connect_button.update()
 
     def _on_from_folder_change(self, e):
         """送信元フォルダ変更時の処理"""

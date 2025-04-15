@@ -137,81 +137,163 @@ class HomeContentModel:
             bool: 削除が成功したかどうか
         """
         try:
-            # items.dbパスを事前に定義
-            items_db_path = os.path.join("data", "tasks", str(task_id), "items.db")
+            # タスクディレクトリのパスを設定
+            task_dir = os.path.join("data", "tasks", str(task_id))
+            items_db_path = os.path.join(task_dir, "items.db")
 
-            # items.dbが存在する場合、確実に接続を解放する処理
+            # tasks.dbからの削除前に動作確認
+            if not os.path.exists(task_dir):
+                self.logger.warning(
+                    f"HomeContentModel: 削除対象のタスクディレクトリが存在しません - {task_dir}"
+                )
+                # タスクディレクトリがない場合はtask_infoテーブルからのみ削除
+                self.db_manager.execute_update(
+                    "DELETE FROM task_info WHERE id = ?", (task_id,)
+                )
+                self.db_manager.commit()
+                self.db_manager.disconnect()
+                return True
+
+            # ファイルの使用状況を確認 - items.dbが存在する場合
             if os.path.exists(items_db_path):
-                try:
-                    # 複数回接続解放を試みる
-                    for attempt in range(3):
-                        try:
-                            # 一時的なデータベース接続を作成して閉じる（既存の接続を強制的にクローズするため）
-                            tmp_db = DatabaseManager(items_db_path)
-                            tmp_db.disconnect()
-                            self.logger.info(
-                                f"items.dbの接続解放試行 {attempt+1}/3 成功: {items_db_path}"
-                            )
-                            break
-                        except Exception as db_ex:
-                            self.logger.warning(
-                                f"items.dbの接続解放試行 {attempt+1}/3 失敗: {str(db_ex)}"
-                            )
-                            # 少し長めに待機
-                            time.sleep(0.5)
-                except Exception as db_ex:
-                    self.logger.warning(
-                        f"タスクのデータベース接続解放中にエラー: {str(db_ex)}"
-                    )
-                    # エラーが発生しても削除処理を継続する
+                # リソース解放のための試行を行う
+                self._release_resources(items_db_path)
 
-                # 接続解放後に追加の待機時間
-                time.sleep(0.5)
-
-            # データベース操作を先に完了
+            # データベース操作を先に完了 - task_infoテーブルから削除
             self.db_manager.execute_update(
                 "DELETE FROM task_info WHERE id = ?", (task_id,)
             )
             self.db_manager.commit()
-
-            # メインデータベース接続を確実に閉じる
             self.db_manager.disconnect()
 
-            # タスク固有のitems.dbがある場合、それも確認して閉じる
-            if os.path.exists(items_db_path):
-                try:
-                    # 一時的なデータベース接続を作成して閉じる（既存の接続を強制的にクローズするため）
-                    tmp_db = DatabaseManager(items_db_path)
-                    tmp_db.disconnect()
+            # 添付ファイルやその他のリソースを解放するために再度試行
+            attachments_dir = os.path.join(task_dir, "attachments")
+            if os.path.exists(attachments_dir):
+                self._release_directory_resources(attachments_dir)
 
-                    # 少し待機して、接続が完全に閉じられるのを確認
-                    time.sleep(0.5)
-                except Exception as db_ex:
-                    self.logger.warning(
-                        f"タスクのデータベース接続解放中にエラー: {str(db_ex)}"
-                    )
-                    # エラーが発生しても削除処理を継続する
+            # タスク固有のitems.dbに最終的な解放処理
+            if os.path.exists(items_db_path):
+                self._release_resources(items_db_path)
 
             # ディレクトリ削除を試みる
-            task_dir = os.path.join("data", "tasks", str(task_id))
             if os.path.exists(task_dir):
-                try:
-                    shutil.rmtree(task_dir)
-                except PermissionError:
-                    # ファイルが使用中の場合は少し待ってから再試行
-                    time.sleep(1.0)  # 待機時間を長めに設定
-                    try:
-                        shutil.rmtree(task_dir)
-                    except Exception as rm_ex:
-                        self.logger.error(
-                            f"2回目のディレクトリ削除試行でエラー: {str(rm_ex)}"
-                        )
-                        return False
+                success = self._try_remove_directory(task_dir)
+                if not success:
+                    self.logger.error(
+                        f"タスクディレクトリの削除に失敗しました: {task_dir}"
+                    )
+                    return False
 
             return True
         except Exception as e:
             self.logger.error(f"タスク削除エラー: {str(e)}")
             return False
+
+    def _release_resources(self, db_path: str) -> None:
+        """
+        指定されたデータベースファイルのリソースを解放する
+
+        Args:
+            db_path: データベースファイルのパス
+        """
+        try:
+            # 複数回接続解放を試みる
+            for attempt in range(3):
+                try:
+                    # 一時的なデータベース接続を作成して閉じる（既存の接続を強制的にクローズするため）
+                    tmp_db = DatabaseManager(db_path)
+                    # 明示的にVACUUMを実行してリソースを解放
+                    tmp_db.execute_update("VACUUM")
+                    tmp_db.disconnect()
+                    self.logger.info(
+                        f"データベース接続解放試行 {attempt+1}/3 成功: {db_path}"
+                    )
+                    break
+                except Exception as db_ex:
+                    self.logger.warning(
+                        f"データベース接続解放試行 {attempt+1}/3 失敗: {str(db_ex)}"
+                    )
+                    # 少し長めに待機
+                    time.sleep(0.5)
+        except Exception as e:
+            self.logger.warning(f"リソース解放中にエラー: {str(e)}")
+
+        # 接続解放後に追加の待機時間
+        time.sleep(0.5)
+
+    def _release_directory_resources(self, directory_path: str) -> None:
+        """
+        指定されたディレクトリのリソースを解放する（特に添付ファイルなど）
+
+        Args:
+            directory_path: ディレクトリのパス
+        """
+        try:
+            # ディレクトリ内のファイルを列挙
+            if os.path.exists(directory_path) and os.path.isdir(directory_path):
+                for root, dirs, files in os.walk(directory_path):
+                    for file in files:
+                        try:
+                            file_path = os.path.join(root, file)
+                            # ファイルのロックを解除する試み（Windows特有の方法）
+                            # このロジックはプラットフォーム依存のため、追加の処理が必要な場合がある
+                            if os.path.exists(file_path):
+                                with open(file_path, "a"):
+                                    pass  # ファイルを開いて閉じるだけでロックが解除されることがある
+                        except Exception as file_ex:
+                            self.logger.warning(
+                                f"ファイルのロック解除試行に失敗: {file_path}, エラー: {str(file_ex)}"
+                            )
+        except Exception as e:
+            self.logger.warning(f"ディレクトリリソース解放中にエラー: {str(e)}")
+
+    def _try_remove_directory(self, directory_path: str) -> bool:
+        """
+        ディレクトリを削除する試行を複数回行う
+
+        Args:
+            directory_path: 削除するディレクトリのパス
+
+        Returns:
+            bool: 削除が成功したかどうか
+        """
+        # 最大試行回数
+        max_attempts = 3
+
+        for attempt in range(max_attempts):
+            try:
+                # ディレクトリが存在する場合のみ削除
+                if os.path.exists(directory_path):
+                    shutil.rmtree(directory_path)
+                    self.logger.info(f"ディレクトリ削除成功: {directory_path}")
+                    return True
+                else:
+                    # 既に削除されている場合は成功とみなす
+                    return True
+            except PermissionError:
+                # ファイルが使用中の場合は少し待ってから再試行
+                self.logger.warning(
+                    f"ディレクトリ削除試行 {attempt+1}/{max_attempts} 失敗(PermissionError): {directory_path}"
+                )
+                time.sleep(1.0)  # 待機時間を長めに設定
+            except OSError as os_ex:
+                # その他のOSエラー
+                self.logger.warning(
+                    f"ディレクトリ削除試行 {attempt+1}/{max_attempts} 失敗(OSError): {directory_path}, エラー: {str(os_ex)}"
+                )
+                time.sleep(1.0)
+            except Exception as ex:
+                # 予期せぬエラー
+                self.logger.error(
+                    f"ディレクトリ削除試行 {attempt+1}/{max_attempts} 失敗(Exception): {directory_path}, エラー: {str(ex)}"
+                )
+                time.sleep(1.0)
+
+        # 全ての試行が失敗
+        self.logger.error(
+            f"ディレクトリ削除に失敗しました（{max_attempts}回試行）: {directory_path}"
+        )
+        return False
 
     def check_snapshot_and_extraction_plan(self, task_id: str) -> Dict[str, bool]:
         """
@@ -352,11 +434,12 @@ class HomeContentModel:
                 )
                 return True
 
-            # 抽出が進行中の場合も成功として返す
+            # 抽出が進行中の場合は進行中として返す（UIでProgressDialogを表示するため）
             if status["extraction_in_progress"]:
                 self.logger.info(
                     "HomeContentModel: メール抽出は既に進行中です", task_id=task_id
                 )
+                # 現在の仕様ではUIで進捗を監視するため、進行中の状態を返す
                 return True
 
             # OutlookExtractionServiceを使用して抽出を開始

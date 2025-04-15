@@ -21,7 +21,6 @@ class HomeContentViewModel:
         self.model = HomeContentModel(db_path)
         self.current_task_id = None
         self.main_viewmodel = None  # MainViewModelへの参照を保持するためのプロパティ
-        self.extraction_confirmation_callback = None  # 抽出確認コールバック
         self.extraction_completed_callback = None  # 抽出完了コールバック
 
         # ProgressDialogのインスタンスを取得
@@ -60,23 +59,6 @@ class HomeContentViewModel:
         else:
             self.logger.error("HomeContentViewModel: タスク削除失敗", task_id=task_id)
         return result
-
-    def set_extraction_confirmation_callback(
-        self, callback: Callable[[str, Dict[str, bool]], None]
-    ) -> None:
-        """
-        メール抽出確認ダイアログを表示するためのコールバックを設定する
-        このメソッドはレガシー機能であり、現在の実装では必要ありません。
-        抽出は直接_start_extraction_without_confirmationメソッドを使用して開始されます。
-
-        Args:
-            callback: タスクIDとステータス情報を引数に取るコールバック関数
-        """
-        self.logger.info(
-            "HomeContentViewModel: 抽出確認コールバックは不要（レガシー機能）"
-        )
-        # コールバックは設定せず、直接抽出を使用する設計に変更
-        self.extraction_confirmation_callback = None
 
     def set_extraction_completed_callback(
         self, callback: Callable[[str, Dict[str, bool]], None]
@@ -118,22 +100,25 @@ class HomeContentViewModel:
             # スナップショットと抽出計画の状態を確認
             status = self.check_snapshot_and_extraction_plan(task_id)
 
-            # 抽出が進行中または完了している場合はスキップ
+            # 抽出が進行中または完了している場合はスキップ（UIで対応する）
             if status["extraction_in_progress"]:
                 self.logger.info(
                     f"HomeContentViewModel: メール抽出は既に進行中です - {task_id}"
                 )
+                # 進行中の場合はUIでプログレスダイアログを表示するため、
+                # 抽出開始処理は行わない
             elif status["extraction_completed"]:
                 self.logger.info(
                     f"HomeContentViewModel: メール抽出は既に完了しています - {task_id}"
                 )
+                # 完了している場合も抽出開始処理は行わない
             else:
                 # 抽出が進行中でも完了でもない場合は直接抽出を開始
                 self.logger.info(
                     f"HomeContentViewModel: 抽出を直接開始します - {task_id}"
                 )
 
-                # 直接抽出を開始 (コールバックは使用しない)
+                # 直接抽出を開始
                 await self._start_extraction_without_confirmation(task_id)
 
         # MainViewModelが設定されている場合通知
@@ -147,7 +132,7 @@ class HomeContentViewModel:
 
     async def _start_extraction_without_confirmation(self, task_id: str) -> bool:
         """
-        確認なしでメール抽出を開始する（内部メソッド）
+        メール抽出を開始する
 
         Args:
             task_id: タスクID
@@ -315,52 +300,6 @@ class HomeContentViewModel:
 
             await asyncio.sleep(0.1)
             return False
-
-    async def handle_extraction_confirmation(
-        self, task_id: str, confirmed: bool
-    ) -> bool:
-        """
-        メール抽出確認ダイアログの結果を処理する
-
-        Args:
-            task_id: タスクID
-            confirmed: ユーザーが確認したかどうか
-
-        Returns:
-            bool: 処理が成功したかどうか
-        """
-        if confirmed:
-            self.logger.info(
-                "HomeContentViewModel: ユーザーがメール抽出を承認しました",
-                task_id=task_id,
-            )
-
-            # 抽出開始前に現在の状態を確認
-            current_status = self.check_snapshot_and_extraction_plan(task_id)
-
-            # 既に抽出が進行中または完了している場合はスキップ
-            if current_status["extraction_in_progress"]:
-                self.logger.info(
-                    "HomeContentViewModel: 抽出は既に進行中です。新たな抽出は開始しません。",
-                    task_id=task_id,
-                )
-                return True
-
-            if current_status["extraction_completed"]:
-                self.logger.info(
-                    "HomeContentViewModel: 抽出は既に完了しています。新たな抽出は開始しません。",
-                    task_id=task_id,
-                )
-                return True
-
-            # 抽出が進行中でも完了でもない場合に抽出を開始
-            return await self._start_extraction_without_confirmation(task_id)
-        else:
-            self.logger.info(
-                "HomeContentViewModel: ユーザーがメール抽出をキャンセルしました",
-                task_id=task_id,
-            )
-            return True  # キャンセルは成功扱い
 
     def get_current_task_id(self) -> str:
         """

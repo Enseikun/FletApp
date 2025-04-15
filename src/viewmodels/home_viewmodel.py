@@ -1,3 +1,4 @@
+from src.core.logger import get_logger
 from src.viewmodels.home_content_viewmodel import HomeContentViewModel
 
 
@@ -10,6 +11,7 @@ class HomeViewModel:
         self.selected_task_id = None
         self.tasks = []  # タスクのリスト
         self.content_viewmodel = HomeContentViewModel()
+        self.logger = get_logger()  # ロガーを初期化
 
     def load_tasks(self):
         """利用可能なタスクを読み込む"""
@@ -29,8 +31,8 @@ class HomeViewModel:
         self.selected_task_id = task_id
 
         # ログを追加して確認
-        print(
-            f"HomeViewModel.select_task: task_id={task_id}, main_viewmodel={self.main_viewmodel}"
+        self.logger.debug(
+            f"HomeViewModel.select_task: タスク選択処理開始", task_id=task_id
         )
 
         # メインViewModelに選択されたタスクIDを設定
@@ -40,8 +42,9 @@ class HomeViewModel:
 
             if not success:
                 # エラーがあった場合は画面遷移をしない
-                print(
-                    f"HomeViewModel.select_task: タスク選択処理に失敗しました - {task_id}"
+                self.logger.error(
+                    f"HomeViewModel.select_task: タスク選択処理に失敗しました",
+                    task_id=task_id,
                 )
                 return False
 
@@ -53,12 +56,25 @@ class HomeViewModel:
                 self.main_viewmodel.main_viewmodel.set_current_task_id(task_id)
                 # プレビュー画面に遷移
                 self.main_viewmodel.main_viewmodel.set_destination("preview")
+                self.logger.info(
+                    f"HomeViewModel.select_task: プレビュー画面に遷移しました(MainContentsViewModel経由)",
+                    task_id=task_id,
+                )
                 return True
 
             # 通常のMainViewModelの場合
+            self.main_viewmodel.set_current_task_id(task_id)
             self.main_viewmodel.set_destination("preview")
+            self.logger.info(
+                f"HomeViewModel.select_task: プレビュー画面に遷移しました(直接MainViewModel経由)",
+                task_id=task_id,
+            )
             return True
 
+        self.logger.warning(
+            f"HomeViewModel.select_task: MainViewModelが設定されていません",
+            task_id=task_id,
+        )
         return False
 
     def delete_task(self, task_id):

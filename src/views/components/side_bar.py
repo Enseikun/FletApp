@@ -54,7 +54,10 @@ class SideBar(ft.NavigationRail):
 
         # ViewModelの監視を登録
         if self.viewmodel:
+            # 初期状態を設定
             self.update_selected_destination(self.viewmodel.get_selected_destination())
+            # オブザーバーとして登録
+            self.viewmodel.add_observer(self)
 
     def _on_change_internal(self, e):
         """
@@ -81,3 +84,9 @@ class SideBar(ft.NavigationRail):
                 self.update()
         else:
             print(f"SideBar: 不明なデスティネーション - {destination_key}")
+
+    def on_sidebar_viewmodel_changed(self):
+        """
+        ビューモデルの変更通知を受け取るコールバック
+        """
+        self.update_selected_destination(self.viewmodel.get_selected_destination())

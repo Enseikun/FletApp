@@ -3,7 +3,7 @@
 サイドナビゲーションの状態を管理
 """
 
-from typing import Callable, Optional
+from typing import Callable, List, Optional
 
 
 class SideBarViewModel:
@@ -21,6 +21,7 @@ class SideBarViewModel:
         """
         self._main_viewmodel = main_viewmodel
         self._selected_destination = "home"
+        self._observers = []
 
         # MainViewModelにこのインスタンスを設定
         if self._main_viewmodel:
@@ -55,3 +56,36 @@ class SideBarViewModel:
         """
         print(f"SideBarViewModel: デスティネーション更新 - {destination_key}")
         self._selected_destination = destination_key
+        self._notify_observers()
+
+    def add_observer(self, observer) -> None:
+        """
+        オブザーバーを追加
+
+        Args:
+            observer: 通知を受け取るオブザーバー
+        """
+        if observer not in self._observers:
+            self._observers.append(observer)
+            print(f"SideBarViewModel: オブザーバー追加 - {observer.__class__.__name__}")
+
+    def remove_observer(self, observer) -> None:
+        """
+        オブザーバーを削除
+
+        Args:
+            observer: 登録済みのオブザーバー
+        """
+        if observer in self._observers:
+            self._observers.remove(observer)
+            print(f"SideBarViewModel: オブザーバー削除 - {observer.__class__.__name__}")
+
+    def _notify_observers(self) -> None:
+        """
+        全てのオブザーバーに変更を通知
+        """
+        for observer in self._observers:
+            if hasattr(observer, "update_selected_destination"):
+                observer.update_selected_destination(self._selected_destination)
+            elif hasattr(observer, "on_sidebar_viewmodel_changed"):
+                observer.on_sidebar_viewmodel_changed()

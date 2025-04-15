@@ -141,7 +141,7 @@ class HomeContentModel:
             task_dir = os.path.join("data", "tasks", str(task_id))
             items_db_path = os.path.join(task_dir, "items.db")
 
-            # tasks.dbからの削除前に動作確認
+            # タスクディレクトリが存在しない場合のチェック
             if not os.path.exists(task_dir):
                 self.logger.warning(
                     f"HomeContentModel: 削除対象のタスクディレクトリが存在しません - {task_dir}"
@@ -154,17 +154,99 @@ class HomeContentModel:
                 self.db_manager.disconnect()
                 return True
 
+            # PreviewContentの参照を探して、リソースを解放する
+            try:
+                # 循環参照を避けるためにここでインポート
+                from src.views.contents.content_factory import get_current_contents
+
+                # 現在のコンテンツを取得
+                current_contents = get_current_contents()
+                if current_contents:
+                    # PreviewContentのインスタンスを探す
+                    preview_content = None
+
+                    for content in current_contents:
+                        if (
+                            hasattr(content, "__class__")
+                            and content.__class__.__name__ == "PreviewContent"
+                        ):
+                            preview_content = content
+                            break
+
+                    # PreviewContentが見つかった場合、リソースを解放
+                    if preview_content:
+                        if (
+                            hasattr(preview_content, "viewmodel")
+                            and preview_content.viewmodel
+                        ):
+                            preview_content.viewmodel.close()
+                            preview_content.viewmodel = None
+                            self.logger.info(
+                                f"HomeContentModel: 既存のPreviewContentのViewModelをクローズしました - {task_id}"
+                            )
+
+                            # 会話コンテナのリセット
+                            if hasattr(preview_content, "conversation_containers"):
+                                preview_content.conversation_containers.clear()
+
+                            # メールリストとメールコンテンツビューアーのリセット
+                            if hasattr(preview_content, "mail_list_component"):
+                                if hasattr(
+                                    preview_content.mail_list_component, "reset"
+                                ):
+                                    preview_content.mail_list_component.reset()
+
+                            if hasattr(preview_content, "mail_content_viewer"):
+                                if hasattr(
+                                    preview_content.mail_content_viewer, "reset"
+                                ):
+                                    preview_content.mail_content_viewer.reset()
+
+                            # タスクIDをクリア
+                            preview_content.task_id = None
+
+                            # 少し待機
+                            time.sleep(1.0)
+                        else:
+                            self.logger.warning(
+                                f"HomeContentModel: PreviewContentのViewModelが見つかりません - {task_id}"
+                            )
+                    else:
+                        self.logger.warning(
+                            f"HomeContentModel: PreviewContentが見つかりません - {task_id}"
+                        )
+                else:
+                    self.logger.warning(
+                        f"HomeContentModel: 現在のコンテンツが見つかりません - {task_id}"
+                    )
+            except Exception as preview_ex:
+                self.logger.warning(
+                    f"HomeContentModel: PreviewContentのリソース解放中にエラー - {str(preview_ex)}"
+                )
+                # エラーが発生してもタスク削除は続行する
+                # フォールバックとして新しいViewModelを作成して閉じる
+                try:
+                    from src.viewmodels.preview_content_viewmodel import (
+                        PreviewContentViewModel,
+                    )
+
+                    preview_viewmodel = PreviewContentViewModel(task_id)
+                    preview_viewmodel.close()
+                    self.logger.info(
+                        f"HomeContentModel: フォールバックでPreviewContentViewModelをクローズしました - {task_id}"
+                    )
+
+                    # 追加の待機時間
+                    time.sleep(1.0)
+                except Exception as fallback_ex:
+                    self.logger.warning(
+                        f"HomeContentModel: フォールバックリソース解放中にエラー - {str(fallback_ex)}"
+                    )
+
             # ファイルの使用状況を確認 - items.dbが存在する場合
             if os.path.exists(items_db_path):
                 # リソース解放のための試行を行う
                 self._release_resources(items_db_path)
-
-            # データベース操作を先に完了 - task_infoテーブルから削除
-            self.db_manager.execute_update(
-                "DELETE FROM task_info WHERE id = ?", (task_id,)
-            )
-            self.db_manager.commit()
-            self.db_manager.disconnect()
 
             # 添付ファイルやその他のリソースを解放するために再度試行
             attachments_dir = os.path.join(task_dir, "attachments")
@@ -175,14 +257,23 @@ class HomeContentModel:
             if os.path.exists(items_db_path):
                 self._release_resources(items_db_path)
 
-            # ディレクトリ削除を試みる
+            # ディレクトリ削除を先に試みる
             if os.path.exists(task_dir):
-                success = self._try_remove_directory(task_dir)
-                if not success:
+                directory_deleted = self._try_remove_directory(task_dir)
+                if not directory_deleted:
                     self.logger.error(
-                        f"タスクディレクトリの削除に失敗しました: {task_dir}"
+                        f"タスクディレクトリの削除に失敗しました: {task_dir}。tasks.dbからの削除も中止します。"
                     )
+                    # ディレクトリ削除に失敗した場合は、tasks.dbからの削除も行わない
                     return False
+
+            # ディレクトリ削除が成功した場合のみ、tasks.dbからの削除を実行
+            self.db_manager.execute_update(
+                "DELETE FROM task_info WHERE id = ?", (task_id,)
+            )
+            self.db_manager.commit()
+            self.db_manager.disconnect()
+            self.logger.info(f"タスクID: {task_id} を完全に削除しました")
 
             return True
         except Exception as e:

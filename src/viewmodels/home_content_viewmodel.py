@@ -12,6 +12,7 @@ class HomeContentViewModel:
     """
     ホーム画面のコンテンツ用ViewModel
     tasks.dbからデータを取得して提供する
+    MVVMパターンにおいてModelとViewの間の橋渡しを担当
     """
 
     def __init__(self, db_path: str = None):
@@ -60,6 +61,137 @@ class HomeContentViewModel:
             self.logger.error("HomeContentViewModel: タスク削除失敗", task_id=task_id)
         return result
 
+    async def delete_task_with_preparations(
+        self, task_id: str, main_viewmodel
+    ) -> Dict[str, Any]:
+        """
+        タスク削除の準備と実行を行う（Viewからロジックを移譲）
+
+        Args:
+            task_id: 削除するタスクID
+            main_viewmodel: MainViewModelの参照
+
+        Returns:
+            Dict[str, Any]: 処理結果の情報
+        """
+        result = {
+            "success": False,
+            "error_message": "",
+        }
+
+        try:
+            # プログレスダイアログを表示する前に少し待機してUIを更新
+            await asyncio.sleep(0.1)
+
+            # プログレスダイアログを表示（不確定モード）
+            if hasattr(self, "_progress_dialog") and self._progress_dialog:
+                # ページが設定されていない場合は初期化
+                if main_viewmodel and hasattr(main_viewmodel, "_page"):
+                    if (
+                        not hasattr(self._progress_dialog, "_page")
+                        or not self._progress_dialog._page
+                    ):
+                        self._progress_dialog.initialize(main_viewmodel._page)
+
+                await self._progress_dialog.show_async(
+                    "タスク削除中",
+                    f"タスクID: {task_id} の削除を実行しています...",
+                    max_value=None,  # Indeterminateモード
+                )
+                self.logger.debug("HomeContentViewModel: 削除進捗ダイアログを表示")
+
+                # ダイアログの表示後に少し待機してUIの更新を確実にする
+                await asyncio.sleep(0.2)
+
+            # 現在表示中のタスクかチェック
+            is_current_task = False
+            if main_viewmodel:
+                current_task_id = main_viewmodel.get_current_task_id()
+                is_current_task = current_task_id == task_id
+
+                # 現在表示中のタスクの場合は、画面を初期化してからタスクを削除
+                if is_current_task:
+                    self.logger.info(
+                        "HomeContentViewModel: 現在表示中のタスクを削除するため、画面を初期化します",
+                        task_id=task_id,
+                    )
+
+                    # ダイアログメッセージを更新
+                    if (
+                        hasattr(self, "_progress_dialog")
+                        and self._progress_dialog
+                        and self._progress_dialog.is_open
+                    ):
+                        await self._progress_dialog.update_message_async(
+                            f"タスクID: {task_id} の画面を初期化しています..."
+                        )
+                        await asyncio.sleep(0.1)  # メッセージ更新後に少し待機
+
+                    # Preview画面を初期化するためにホーム画面に戻す
+                    main_viewmodel.set_current_task_id(None)
+                    main_viewmodel.set_destination("home")
+
+                    # リソース解放のために少し待機
+                    await asyncio.sleep(0.5)
+
+                    # ガベージコレクションを促進
+                    import gc
+
+                    gc.collect()
+
+            # ダイアログメッセージを更新
+            if (
+                hasattr(self, "_progress_dialog")
+                and self._progress_dialog
+                and self._progress_dialog.is_open
+            ):
+                await self._progress_dialog.update_message_async(
+                    f"タスクID: {task_id} のリソースを解放しています..."
+                )
+                await asyncio.sleep(0.1)  # メッセージ更新後に少し待機
+
+            # 削除を実行
+            success = self.delete_task(task_id)
+
+            # 削除操作完了後に少し待機
+            await asyncio.sleep(0.2)
+
+            # ダイアログを閉じる
+            if (
+                hasattr(self, "_progress_dialog")
+                and self._progress_dialog
+                and self._progress_dialog.is_open
+            ):
+                await self._progress_dialog.close_async()
+                # ダイアログが閉じた後に少し待機してUIの更新を確実にする
+                await asyncio.sleep(0.2)
+
+            result["success"] = success
+            if not success:
+                result["error_message"] = (
+                    "タスクの削除に失敗しました。ファイルが使用中である可能性があります。"
+                )
+
+            return result
+
+        except Exception as e:
+            # エラー発生時もダイアログを閉じる
+            if (
+                hasattr(self, "_progress_dialog")
+                and self._progress_dialog
+                and self._progress_dialog.is_open
+            ):
+                await self._progress_dialog.close_async()
+                await asyncio.sleep(0.2)  # ダイアログが閉じた後に少し待機
+
+            self.logger.error(
+                "HomeContentViewModel: タスク削除準備中にエラー発生",
+                task_id=task_id,
+                error=str(e),
+            )
+            result["error_message"] = f"削除準備中にエラーが発生しました: {str(e)}"
+            return result
+
     def set_extraction_completed_callback(
         self, callback: Callable[[str, Dict[str, bool]], None]
     ) -> None:
@@ -71,6 +203,28 @@ class HomeContentViewModel:
         """
         self.extraction_completed_callback = callback
         self.logger.info("HomeContentViewModel: 抽出完了コールバックを設定しました")
+
+    async def handle_extraction_completion(
+        self, task_id: str, task_status: str
+    ) -> bool:
+        """
+        抽出完了後の処理を行う（Viewからロジックを移譲）
+
+        Args:
+            task_id: タスクID
+            task_status: タスクのステータス
+
+        Returns:
+            bool: プレビュー画面に遷移すべきかどうか
+        """
+        self.logger.info(
+            "HomeContentViewModel: 抽出完了後の処理",
+            task_id=task_id,
+            task_status=task_status,
+        )
+
+        # 完了の場合のみプレビュー画面に遷移すべき
+        return task_status == "completed"
 
     async def set_current_task_id(self, task_id: str) -> bool:
         """
@@ -129,6 +283,134 @@ class HomeContentViewModel:
             )
 
         return success
+
+    async def handle_task_selection(self, task_id: str) -> Dict[str, Any]:
+        """
+        タスク選択時の処理を行う（Viewからロジックを移譲）
+
+        Args:
+            task_id: 選択されたタスクID
+
+        Returns:
+            Dict[str, Any]: 処理結果（画面遷移などの指示を含む）
+        """
+        result = {
+            "should_navigate": False,  # プレビュー画面に遷移すべきか
+            "show_progress": False,  # 進捗ダイアログを表示すべきか
+            "error": False,  # エラーが発生したか
+            "error_message": "",  # エラーメッセージ
+        }
+
+        try:
+            self.logger.debug(
+                "HomeContentViewModel: タスク選択処理開始",
+                task_id=task_id,
+            )
+
+            # タスクIDを設定
+            await self.set_current_task_id(task_id)
+
+            # タスクの状態を確認
+            status = self.check_snapshot_and_extraction_plan(task_id)
+
+            # 抽出が完了している場合は、直接プレビュー画面に遷移
+            if status["extraction_completed"]:
+                self.logger.info(
+                    "HomeContentViewModel: 抽出は完了しています。プレビュー画面に遷移します"
+                )
+                result["should_navigate"] = True
+                return result
+
+            # 抽出が進行中の場合は、進捗ダイアログを表示して監視
+            if status["extraction_in_progress"]:
+                self.logger.info(
+                    "HomeContentViewModel: 抽出は進行中です。進捗ダイアログを表示します"
+                )
+
+                # ProgressDialogを表示して進捗状況を監視
+                await self._progress_dialog.show_async(
+                    "メール抽出中",
+                    "メールの抽出処理を実行中です。完了までお待ちください...",
+                    0,
+                    None,
+                )
+
+                # 進捗状況を監視
+                await self.poll_extraction_progress(task_id, 2.0)
+
+                # 抽出結果の詳細を取得
+                _, final_progress = await self._check_extraction_status_from_db(
+                    task_id, with_progress=True
+                )
+
+                # 抽出結果サマリーを作成
+                total_count = final_progress.get("total_count", 0)
+                completed_count = final_progress.get("completed_count", 0)
+                error_count = (
+                    total_count - completed_count
+                    if total_count > completed_count
+                    else 0
+                )
+
+                result_message = "メール抽出が完了しました。\n\n"
+                result_message += f"処理結果:\n"
+                result_message += f"- 合計: {total_count} メール\n"
+                result_message += f"- 成功: {completed_count} メール\n"
+
+                if error_count > 0:
+                    result_message += f"- エラー: {error_count} メール\n"
+
+                # 添付ファイル情報がある場合は表示
+                if (
+                    "attachment_total" in final_progress
+                    and final_progress["attachment_total"] > 0
+                ):
+                    att_total = final_progress.get("attachment_total", 0)
+                    att_completed = final_progress.get("attachment_completed", 0)
+                    result_message += f"- 添付ファイル: {att_completed}/{att_total}\n"
+
+                # 完了メッセージとOKボタンを表示
+                await self._progress_dialog.update_message_async(result_message)
+                await self._progress_dialog.add_close_button_async("OK")
+
+                # ユーザーがボタンをクリックするまで待機
+                await self._progress_dialog.wait_for_close()
+
+                # 抽出が完了したことを確認
+                await self.check_extraction_completed(task_id)
+
+                # 抽出が完了したら、プレビュー画面に遷移
+                result["should_navigate"] = True
+                result["show_progress"] = True
+                return result
+
+            # 抽出が進行中でも完了でもない場合は、抽出確認ダイアログを表示せずに直接抽出開始
+            self.logger.info("HomeContentViewModel: 抽出を開始します")
+
+            # 直接抽出を開始 - ProgressDialogを表示し、完了を待機
+            success = await self._start_extraction_without_confirmation(task_id)
+
+            if success:
+                # 抽出が成功したらプレビュー画面に遷移
+                result["should_navigate"] = True
+                result["show_progress"] = True
+                return result
+            else:
+                # 抽出に失敗した場合
+                self.logger.error(f"HomeContentViewModel: メール抽出に失敗 - {task_id}")
+                result["error"] = True
+                result["error_message"] = "メール抽出に失敗しました。"
+                return result
+
+        except Exception as e:
+            self.logger.error(
+                "HomeContentViewModel: タスク選択処理でエラー発生",
+                task_id=task_id,
+                error=str(e),
+            )
+            result["error"] = True
+            result["error_message"] = f"タスク処理中にエラーが発生しました: {str(e)}"
+            return result
 
     async def _start_extraction_without_confirmation(self, task_id: str) -> bool:
         """
@@ -260,14 +542,18 @@ class HomeContentViewModel:
                 # ダイアログが閉じられた後、通知を行う
                 await self.check_extraction_completed(task_id)
 
-                await asyncio.sleep(0.1)
                 return True
             else:
+                # エラーメッセージを表示
+                await self._progress_dialog.update_message_async(
+                    "メール抽出の開始に失敗しました。"
+                )
+                await self._progress_dialog.add_close_button_async("OK")
+                await self._progress_dialog.wait_for_close()
+
                 self.logger.error(
                     "HomeContentViewModel: メール抽出開始失敗", task_id=task_id
                 )
-                # 抽出開始失敗時はダイアログを閉じる
-                await self._progress_dialog.close_async()
                 return False
 
         except Exception as e:
@@ -275,30 +561,18 @@ class HomeContentViewModel:
                 "HomeContentViewModel: メール抽出処理中にエラー発生",
                 task_id=task_id,
                 error=str(e),
-                stack=str(e.__traceback__),
             )
+            # エラーメッセージを表示
             try:
-                # エラー発生時はダイアログのメッセージを更新して表示
-                if self._progress_dialog.is_open:
-                    error_message = (
-                        f"メール抽出処理中にエラーが発生しました:\n\n{str(e)}"
-                    )
-                    await self._progress_dialog.update_message_async(error_message)
-
-                    # OKボタンを表示してユーザーの確認を待つ
-                    await self._progress_dialog.add_close_button_async("OK")
-                    await self._progress_dialog.wait_for_close(
-                        timeout=60.0
-                    )  # 最大1分待機
-            except Exception as dialog_ex:
-                self.logger.error(
-                    "HomeContentViewModel: エラー処理中に例外発生",
-                    error=str(dialog_ex),
+                await self._progress_dialog.update_message_async(
+                    f"メール抽出中にエラーが発生しました: {str(e)}"
                 )
-                # どうしてもダイアログが閉じられない場合は無視
+                await self._progress_dialog.add_close_button_async("OK")
+                await self._progress_dialog.wait_for_close()
+            except Exception:
+                # ProgressDialogの操作に失敗した場合は無視
                 pass
 
-            await asyncio.sleep(0.1)
             return False
 
     def get_current_task_id(self) -> str:

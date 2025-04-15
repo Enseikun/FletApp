@@ -221,7 +221,8 @@ class PreviewContent(ft.Container):
                 self.load_all_mails()
                 self.logger.info("PreviewContent: データ読み込み完了")
             except Exception as e:
-                self.logger.error("PreviewContent: データ読み込みエラー", error=str(e))
+                error_msg = f"PreviewContent: データ読み込みエラー - {str(e)}"
+                self.logger.error(error_msg)
                 self.show_error_message(f"データ読み込みエラー: {str(e)}")
         else:
             self.logger.error("PreviewContent: 有効なタスクIDがありません")
@@ -243,7 +244,7 @@ class PreviewContent(ft.Container):
 
         # main_viewmodelからも取得を試みる
         if (
-            task_id is None
+            (task_id is None or task_id == "")
             and hasattr(self.contents_viewmodel, "main_viewmodel")
             and self.contents_viewmodel.main_viewmodel
         ):
@@ -253,14 +254,32 @@ class PreviewContent(ft.Container):
                     "PreviewContent: main_viewmodelからタスクID取得", task_id=task_id
                 )
 
-        # デバッグ用に追加のログを出力
-        if task_id is None:
+        # タスクIDが取得できたかチェック
+        if task_id:
+            self.logger.info("PreviewContent: タスクID取得成功", task_id=task_id)
+        else:
             self.logger.error("PreviewContent: タスクIDの取得に失敗しました")
             # contents_viewmodelの状態を確認
             if hasattr(self.contents_viewmodel, "current_task_id"):
+                current_task_id = getattr(
+                    self.contents_viewmodel, "current_task_id", None
+                )
                 self.logger.debug(
-                    "PreviewContent: contents_viewmodel.current_task_id",
-                    value=self.contents_viewmodel.current_task_id,
+                    f"PreviewContent: contents_viewmodel.current_task_id = {current_task_id}"
+                )
+            # main_viewmodelの状態も確認
+            if (
+                hasattr(self.contents_viewmodel, "main_viewmodel")
+                and self.contents_viewmodel.main_viewmodel
+                and hasattr(
+                    self.contents_viewmodel.main_viewmodel, "get_current_task_id"
+                )
+            ):
+                main_task_id = (
+                    self.contents_viewmodel.main_viewmodel.get_current_task_id()
+                )
+                self.logger.debug(
+                    f"PreviewContent: main_viewmodel.get_current_task_id()の直接呼び出し結果 = {main_task_id}"
                 )
 
         return task_id
@@ -327,9 +346,9 @@ class PreviewContent(ft.Container):
                 # メールIDそのものが渡された場合
                 mail_id = e
 
-            self.logger.info("PreviewContent: メール内容表示", mail_id=mail_id)
+            self.logger.info(f"PreviewContent: メール内容表示 - mail_id: {mail_id}")
         else:
-            self.logger.info("PreviewContent: メール内容表示", mail_id=mail_id)
+            self.logger.info(f"PreviewContent: メール内容表示 - mail_id: {mail_id}")
 
         if not self.viewmodel:
             self.logger.error("PreviewContent: ViewModelが初期化されていません")
@@ -338,7 +357,9 @@ class PreviewContent(ft.Container):
         # メール内容を取得
         mail = self.viewmodel.get_mail_content(mail_id)
         if not mail:
-            self.logger.error("PreviewContent: メール内容取得失敗", mail_id=mail_id)
+            self.logger.error(
+                f"PreviewContent: メール内容取得失敗 - mail_id: {mail_id}"
+            )
             return
 
         # メールデータの整合性チェックと修正（必須フィールドのデフォルト値を設定）

@@ -24,7 +24,8 @@ class MainViewModel:
         self._destination_changed_callbacks = []
         # サイドバーのビューモデル参照（循環参照を避けるため後から設定）
         self._sidebar_viewmodel = None
-        self.current_task_id = "20250315172449"  # デフォルト値
+        # 現在のタスクID（プライベート変数として正しく定義）
+        self._current_task_id = None
 
     def set_sidebar_viewmodel(self, sidebar_viewmodel):
         """サイドバーのビューモデルを設定"""
@@ -121,8 +122,8 @@ class MainViewModel:
         Args:
             task_id: 設定するタスクID
         """
+        self.logger.info(f"MainViewModel: 現在のタスクIDを設定: {task_id}")
         self._current_task_id = task_id
-        self.logger.info(f"現在のタスクIDを設定: {task_id}")
 
     def get_current_task_id(self) -> str:
         """
@@ -131,4 +132,7 @@ class MainViewModel:
         Returns:
             str: 現在のタスクID
         """
-        return getattr(self, "_current_task_id", None)
+        self.logger.debug(
+            f"MainViewModel: 現在のタスクIDを取得: {self._current_task_id}"
+        )
+        return self._current_task_id

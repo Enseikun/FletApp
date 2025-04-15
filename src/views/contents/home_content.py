@@ -14,39 +14,46 @@ class HomeContent(ft.Container):
     """
     ホーム画面のコンテンツ
     TextWithSubtitleWithDeleteIconコンポーネントを使用したリストを表示
+    MVVMパターンのView部分を担当
     """
 
     def __init__(self, contents_viewmodel):
         """初期化"""
 
         super().__init__()
-        # HomeContentViewModelのインスタンスを作成
-        self.contents_viewmodel = HomeContentViewModel()
         self.logger = get_logger()
         self.logger.info("HomeContent: 初期化開始")
 
-        # ダイアログ管理用の変数
+        # ダイアログ管理用の変数（UI表示に関わる部分なのでViewが管理）
         self._current_dialog = None
         self._is_dialog_open = False
+
+        # ViewModelの取得または作成（依存性注入パターン）
+        self.contents_viewmodel = (
+            contents_viewmodel if contents_viewmodel else HomeContentViewModel()
+        )
 
         # MainViewModelへの参照を取得
         self.main_viewmodel = None
         if (
-            hasattr(contents_viewmodel, "main_viewmodel")
-            and contents_viewmodel.main_viewmodel
+            hasattr(self.contents_viewmodel, "main_viewmodel")
+            and self.contents_viewmodel.main_viewmodel
         ):
-            self.main_viewmodel = contents_viewmodel.main_viewmodel
+            self.main_viewmodel = self.contents_viewmodel.main_viewmodel
             self.logger.info("HomeContent: MainViewModelを取得しました")
-            # HomeContentViewModelにMainViewModelを設定
-            self.contents_viewmodel.main_viewmodel = self.main_viewmodel
 
-        # 抽出完了コールバックを設定
-        self.contents_viewmodel.set_extraction_completed_callback(
-            self.show_extraction_completed_dialog
-        )
-        self.logger.info("HomeContent: 抽出完了コールバックを設定しました")
+        # 抽出完了時のUIコールバックを設定（HomeContentViewModelの場合のみ）
+        if hasattr(self.contents_viewmodel, "set_extraction_completed_callback"):
+            self.contents_viewmodel.set_extraction_completed_callback(
+                self._show_extraction_completed_dialog
+            )
+            self.logger.info("HomeContent: 抽出完了コールバックを設定しました")
+        else:
+            self.logger.info(
+                "HomeContent: 抽出完了コールバックはサポートされていません"
+            )
 
-        # HomeViewModelのインスタンスを作成（MainViewModelを渡す）
+        # HomeViewModelのインスタンスを取得または作成
         self.home_viewmodel = HomeViewModel(
             self.main_viewmodel or self.contents_viewmodel
         )
@@ -58,7 +65,7 @@ class HomeContent(ft.Container):
 
         # 新規タスク追加ボタン
         self.add_button = AddButton(
-            on_click=self.on_add_task_click,
+            on_click=self._on_add_task_click,
             tooltip="新しいタスクを追加",
             size=50,
         )
@@ -93,47 +100,42 @@ class HomeContent(ft.Container):
 
     def _create_task_list(self, tasks):
         """タスクリストを作成する"""
-        self.logger.debug("HomeContent: タスクリスト作成開始", task_count=len(tasks))
+        self.logger.debug(
+            f"HomeContent: タスクリスト作成開始 - task_count: {len(tasks)}"
+        )
         self.task_items_column.controls.clear()
 
         for task in tasks:
             try:
                 # タスクデータの内容をログ出力
                 self.logger.debug(
-                    "HomeContent: タスクデータ処理開始",
-                    task_id=task.get("id"),
-                    task_data=task,
+                    f"HomeContent: タスクデータ処理開始 - task_id: {task.get('id')}"
                 )
 
                 # TextWithSubtitleWithDeleteIconを使用してタスクアイテムを作成
                 task_item = TextWithSubtitleWithDeleteIcon(
                     text=f"タスクID: {task.get('id', '')}",
                     subtitle=task.get("from_folder_name", "未設定"),
-                    on_click=lambda e, task_id=task.get("id"): self.on_task_selected(
+                    on_click=lambda e, task_id=task.get("id"): self._on_task_selected(
                         task_id
                     ),
-                    on_delete=lambda e, task_id=task.get("id"): self.on_task_delete(
+                    on_delete=lambda e, task_id=task.get("id"): self._on_task_delete(
                         task_id, e
                     ),
                 )
 
                 self.task_items_column.controls.append(task_item)
                 self.logger.debug(
-                    "HomeContent: タスクアイテム追加完了", task_id=task.get("id")
+                    f"HomeContent: タスクアイテム追加完了 - task_id: {task.get('id')}"
                 )
             except Exception as e:
-                self.logger.error(
-                    "HomeContent: タスクアイテムの作成中にエラー発生",
-                    task_id=task.get("id", "unknown"),
-                    error=str(e),
-                    task_data=task,
-                )
+                error_msg = f"HomeContent: タスクアイテムの作成中にエラー発生 - task_id: {task.get('id', 'unknown')}, error: {str(e)}"
+                self.logger.error(error_msg)
                 continue
 
         self.task_items_column.controls.append(self.add_button_container)
         self.logger.debug(
-            "HomeContent: タスクリスト作成完了",
-            total_items=len(self.task_items_column.controls),
+            f"HomeContent: タスクリスト作成完了 - total_items: {len(self.task_items_column.controls)}"
         )
 
     def update_task_list(self, tasks):
@@ -169,9 +171,9 @@ class HomeContent(ft.Container):
         """ダイアログを閉じるコールバック関数"""
         self._close_current_dialog()
 
-    def show_extraction_completed_dialog(self, task_id, status):
+    def _show_extraction_completed_dialog(self, task_id, status):
         """
-        メール抽出完了ダイアログを表示する
+        メール抽出完了ダイアログを表示する（ViewModelからのコールバック）
 
         Args:
             task_id: タスクID
@@ -207,16 +209,60 @@ class HomeContent(ft.Container):
             title = "メール抽出状態"
             message = f"メール抽出の状態: {task_status}\n{task_message}"
 
-        def close_extraction_dialog(e):
-            # ダイアログを閉じる
-            self._close_current_dialog()
+        # 確認ダイアログを作成
+        dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Text(title),
+            content=ft.Column(
+                [
+                    ft.Text(message),
+                ],
+                spacing=10,
+                tight=True,
+            ),
+            actions=[
+                ft.TextButton(
+                    "OK",
+                    on_click=lambda e: self._on_extraction_dialog_closed(
+                        e, task_id, task_status
+                    ),
+                ),
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+            shape=ft.RoundedRectangleBorder(radius=AppTheme.CONTAINER_BORDER_RADIUS),
+        )
 
-            # 完了の場合のみプレビュー画面に移動
-            if task_status == "completed":
-                self.navigate_to_preview(task_id, task_status)
-            else:
-                # 完了以外の場合はメッセージ表示
-                if hasattr(self, "page") and self.page:
+        # ダイアログを表示
+        self._show_dialog(dialog)
+        self.logger.debug(
+            "HomeContent: メール抽出完了ダイアログ表示完了", task_id=task_id
+        )
+
+    def _on_extraction_dialog_closed(self, e, task_id, task_status):
+        """抽出完了ダイアログが閉じられたときの処理"""
+        # ダイアログを閉じる
+        self._close_current_dialog()
+
+        # ViewModelに抽出完了後の処理を委譲（完了ステータスに基づいて画面遷移を判断）
+        if hasattr(self, "page") and self.page:
+
+            async def handle_extraction_completion():
+                # ViewModelがハンドラーメソッドを持っているか確認
+                should_navigate = False
+                if hasattr(self.contents_viewmodel, "handle_extraction_completion"):
+                    should_navigate = (
+                        await self.contents_viewmodel.handle_extraction_completion(
+                            task_id, task_status
+                        )
+                    )
+                else:
+                    # ViewModel側に実装がない場合はデフォルトとして完了のみナビゲーション
+                    should_navigate = task_status == "completed"
+
+                if should_navigate:
+                    self._navigate_to_preview(task_id)
+                else:
+                    # 完了以外の場合はメッセージ表示
                     incomplete_dialog = ft.AlertDialog(
                         modal=True,
                         title=ft.Text("抽出未完了"),
@@ -233,241 +279,109 @@ class HomeContent(ft.Container):
                     )
                     self._show_dialog(incomplete_dialog)
 
-        # 確認ダイアログを作成
-        dialog = ft.AlertDialog(
-            modal=True,
-            title=ft.Text(title),
-            content=ft.Column(
-                [
-                    ft.Text(message),
-                ],
-                spacing=10,
-                tight=True,
-            ),
-            actions=[
-                ft.TextButton("OK", on_click=close_extraction_dialog),
-            ],
-            actions_alignment=ft.MainAxisAlignment.END,
-            shape=ft.RoundedRectangleBorder(radius=AppTheme.CONTAINER_BORDER_RADIUS),
-        )
+            self.page.run_task(handle_extraction_completion)
 
-        # ダイアログを表示
-        self._show_dialog(dialog)
-        self.logger.debug(
-            "HomeContent: メール抽出完了ダイアログ表示完了", task_id=task_id
-        )
+    def _navigate_to_preview(self, task_id):
+        """プレビュー画面に遷移する（単純な画面遷移処理のみ）"""
+        self.logger.info(f"HomeContent: プレビュー画面への遷移開始 - {task_id}")
 
-    def navigate_to_preview(self, task_id, task_status):
-        """プレビュー画面に遷移する"""
-        self.logger.info(
-            f"HomeContent: プレビュー画面への遷移開始 - {task_id}, ステータス: {task_status}"
-        )
-        # エラーでない場合のみ画面遷移
-        if task_status != "error":
-            try:
-                if self.main_viewmodel:
-                    self.main_viewmodel.set_current_task_id(task_id)
+        try:
+            # MainViewModelがある場合はそれを使用
+            if self.main_viewmodel:
+                # タスクIDを先に設定してから遷移
+                self.main_viewmodel.set_current_task_id(task_id)
+                # 少し待機してタスクIDの設定が確実に反映されるようにする
+                if hasattr(self, "page") and self.page:
+                    # 画面遷移
                     self.main_viewmodel.set_destination("preview")
                     self.logger.info(
                         f"HomeContent: MainViewModelを使用して画面遷移 - {task_id}"
                     )
                     # 確実に更新されるようにページ更新を追加
-                    if hasattr(self, "page") and self.page:
-                        self.page.update()
-                else:
-                    # HomeViewModelのselect_taskメソッドを使用（非同期版）
-                    if hasattr(self, "page") and self.page:
+                    self.page.update()
+            # MainViewModelがない場合はHomeViewModelを使用
+            elif hasattr(self, "page") and self.page:
 
-                        async def run_select_task():
-                            await self._handle_home_viewmodel_select_task(task_id)
+                async def run_select_task():
+                    result = await self._handle_home_viewmodel_select_task(task_id)
+                    # 結果をログに記録
+                    self.logger.info(f"HomeContent: select_task実行結果 - {result}")
 
-                        self.page.run_task(run_select_task)
-                        self.logger.info(
-                            f"HomeContent: HomeViewModelを使用して画面遷移タスク開始 - {task_id}"
-                        )
-            except Exception as e:
-                self.logger.error(
-                    "HomeContent: プレビュー画面への遷移でエラー発生",
-                    task_id=task_id,
-                    error=str(e),
+                self.page.run_task(run_select_task)
+                self.logger.info(
+                    f"HomeContent: HomeViewModelを使用して画面遷移タスク開始 - {task_id}"
                 )
-                # エラーメッセージを表示
-                if hasattr(self, "page") and self.page:
-                    # ダイアログを作成
-                    dialog = ft.AlertDialog(
-                        modal=True,
-                        title=ft.Text("エラー"),
-                        content=ft.Text(
-                            "プレビュー画面への遷移中にエラーが発生しました。"
-                        ),
-                        actions=[
-                            ft.TextButton("OK", on_click=self._close_dialog),
-                        ],
-                        actions_alignment=ft.MainAxisAlignment.END,
-                        shape=ft.RoundedRectangleBorder(
-                            radius=AppTheme.CONTAINER_BORDER_RADIUS
-                        ),
-                    )
-                    self._show_dialog(dialog)
+        except Exception as e:
+            error_msg = (
+                f"HomeContent: プレビュー画面への遷移でエラー発生 - {task_id}: {str(e)}"
+            )
+            self.logger.error(error_msg)
+            self._show_navigation_error_dialog()
 
-    def on_task_selected(self, task_id):
+    def _show_navigation_error_dialog(self):
+        """画面遷移エラーダイアログを表示"""
+        if hasattr(self, "page") and self.page:
+            dialog = ft.AlertDialog(
+                modal=True,
+                title=ft.Text("エラー"),
+                content=ft.Text("プレビュー画面への遷移中にエラーが発生しました。"),
+                actions=[
+                    ft.TextButton("OK", on_click=self._close_dialog),
+                ],
+                actions_alignment=ft.MainAxisAlignment.END,
+                shape=ft.RoundedRectangleBorder(
+                    radius=AppTheme.CONTAINER_BORDER_RADIUS
+                ),
+            )
+            self._show_dialog(dialog)
+
+    def _on_task_selected(self, task_id):
         """タスク選択時の処理"""
         self.logger.info(f"HomeContent: タスク選択 - {task_id}")
-        self.logger.debug(
-            "HomeContent: contents_viewmodelの状態確認",
-            has_contents_viewmodel=self.contents_viewmodel is not None,
-        )
 
         # 非同期処理を実行するために、page.run_taskを使用
         if hasattr(self, "page") and self.page:
-            # コルーチンオブジェクトをasyncio.run_coroutineでラップする
+
             async def run_task():
-                await self._handle_task_selection(task_id)
+                # ViewModelがハンドラーメソッドを持っているか確認
+                if hasattr(self.contents_viewmodel, "handle_task_selection"):
+                    # ViewModelに処理を委譲
+                    result = await self.contents_viewmodel.handle_task_selection(
+                        task_id
+                    )
+
+                    # 結果に応じて画面遷移
+                    if result.get("should_navigate", False):
+                        self._navigate_to_preview(task_id)
+                    elif result.get("show_progress", False):
+                        # 進捗ダイアログはViewModelが表示済みなので何もしない
+                        pass
+                    elif result.get("error"):
+                        # エラーダイアログを表示
+                        error_dialog = ft.AlertDialog(
+                            modal=True,
+                            title=ft.Text("エラー"),
+                            content=ft.Text(
+                                result.get(
+                                    "error_message",
+                                    "タスク処理中にエラーが発生しました。",
+                                )
+                            ),
+                            actions=[
+                                ft.TextButton("OK", on_click=self._close_dialog),
+                            ],
+                            actions_alignment=ft.MainAxisAlignment.END,
+                            shape=ft.RoundedRectangleBorder(
+                                radius=AppTheme.CONTAINER_BORDER_RADIUS
+                            ),
+                        )
+                        self._show_dialog(error_dialog)
+                else:
+                    # ViewModelが必要なメソッドを持っていない場合は直接ホームビューモデルを使用
+                    await self._handle_home_viewmodel_select_task(task_id)
 
             self.page.run_task(run_task)
             self.logger.info(f"HomeContent: 非同期タスク実行開始 - {task_id}")
-
-    async def _handle_task_selection(self, task_id):
-        """タスク選択の非同期処理"""
-        # タスクIDを設定
-        try:
-            self.logger.debug(
-                "HomeContent: 非同期処理開始",
-                task_id=task_id,
-                has_main_viewmodel=self.main_viewmodel is not None,
-            )
-
-            # タスクの状態を確認
-            status = self.contents_viewmodel.check_snapshot_and_extraction_plan(task_id)
-            self.logger.debug(f"HomeContent: タスク状態確認 - {status}")
-
-            # 抽出が完了している場合は、直接プレビュー画面に遷移
-            if status["extraction_completed"]:
-                self.logger.info(
-                    "HomeContent: 抽出は完了しています。プレビュー画面に遷移します"
-                )
-                self.navigate_to_preview(
-                    task_id, status.get("task_status", "completed")
-                )
-                return
-
-            # 抽出が進行中の場合は、進捗ダイアログを表示して監視
-            if status["extraction_in_progress"]:
-                self.logger.info(
-                    "HomeContent: 抽出は進行中です。進捗ダイアログを表示します"
-                )
-
-                # ProgressDialogを表示して進捗状況を監視
-                await self.contents_viewmodel._progress_dialog.show_async(
-                    "メール抽出中",
-                    "メールの抽出処理を実行中です。完了までお待ちください...",
-                    0,
-                    None,
-                )
-
-                # 進捗状況を監視
-                await self.contents_viewmodel.poll_extraction_progress(task_id, 2.0)
-
-                # 抽出結果の詳細を取得
-                _, final_progress = (
-                    await self.contents_viewmodel._check_extraction_status_from_db(
-                        task_id, with_progress=True
-                    )
-                )
-
-                # 抽出結果サマリーを作成
-                total_count = final_progress.get("total_count", 0)
-                completed_count = final_progress.get("completed_count", 0)
-                error_count = (
-                    total_count - completed_count
-                    if total_count > completed_count
-                    else 0
-                )
-
-                result_message = "メール抽出が完了しました。\n\n"
-                result_message += f"処理結果:\n"
-                result_message += f"- 合計: {total_count} メール\n"
-                result_message += f"- 成功: {completed_count} メール\n"
-
-                if error_count > 0:
-                    result_message += f"- エラー: {error_count} メール\n"
-
-                # 添付ファイル情報がある場合は表示
-                if (
-                    "attachment_total" in final_progress
-                    and final_progress["attachment_total"] > 0
-                ):
-                    att_total = final_progress.get("attachment_total", 0)
-                    att_completed = final_progress.get("attachment_completed", 0)
-                    result_message += f"- 添付ファイル: {att_completed}/{att_total}\n"
-
-                # 完了メッセージとOKボタンを表示
-                await self.contents_viewmodel._progress_dialog.update_message_async(
-                    result_message
-                )
-                await self.contents_viewmodel._progress_dialog.add_close_button_async(
-                    "OK"
-                )
-
-                # ユーザーがボタンをクリックするまで待機
-                await self.contents_viewmodel._progress_dialog.wait_for_close()
-
-                # 抽出が完了したことを確認
-                await self.contents_viewmodel.check_extraction_completed(task_id)
-
-                # 抽出が完了したら、プレビュー画面に遷移
-                self.navigate_to_preview(
-                    task_id, final_progress.get("task_status", "completed")
-                )
-                return
-
-            # 抽出が進行中でも完了でもない場合は、抽出確認ダイアログを表示せずに直接抽出開始
-            self.logger.info("HomeContent: 抽出を開始します")
-
-            # タスクID設定
-            result = await self.contents_viewmodel.set_current_task_id(task_id)
-
-            if not result:
-                self.logger.error(f"HomeContent: タスクID設定に失敗 - {task_id}")
-                if hasattr(self, "page") and self.page:
-                    # ダイアログを作成
-                    dialog = ft.AlertDialog(
-                        modal=True,
-                        title=ft.Text("エラー"),
-                        content=ft.Text("タスクの処理中にエラーが発生しました。"),
-                        actions=[
-                            ft.TextButton("OK", on_click=self._close_dialog),
-                        ],
-                        actions_alignment=ft.MainAxisAlignment.END,
-                        shape=ft.RoundedRectangleBorder(
-                            radius=AppTheme.CONTAINER_BORDER_RADIUS
-                        ),
-                    )
-                    self._show_dialog(dialog)
-                return
-
-            # 直接抽出を開始 - ProgressDialogを表示し、完了を待機
-            success = (
-                await self.contents_viewmodel._start_extraction_without_confirmation(
-                    task_id
-                )
-            )
-
-            if success:
-                # 抽出が成功したらプレビュー画面に遷移
-                if self.main_viewmodel:
-                    self.main_viewmodel.set_current_task_id(task_id)
-                    self.main_viewmodel.set_destination("preview")
-                else:
-                    await self._handle_home_viewmodel_select_task(task_id)
-            else:
-                self.logger.error(f"HomeContent: メール抽出に失敗 - {task_id}")
-                # エラーメッセージはProgressDialogで既に表示されているので、ここでは何もしない
-
-        except Exception as e:
-            self.logger.error(
-                "HomeContent: タスクID設定または画面遷移でエラー発生", error=str(e)
-            )
 
     async def _handle_home_viewmodel_select_task(self, task_id):
         """HomeViewModelのselect_taskメソッドを非同期で呼び出す"""
@@ -480,40 +394,41 @@ class HomeContent(ft.Container):
             )
             return result
         except Exception as e:
-            self.logger.error(
-                "HomeContent: HomeViewModelのselect_task呼び出しでエラー発生",
-                task_id=task_id,
-                error=str(e),
-            )
+            # エラーログの書き方を修正：task_idとerrorを一つのメッセージにまとめる
+            error_message = f"HomeContent: HomeViewModelのselect_task呼び出しでエラー発生 - TaskID: {task_id}, Error: {str(e)}"
+            self.logger.error(error_message)
+
+            # エラーが発生した場合はダイアログを表示
+            if hasattr(self, "page") and self.page:
+                error_dialog = ft.AlertDialog(
+                    modal=True,
+                    title=ft.Text("エラー"),
+                    content=ft.Text(f"タスク選択中にエラーが発生しました: {str(e)}"),
+                    actions=[
+                        ft.TextButton("OK", on_click=self._close_dialog),
+                    ],
+                    actions_alignment=ft.MainAxisAlignment.END,
+                    shape=ft.RoundedRectangleBorder(
+                        radius=AppTheme.CONTAINER_BORDER_RADIUS
+                    ),
+                )
+                self._show_dialog(error_dialog)
             return False
 
-    def on_task_delete(self, task_id, e):
+    def _on_task_delete(self, task_id, e):
         """タスク削除時の処理"""
         self.logger.info("HomeContent: タスク削除処理開始", task_id=task_id)
 
         # 削除確認ダイアログを表示
-        def confirm_delete(e):
-            # まずダイアログを閉じる
-            self._close_current_dialog()
-
-            if e.control.data == "yes":
-                self.logger.info("HomeContent: タスク削除確認", task_id=task_id)
-                # フォルダとデータの削除可否を確認するダイアログを表示する
-                self._check_deletion_availability(task_id)
-            else:
-                self.logger.info("HomeContent: タスク削除キャンセル", task_id=task_id)
-
-        # 確認ダイアログを作成
         dialog = ft.AlertDialog(
-            modal=True,  # モーダルダイアログとして表示
+            modal=True,
             title=ft.Text("タスク削除の確認"),
             content=ft.Text(f"タスクID: {task_id} を削除してもよろしいですか？"),
             actions=[
-                ft.TextButton("いいえ", on_click=confirm_delete, data="no"),
+                ft.TextButton("いいえ", on_click=self._close_dialog),
                 ft.TextButton(
                     "はい",
-                    on_click=confirm_delete,
-                    data="yes",
+                    on_click=lambda e: self._confirm_delete_task(task_id),
                 ),
             ],
             actions_alignment=ft.MainAxisAlignment.END,
@@ -524,15 +439,10 @@ class HomeContent(ft.Container):
         self._show_dialog(dialog)
         self.logger.debug("HomeContent: 削除確認ダイアログ表示", task_id=task_id)
 
-    def _check_deletion_availability(self, task_id):
-        """タスク削除前にフォルダとデータの削除可否を確認する"""
-        self.logger.info("HomeContent: 削除可否確認開始", task_id=task_id)
-
-        # 現在表示中のタスクかチェック
-        is_current_task = False
-        if self.main_viewmodel:
-            current_task_id = self.main_viewmodel.get_current_task_id()
-            is_current_task = current_task_id == task_id
+    def _confirm_delete_task(self, task_id):
+        """タスク削除確認時の処理"""
+        # ダイアログを閉じる
+        self._close_current_dialog()
 
         # 削除準備ダイアログを表示
         delete_prep_dialog = ft.AlertDialog(
@@ -557,9 +467,7 @@ class HomeContent(ft.Container):
                 ft.TextButton("キャンセル", on_click=self._close_dialog),
                 ft.TextButton(
                     "続行",
-                    on_click=lambda e: self._execute_task_deletion(
-                        task_id, is_current_task
-                    ),
+                    on_click=lambda e: self._execute_task_deletion(task_id),
                 ),
             ],
             actions_alignment=ft.MainAxisAlignment.END,
@@ -568,173 +476,142 @@ class HomeContent(ft.Container):
 
         self._show_dialog(delete_prep_dialog)
 
-    def _execute_task_deletion(self, task_id, is_current_task):
+    def _execute_task_deletion(self, task_id):
         """タスク削除の実行"""
-        self.logger.info(
-            "HomeContent: タスク削除実行",
-            task_id=task_id,
-            is_current_task=is_current_task,
-        )
+        self.logger.info("HomeContent: タスク削除実行", task_id=task_id)
 
         # 現在のダイアログを閉じる
         self._close_current_dialog()
 
-        try:
-            # 現在表示中のタスクの場合は、画面を初期化してからタスクを削除
-            if is_current_task:
-                self.logger.info(
-                    "HomeContent: 現在表示中のタスクを削除するため、画面を初期化します",
-                    task_id=task_id,
-                )
+        if hasattr(self, "page") and self.page:
 
-                # Preview画面を初期化するためにホーム画面に戻す（現在の表示先が何であれ）
-                self.main_viewmodel.set_current_task_id(None)
-                self.main_viewmodel.set_destination("home")
+            async def run_delete_task():
+                # ViewModelがハンドラーメソッドを持っているか確認
+                if hasattr(self.contents_viewmodel, "delete_task_with_preparations"):
+                    # ViewModelに削除処理を委譲
+                    result = (
+                        await self.contents_viewmodel.delete_task_with_preparations(
+                            task_id, self.main_viewmodel
+                        )
+                    )
 
-                # 画面更新が反映されるまで少し待機
-                if hasattr(self, "page") and self.page:
-                    self.page.update()
+                    if result.get("success", False):
+                        # 成功したら、タスクリストを更新
+                        tasks = self.home_viewmodel.load_tasks()
+                        self.update_task_list(tasks)
 
-                # ガベージコレクションを促進するために明示的に実行
-                import gc
-
-                gc.collect()
-
-                # リソース解放のための待機時間
-                import asyncio
-
-                # 分割して実行する
-                async def delayed_delete():
-                    await asyncio.sleep(0.5)
-                    self._perform_task_deletion(task_id)
-
-                # 非同期で実行
-                if hasattr(self, "page") and self.page:
-                    self.page.run_task(delayed_delete)
-                else:
-                    self._perform_task_deletion(task_id)
-            else:
-                # 現在表示中でなければ直接削除
-                self._perform_task_deletion(task_id)
-
-        except Exception as ex:
-            self.logger.error(
-                "HomeContent: タスク削除実行中にエラー発生",
-                task_id=task_id,
-                error=str(ex),
-            )
-            # エラーメッセージを表示
-            error_dialog = ft.AlertDialog(
-                modal=True,
-                title=ft.Text("削除エラー"),
-                content=ft.Text(
-                    f"タスクID: {task_id} の削除準備中にエラーが発生しました: {str(ex)}"
-                ),
-                actions=[
-                    ft.TextButton(
-                        "OK",
-                        on_click=self._close_dialog,
-                    ),
-                ],
-                actions_alignment=ft.MainAxisAlignment.END,
-                shape=ft.RoundedRectangleBorder(
-                    radius=AppTheme.CONTAINER_BORDER_RADIUS
-                ),
-            )
-            self._show_dialog(error_dialog)
-
-    def _perform_task_deletion(self, task_id):
-        """タスク削除の実際の処理"""
-        self.logger.info("HomeContent: タスク削除処理実行", task_id=task_id)
-
-        try:
-            # タスクを削除
-            success = self.home_viewmodel.delete_task(task_id)
-            if success:
-                # タスクリストを再取得して更新
-                tasks = self.home_viewmodel.load_tasks()
-                self.update_task_list(tasks)
-                # 成功メッセージを表示
-                delete_success_dialog = ft.AlertDialog(
-                    modal=True,
-                    title=ft.Text("削除成功"),
-                    content=ft.Text(f"タスクID: {task_id} が削除されました"),
-                    actions=[
-                        ft.TextButton(
-                            "OK",
-                            on_click=self._close_dialog,
-                        ),
-                    ],
-                    actions_alignment=ft.MainAxisAlignment.END,
-                    shape=ft.RoundedRectangleBorder(
-                        radius=AppTheme.CONTAINER_BORDER_RADIUS
-                    ),
-                )
-                self._show_dialog(delete_success_dialog)
-                self.logger.info("HomeContent: タスク削除成功", task_id=task_id)
-            else:
-                # エラーメッセージを表示
-                delete_error_dialog = ft.AlertDialog(
-                    modal=True,
-                    title=ft.Text("削除エラー"),
-                    content=ft.Column(
-                        [
-                            ft.Text(f"タスクID: {task_id} の削除に失敗しました。"),
-                            ft.Text("以下の原因が考えられます:"),
-                            ft.Text("• タスクのファイルが他のアプリケーションで使用中"),
-                            ft.Text("• 添付ファイルが開かれている"),
-                            ft.Text("• 権限が不足している"),
-                            ft.Text(""),
-                            ft.Text(
-                                "全てのアプリケーションを閉じてから再試行してください。"
+                        # 成功メッセージを表示
+                        success_dialog = ft.AlertDialog(
+                            modal=True,
+                            title=ft.Text("削除成功"),
+                            content=ft.Text(f"タスクID: {task_id} が削除されました"),
+                            actions=[
+                                ft.TextButton("OK", on_click=self._close_dialog),
+                            ],
+                            actions_alignment=ft.MainAxisAlignment.END,
+                            shape=ft.RoundedRectangleBorder(
+                                radius=AppTheme.CONTAINER_BORDER_RADIUS
                             ),
-                        ],
-                        spacing=5,
-                        tight=True,
-                    ),
-                    actions=[
-                        ft.TextButton(
-                            "OK",
-                            on_click=self._close_dialog,
-                        ),
-                    ],
-                    actions_alignment=ft.MainAxisAlignment.END,
-                    shape=ft.RoundedRectangleBorder(
-                        radius=AppTheme.CONTAINER_BORDER_RADIUS
-                    ),
-                )
-                self._show_dialog(delete_error_dialog)
-                self.logger.error("HomeContent: タスク削除失敗", task_id=task_id)
-        except Exception as ex:
-            # 予期せぬエラーメッセージを表示
-            delete_exception_dialog = ft.AlertDialog(
-                modal=True,
-                title=ft.Text("削除エラー"),
-                content=ft.Text(
-                    f"タスクID: {task_id} の削除中にエラーが発生しました: {str(ex)}"
-                ),
-                actions=[
-                    ft.TextButton(
-                        "OK",
-                        on_click=self._close_dialog,
-                    ),
-                ],
-                actions_alignment=ft.MainAxisAlignment.END,
-                shape=ft.RoundedRectangleBorder(
-                    radius=AppTheme.CONTAINER_BORDER_RADIUS
-                ),
-            )
-            self._show_dialog(delete_exception_dialog)
-            self.logger.error(
-                "HomeContent: タスク削除中にエラー発生",
-                task_id=task_id,
-                error=str(ex),
-            )
+                        )
+                        self._show_dialog(success_dialog)
+                    else:
+                        # エラーメッセージを表示
+                        error_dialog = ft.AlertDialog(
+                            modal=True,
+                            title=ft.Text("削除エラー"),
+                            content=ft.Column(
+                                [
+                                    ft.Text(
+                                        f"タスクID: {task_id} の削除に失敗しました。"
+                                    ),
+                                    ft.Text(
+                                        result.get(
+                                            "error_message", "以下の原因が考えられます:"
+                                        )
+                                    ),
+                                    ft.Text(
+                                        "• タスクのファイルが他のアプリケーションで使用中"
+                                    ),
+                                    ft.Text("• 添付ファイルが開かれている"),
+                                    ft.Text("• 権限が不足している"),
+                                    ft.Text(""),
+                                    ft.Text(
+                                        "全てのアプリケーションを閉じてから再試行してください。"
+                                    ),
+                                ],
+                                spacing=5,
+                                tight=True,
+                            ),
+                            actions=[
+                                ft.TextButton("OK", on_click=self._close_dialog),
+                            ],
+                            actions_alignment=ft.MainAxisAlignment.END,
+                            shape=ft.RoundedRectangleBorder(
+                                radius=AppTheme.CONTAINER_BORDER_RADIUS
+                            ),
+                        )
+                        self._show_dialog(error_dialog)
+                else:
+                    # 旧実装のままのメソッドを直接使用
+                    success = self.home_viewmodel.delete_task(task_id)
+                    if success:
+                        # 成功したら、タスクリストを更新
+                        tasks = self.home_viewmodel.load_tasks()
+                        self.update_task_list(tasks)
+                        # 成功メッセージを表示
+                        success_dialog = ft.AlertDialog(
+                            modal=True,
+                            title=ft.Text("削除成功"),
+                            content=ft.Text(f"タスクID: {task_id} が削除されました"),
+                            actions=[
+                                ft.TextButton("OK", on_click=self._close_dialog),
+                            ],
+                            actions_alignment=ft.MainAxisAlignment.END,
+                            shape=ft.RoundedRectangleBorder(
+                                radius=AppTheme.CONTAINER_BORDER_RADIUS
+                            ),
+                        )
+                        self._show_dialog(success_dialog)
+                    else:
+                        # エラーメッセージを表示
+                        error_dialog = ft.AlertDialog(
+                            modal=True,
+                            title=ft.Text("削除エラー"),
+                            content=ft.Column(
+                                [
+                                    ft.Text(
+                                        f"タスクID: {task_id} の削除に失敗しました。"
+                                    ),
+                                    ft.Text("以下の原因が考えられます:"),
+                                    ft.Text(
+                                        "• タスクのファイルが他のアプリケーションで使用中"
+                                    ),
+                                    ft.Text("• 添付ファイルが開かれている"),
+                                    ft.Text("• 権限が不足している"),
+                                    ft.Text(""),
+                                    ft.Text(
+                                        "全てのアプリケーションを閉じてから再試行してください。"
+                                    ),
+                                ],
+                                spacing=5,
+                                tight=True,
+                            ),
+                            actions=[
+                                ft.TextButton("OK", on_click=self._close_dialog),
+                            ],
+                            actions_alignment=ft.MainAxisAlignment.END,
+                            shape=ft.RoundedRectangleBorder(
+                                radius=AppTheme.CONTAINER_BORDER_RADIUS
+                            ),
+                        )
+                        self._show_dialog(error_dialog)
 
-    def on_add_task_click(self, e):
+            self.page.run_task(run_delete_task)
+
+    def _on_add_task_click(self, e):
         """新規タスク追加ボタンクリック時の処理"""
         self.logger.info("HomeContent: 新規タスク追加ボタンクリック")
-        # タスク設定画面に遷移
+        # タスク設定画面に遷移（シンプルな画面遷移処理）
         if self.main_viewmodel:
             self.main_viewmodel.set_destination("task")
         else:

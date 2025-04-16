@@ -33,6 +33,7 @@ from win32com.client import CDispatch
 
 from src.core.logger import get_logger
 from src.models.outlook.outlook_client import OutlookClient, OutlookConnection
+from src.util.object_util import debug_print_mail_item, debug_print_mail_methods
 
 
 @dataclass
@@ -244,3 +245,60 @@ class OutlookService:
                 "メールアイテムにフラグを設定に失敗しました", error=str(e)
             )
             raise
+
+    def debug_mail_item(self, mail_item: CDispatch, title: str = None) -> None:
+        """メールアイテムの詳細情報をデバッグ出力する
+
+        Args:
+            mail_item (CDispatch): デバッグ対象のメールアイテム
+            title (str, optional): デバッグ出力のタイトル. Defaults to None.
+        """
+        if title is None:
+            title = "メールアイテムのデバッグ情報"
+
+        self._logger.debug(f"メールアイテムのデバッグ情報を出力します: {title}")
+
+        try:
+            # プロパティ情報の出力
+            debug_print_mail_item(mail_item, title)
+
+            # 続けてメソッド情報も出力
+            debug_print_mail_methods(mail_item, f"{title} - メソッド情報")
+
+            self._logger.debug("メールアイテムのデバッグ情報出力が完了しました")
+        except Exception as e:
+            self._logger.error(
+                "メールアイテムのデバッグ情報出力に失敗しました", error=str(e)
+            )
+
+    def debug_msg_item(self, msg_path: str, title: str = None) -> None:
+        """MSGファイルから復元したメールアイテムの詳細情報をデバッグ出力する
+
+        Args:
+            msg_path (str): MSGファイルのパス
+            title (str, optional): デバッグ出力のタイトル. Defaults to None.
+        """
+        if title is None:
+            title = f"MSGファイルのデバッグ情報: {msg_path}"
+
+        self._logger.debug(f"MSGファイルのデバッグ情報を出力します: {msg_path}")
+
+        try:
+            # MSGファイルからメールアイテムを取得
+            mail_item = self.get_item_from_msg(msg_path)
+
+            if mail_item:
+                # メールアイテムのデバッグ情報を出力
+                self.debug_mail_item(mail_item, title)
+            else:
+                self._logger.warning(
+                    f"MSGファイルからメールアイテムを取得できませんでした: {msg_path}"
+                )
+
+            self._logger.debug("MSGファイルのデバッグ情報出力が完了しました")
+        except Exception as e:
+            self._logger.error(
+                "MSGファイルのデバッグ情報出力に失敗しました",
+                error=str(e),
+                msg_path=msg_path,
+            )

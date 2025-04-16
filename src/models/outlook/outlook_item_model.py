@@ -18,7 +18,7 @@ from typing import Any, Dict, Generator, List, Optional
 
 from src.models.outlook.outlook_base_model import OutlookBaseModel
 from src.models.outlook.outlook_service import OutlookService
-from src.util.object_util import get_safe
+from src.util.object_util import debug_print_mail_item, get_safe
 
 
 class OutlookItemModel(OutlookBaseModel):

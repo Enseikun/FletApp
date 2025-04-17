@@ -4,7 +4,7 @@
 """
 
 from enum import Enum
-from typing import Dict, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import flet as ft
 
@@ -23,197 +23,7 @@ class ComponentState(str, Enum):
     ACTIVE = "active"
 
 
-class ComponentStyle:
-    """コンポーネントのスタイル情報を保持するクラス"""
-
-    def __init__(self):
-        # 背景色
-        self.bgcolor: Optional[str] = None
-        # テキスト色
-        self.text_color: Optional[str] = None
-        # ボーダー色
-        self.border_color: Optional[str] = None
-        # ボーダー幅
-        self.border_width: Optional[float] = None
-        # ボーダー半径
-        self.border_radius: Optional[float] = None
-        # パディング
-        self.padding: Optional[int] = None
-        # マージン
-        self.margin: Optional[int] = None
-        # 透明度
-        self.opacity: Optional[float] = 1.0
-        # 影の深さ
-        self.shadow: Optional[int] = None
-
-    def to_dict(self) -> dict:
-        """スタイル情報を辞書形式で返す"""
-        result = {}
-
-        if self.bgcolor is not None:
-            result["bgcolor"] = self.bgcolor
-
-        if self.border_color is not None and self.border_width is not None:
-            result["border"] = ft.border.all(self.border_width, self.border_color)
-
-        if self.border_radius is not None:
-            result["border_radius"] = self.border_radius
-
-        if self.padding is not None:
-            result["padding"] = self.padding
-
-        if self.margin is not None:
-            result["margin"] = self.margin
-
-        if self.opacity is not None:
-            result["opacity"] = self.opacity
-
-        if self.shadow is not None:
-            result["shadow"] = ft.BoxShadow(
-                spread_radius=1,
-                blur_radius=self.shadow * 2,
-                color=ft.colors.with_opacity(0.3, ft.colors.BLACK),
-            )
-
-        return result
-
-
-class StyleManager:
-    """
-    コンポーネントのスタイルを管理するクラス
-    各コンポーネントタイプに対するデフォルトスタイルを提供
-    """
-
-    @staticmethod
-    def get_default_styles() -> Dict[ComponentState, ComponentStyle]:
-        """基本的なコンポーネントスタイルを取得"""
-        styles = {state: ComponentStyle() for state in ComponentState}
-
-        # 通常状態のスタイル
-        styles[ComponentState.NORMAL].bgcolor = Colors.BACKGROUND
-        styles[ComponentState.NORMAL].text_color = Colors.TEXT_PRIMARY
-        styles[ComponentState.NORMAL].border_color = Colors.BORDER
-        styles[ComponentState.NORMAL].border_width = 1
-        styles[ComponentState.NORMAL].border_radius = 4
-        styles[ComponentState.NORMAL].padding = 8
-        styles[ComponentState.NORMAL].shadow = 0
-
-        # ホバー状態のスタイル
-        styles[ComponentState.HOVERED].bgcolor = Colors.BACKGROUND_LIGHT
-        styles[ComponentState.HOVERED].text_color = Colors.TEXT_PRIMARY
-        styles[ComponentState.HOVERED].border_color = Colors.PRIMARY_LIGHT
-        styles[ComponentState.HOVERED].border_width = 1
-        styles[ComponentState.HOVERED].border_radius = 4
-        styles[ComponentState.HOVERED].padding = 8
-        styles[ComponentState.HOVERED].shadow = 1
-
-        # フォーカス状態のスタイル
-        styles[ComponentState.FOCUSED].bgcolor = Colors.BACKGROUND
-        styles[ComponentState.FOCUSED].text_color = Colors.PRIMARY
-        styles[ComponentState.FOCUSED].border_color = Colors.PRIMARY
-        styles[ComponentState.FOCUSED].border_width = 2
-        styles[ComponentState.FOCUSED].border_radius = 4
-        styles[ComponentState.FOCUSED].padding = 8
-
-        # プレス状態のスタイル
-        styles[ComponentState.PRESSED].bgcolor = Colors.PRIMARY_LIGHT
-        styles[ComponentState.PRESSED].text_color = Colors.TEXT_ON_PRIMARY
-        styles[ComponentState.PRESSED].border_color = Colors.PRIMARY_DARK
-        styles[ComponentState.PRESSED].border_width = 1
-        styles[ComponentState.PRESSED].border_radius = 4
-        styles[ComponentState.PRESSED].padding = 8
-
-        # 無効状態のスタイル
-        styles[ComponentState.DISABLED].bgcolor = Colors.BACKGROUND_DARK
-        styles[ComponentState.DISABLED].text_color = Colors.TEXT_DISABLED
-        styles[ComponentState.DISABLED].border_color = Colors.BORDER
-        styles[ComponentState.DISABLED].border_width = 1
-        styles[ComponentState.DISABLED].border_radius = 4
-        styles[ComponentState.DISABLED].padding = 8
-        styles[ComponentState.DISABLED].opacity = 0.5
-
-        # エラー状態のスタイル
-        styles[ComponentState.ERROR].bgcolor = Colors.BACKGROUND
-        styles[ComponentState.ERROR].text_color = Colors.ERROR
-        styles[ComponentState.ERROR].border_color = Colors.ERROR
-        styles[ComponentState.ERROR].border_width = 1
-        styles[ComponentState.ERROR].border_radius = 4
-        styles[ComponentState.ERROR].padding = 8
-
-        # アクティブ状態のスタイル
-        styles[ComponentState.ACTIVE].bgcolor = Colors.BACKGROUND
-        styles[ComponentState.ACTIVE].text_color = Colors.PRIMARY
-        styles[ComponentState.ACTIVE].border_color = Colors.PRIMARY
-        styles[ComponentState.ACTIVE].border_width = 2
-        styles[ComponentState.ACTIVE].border_radius = 4
-        styles[ComponentState.ACTIVE].padding = 8
-        styles[ComponentState.ACTIVE].shadow = 2
-
-        return styles
-
-    @staticmethod
-    def get_button_styles() -> Dict[ComponentState, ComponentStyle]:
-        """ボタン用のスタイルを取得"""
-        styles = StyleManager.get_default_styles()
-
-        # ボタン特有のスタイル調整
-        styles[ComponentState.NORMAL].bgcolor = Colors.PRIMARY
-        styles[ComponentState.NORMAL].text_color = Colors.TEXT_ON_PRIMARY
-        styles[ComponentState.NORMAL].shadow = 1
-
-        styles[ComponentState.HOVERED].bgcolor = Colors.PRIMARY_LIGHT
-        styles[ComponentState.HOVERED].shadow = 2
-
-        styles[ComponentState.PRESSED].bgcolor = Colors.PRIMARY_DARK
-        styles[ComponentState.PRESSED].shadow = 0
-
-        return styles
-
-    @staticmethod
-    def get_card_styles() -> Dict[ComponentState, ComponentStyle]:
-        """カード用のスタイルを取得"""
-        styles = StyleManager.get_default_styles()
-
-        # カード特有のスタイル調整
-        for state in ComponentState:
-            styles[state].padding = 16
-            styles[state].border_radius = 8
-            styles[state].shadow = 2
-
-        styles[ComponentState.HOVERED].shadow = 4
-
-        return styles
-
-    @staticmethod
-    def get_text_field_styles() -> Dict[ComponentState, ComponentStyle]:
-        """テキストフィールド用のスタイルを取得"""
-        styles = StyleManager.get_default_styles()
-
-        # テキストフィールド特有のスタイル調整
-        styles[ComponentState.FOCUSED].border_color = Colors.PRIMARY
-        styles[ComponentState.FOCUSED].border_width = 2
-
-        styles[ComponentState.ERROR].border_color = Colors.ERROR
-        styles[ComponentState.ERROR].border_width = 2
-
-        return styles
-
-    @staticmethod
-    def get_label_styles() -> Dict[ComponentState, ComponentStyle]:
-        """ラベル用のスタイルを取得"""
-        styles = StyleManager.get_default_styles()
-
-        # ラベル特有のスタイル調整
-        for state in ComponentState:
-            styles[state].border_width = None
-            styles[state].border_color = None
-            styles[state].padding = 4
-            styles[state].margin = 2
-
-        return styles
-
-
-# 共通のテーマ設定
+# アプリケーション全体のテーマ設定
 class AppTheme:
     """アプリケーション全体のテーマ設定"""
 
@@ -242,3 +52,404 @@ class AppTheme:
     ICON_SIZE_SM = 16
     ICON_SIZE_MD = 24
     ICON_SIZE_LG = 32
+
+    # 共通ボーダー設定
+    BORDER_RADIUS = 4
+    BORDER_WIDTH = 1
+    FOCUSED_BORDER_WIDTH = 2
+
+    # 共通パディング設定
+    DEFAULT_PADDING = 8
+    CARD_PADDING = 16
+
+
+class StyleConstants:
+    """スタイル定数"""
+
+    # 共通のシャドウ設定
+    SHADOW_SM = ft.BoxShadow(
+        spread_radius=1,
+        blur_radius=2,
+        color=ft.colors.with_opacity(0.3, ft.colors.BLACK),
+    )
+    SHADOW_MD = ft.BoxShadow(
+        spread_radius=1,
+        blur_radius=4,
+        color=ft.colors.with_opacity(0.3, ft.colors.BLACK),
+    )
+    SHADOW_LG = ft.BoxShadow(
+        spread_radius=1,
+        blur_radius=8,
+        color=ft.colors.with_opacity(0.3, ft.colors.BLACK),
+    )
+
+
+class Styles:
+    """スタイル定義とヘルパーメソッドを提供するクラス"""
+
+    # 基本的な共通スタイル
+    _COMMON_STYLE = {
+        "border_radius": AppTheme.BORDER_RADIUS,
+        "padding": AppTheme.DEFAULT_PADDING,
+    }
+
+    # ボタン共通スタイル
+    _BUTTON_COMMON = {
+        "border_radius": AppTheme.BORDER_RADIUS,
+        "padding": AppTheme.DEFAULT_PADDING,
+    }
+
+    # カード共通スタイル
+    _CARD_COMMON = {
+        "bgcolor": Colors.BACKGROUND,
+        "border_radius": AppTheme.CONTAINER_BORDER_RADIUS,
+        "padding": AppTheme.CARD_PADDING,
+    }
+
+    # 基本スタイル定義
+    BASE_STYLES = {
+        ComponentState.NORMAL: {
+            **_COMMON_STYLE,
+            "bgcolor": Colors.BACKGROUND,
+            "border": ft.border.all(AppTheme.BORDER_WIDTH, Colors.BORDER),
+        },
+        ComponentState.HOVERED: {
+            **_COMMON_STYLE,
+            "bgcolor": Colors.BACKGROUND_LIGHT,
+            "border": ft.border.all(AppTheme.BORDER_WIDTH, Colors.PRIMARY_LIGHT),
+            "shadow": StyleConstants.SHADOW_SM,
+        },
+        ComponentState.FOCUSED: {
+            **_COMMON_STYLE,
+            "bgcolor": Colors.BACKGROUND,
+            "border": ft.border.all(AppTheme.FOCUSED_BORDER_WIDTH, Colors.PRIMARY),
+        },
+        ComponentState.PRESSED: {
+            **_COMMON_STYLE,
+            "bgcolor": Colors.PRIMARY_LIGHT,
+            "border": ft.border.all(AppTheme.BORDER_WIDTH, Colors.PRIMARY_DARK),
+        },
+        ComponentState.DISABLED: {
+            **_COMMON_STYLE,
+            "bgcolor": Colors.BACKGROUND_DARK,
+            "border": ft.border.all(AppTheme.BORDER_WIDTH, Colors.BORDER),
+            "opacity": 0.5,
+        },
+        ComponentState.ERROR: {
+            **_COMMON_STYLE,
+            "bgcolor": Colors.BACKGROUND,
+            "border": ft.border.all(AppTheme.BORDER_WIDTH, Colors.ERROR),
+        },
+        ComponentState.ACTIVE: {
+            **_COMMON_STYLE,
+            "bgcolor": Colors.BACKGROUND,
+            "border": ft.border.all(AppTheme.FOCUSED_BORDER_WIDTH, Colors.PRIMARY),
+            "shadow": StyleConstants.SHADOW_MD,
+        },
+    }
+
+    # ボタンスタイル
+    BUTTON_STYLES = {
+        ComponentState.NORMAL: {
+            **_BUTTON_COMMON,
+            "bgcolor": Colors.PRIMARY,
+            "color": Colors.TEXT_ON_PRIMARY,
+            "shadow": StyleConstants.SHADOW_SM,
+        },
+        ComponentState.HOVERED: {
+            **_BUTTON_COMMON,
+            "bgcolor": Colors.PRIMARY_LIGHT,
+            "color": Colors.TEXT_ON_PRIMARY,
+            "shadow": StyleConstants.SHADOW_MD,
+        },
+        ComponentState.PRESSED: {
+            **_BUTTON_COMMON,
+            "bgcolor": Colors.PRIMARY_DARK,
+            "color": Colors.TEXT_ON_PRIMARY,
+        },
+        ComponentState.DISABLED: {
+            **_BUTTON_COMMON,
+            "bgcolor": Colors.BACKGROUND_DARK,
+            "color": Colors.TEXT_DISABLED,
+            "opacity": 0.5,
+        },
+    }
+
+    # テキストボタンスタイル
+    TEXT_BUTTON_STYLES = {
+        ComponentState.NORMAL: {
+            "color": Colors.PRIMARY,
+            "padding": AppTheme.DEFAULT_PADDING,
+        },
+        ComponentState.HOVERED: {
+            "color": Colors.PRIMARY_LIGHT,
+            "bgcolor": ft.colors.with_opacity(0.1, Colors.PRIMARY),
+            "padding": AppTheme.DEFAULT_PADDING,
+        },
+        ComponentState.PRESSED: {
+            "color": Colors.PRIMARY_DARK,
+            "bgcolor": ft.colors.with_opacity(0.2, Colors.PRIMARY),
+            "padding": AppTheme.DEFAULT_PADDING,
+        },
+        ComponentState.DISABLED: {
+            "color": Colors.TEXT_DISABLED,
+            "padding": AppTheme.DEFAULT_PADDING,
+            "opacity": 0.6,
+        },
+    }
+
+    # カードスタイル
+    CARD_STYLES = {
+        ComponentState.NORMAL: {
+            **_CARD_COMMON,
+            "shadow": StyleConstants.SHADOW_MD,
+        },
+        ComponentState.HOVERED: {
+            **_CARD_COMMON,
+            "shadow": StyleConstants.SHADOW_LG,
+        },
+    }
+
+    # テキストスタイル
+    TEXT_STYLES = {
+        "title": {
+            "size": AppTheme.TITLE_SIZE,
+            "color": Colors.TEXT_PRIMARY,
+            "weight": ft.FontWeight.BOLD,
+        },
+        "subtitle": {
+            "size": AppTheme.SUBTITLE_SIZE,
+            "color": Colors.TEXT_PRIMARY,
+            "weight": ft.FontWeight.W500,
+        },
+        "body": {
+            "size": AppTheme.BODY_SIZE,
+            "color": Colors.TEXT_PRIMARY,
+        },
+        "caption": {
+            "size": AppTheme.CAPTION_SIZE,
+            "color": Colors.TEXT_SECONDARY,
+        },
+    }
+
+    @staticmethod
+    def apply_to(control: ft.Control, style_dict: Dict[str, Any]) -> None:
+        """スタイル辞書を指定のコントロールに適用する"""
+        for key, value in style_dict.items():
+            setattr(control, key, value)
+
+    @staticmethod
+    def apply_state(
+        control: ft.Control,
+        style_map: Dict[ComponentState, Dict[str, Any]],
+        state: ComponentState = ComponentState.NORMAL,
+    ) -> None:
+        """状態に応じたスタイルをコントロールに適用する"""
+        if state in style_map:
+            Styles.apply_to(control, style_map[state])
+
+    @staticmethod
+    def _filter_style(
+        style_dict: Dict[str, Any], kwargs: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """明示的に指定されたプロパティを除外したスタイル辞書を返す"""
+        return {k: v for k, v in style_dict.items() if k not in kwargs}
+
+    @staticmethod
+    def _setup_hover_handler(
+        container: ft.Container,
+        style_map: Dict[ComponentState, Dict[str, Any]],
+        excluded_keys: List[str] = None,
+    ) -> None:
+        """ホバーハンドラを設定する"""
+        if excluded_keys is None:
+            excluded_keys = ["ink", "on_click"]
+
+        def on_hover(e):
+            is_hovering = e.data == "true"
+            state = ComponentState.HOVERED if is_hovering else ComponentState.NORMAL
+
+            if state in style_map:
+                for key, value in style_map[state].items():
+                    if key not in excluded_keys:
+                        setattr(container, key, value)
+
+                container.update()
+
+        container.on_hover = on_hover
+
+    # コンテナ作成系メソッド
+    @staticmethod
+    def container(
+        content: ft.Control, state: ComponentState = ComponentState.NORMAL, **kwargs
+    ) -> ft.Container:
+        """基本的なコンテナを作成する"""
+        container = ft.Container(content=content, **kwargs)
+
+        # 明示的に指定されたプロパティは上書きしない
+        style_dict = Styles._filter_style(Styles.BASE_STYLES[state], kwargs)
+        Styles.apply_to(container, style_dict)
+
+        return container
+
+    @staticmethod
+    def clickable_container(
+        content: ft.Control, on_click=None, **kwargs
+    ) -> ft.Container:
+        """クリック可能なコンテナを作成する"""
+        container = ft.Container(content=content, on_click=on_click, **kwargs)
+
+        # 基本スタイルを適用（明示的に指定されていない場合のみ）
+        style_dict = Styles._filter_style(
+            Styles.BASE_STYLES[ComponentState.NORMAL], kwargs
+        )
+        Styles.apply_to(container, style_dict)
+
+        # ホバー効果
+        Styles._setup_hover_handler(container, Styles.BASE_STYLES)
+
+        # プレス効果
+        def on_tap_down(e):
+            for key, value in Styles.BASE_STYLES[ComponentState.PRESSED].items():
+                if key not in ["ink", "on_click"]:
+                    setattr(container, key, value)
+
+            container.update()
+
+        container.on_tap_down = on_tap_down
+
+        return container
+
+    @staticmethod
+    def card(content: ft.Control, **kwargs) -> ft.Container:
+        """カードスタイルのコンテナを作成する"""
+        container = ft.Container(content=content, **kwargs)
+
+        # カードスタイルを適用（明示的に指定されていない場合のみ）
+        style_dict = Styles._filter_style(
+            Styles.CARD_STYLES[ComponentState.NORMAL], kwargs
+        )
+        Styles.apply_to(container, style_dict)
+
+        return container
+
+    @staticmethod
+    def interactive_card(content: ft.Control, on_click=None, **kwargs) -> ft.Container:
+        """インタラクティブなカードを作成する"""
+        container = ft.Container(content=content, on_click=on_click, **kwargs)
+
+        # カードスタイルを適用（明示的に指定されていない場合のみ）
+        style_dict = Styles._filter_style(
+            Styles.CARD_STYLES[ComponentState.NORMAL], kwargs
+        )
+        Styles.apply_to(container, style_dict)
+
+        # ホバー効果
+        Styles._setup_hover_handler(container, Styles.CARD_STYLES)
+
+        # プレス効果（最小限の実装）
+        container.on_tap_down = lambda _: container.update()
+
+        return container
+
+    # テキスト作成系メソッド
+    @staticmethod
+    def text(value: str, style: str = "body", **kwargs) -> ft.Text:
+        """スタイル指定付きのテキストを作成する"""
+        style_dict = Styles.TEXT_STYLES.get(style, Styles.TEXT_STYLES["body"])
+        text_props = {**style_dict, **kwargs}
+        return ft.Text(value=value, **text_props)
+
+    @staticmethod
+    def title(value: str, **kwargs) -> ft.Text:
+        """タイトルスタイルのテキストを作成する"""
+        return Styles.text(value, style="title", **kwargs)
+
+    @staticmethod
+    def subtitle(value: str, **kwargs) -> ft.Text:
+        """サブタイトルスタイルのテキストを作成する"""
+        return Styles.text(value, style="subtitle", **kwargs)
+
+    @staticmethod
+    def caption(value: str, **kwargs) -> ft.Text:
+        """キャプションスタイルのテキストを作成する"""
+        return Styles.text(value, style="caption", **kwargs)
+
+    # グリッド作成系メソッド
+    @staticmethod
+    def grid(
+        controls: List[ft.Control],
+        columns: int = 2,
+        spacing: int = 10,
+        run_spacing: int = 10,
+        padding: int = 10,
+        **kwargs,
+    ) -> ft.GridView:
+        """グリッドビューを作成する"""
+        grid = ft.GridView(
+            runs_count=columns,
+            max_extent=200,
+            spacing=spacing,
+            run_spacing=run_spacing,
+            padding=padding,
+            **kwargs,
+        )
+
+        grid.controls.extend(controls)
+
+        return grid
+
+    @staticmethod
+    def card_grid(
+        items: List[Dict[str, Any]],
+        title_field: str = "title",
+        subtitle_field: Optional[str] = "subtitle",
+        image_field: Optional[str] = "image",
+        on_item_click: Optional[Callable] = None,
+        **kwargs,
+    ) -> ft.GridView:
+        """カードのグリッドを作成する"""
+        controls = []
+
+        for item in items:
+            # カードコンテンツの作成
+            content_controls = []
+
+            # 画像があれば追加
+            if image_field and image_field in item and item[image_field]:
+                content_controls.append(
+                    ft.Image(
+                        src=item[image_field],
+                        width=float("inf"),
+                        height=120,
+                        fit=ft.ImageFit.COVER,
+                    )
+                )
+
+            # タイトルとサブタイトルの追加
+            card_content = []
+            if title_field in item:
+                card_content.append(Styles.title(item[title_field], size=16))
+
+            if subtitle_field and subtitle_field in item:
+                card_content.append(Styles.caption(item[subtitle_field], size=14))
+
+            content_controls.append(
+                ft.Container(
+                    content=ft.Column(controls=card_content),
+                    padding=10,
+                )
+            )
+
+            # カードの作成
+            card = Styles.interactive_card(
+                content=ft.Column(controls=content_controls),
+                on_click=lambda e, item=item: (
+                    on_item_click(e, item) if on_item_click else None
+                ),
+            )
+
+            controls.append(card)
+
+        # グリッドの作成
+        return Styles.grid(controls=controls, **kwargs)

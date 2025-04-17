@@ -312,25 +312,25 @@ class PreviewContentModel:
             logging.error(f"メール検索エラー: {e}")
             return []
 
-    def get_ai_review_for_conversation(self, conversation_id: str) -> Optional[Dict]:
+    def get_ai_review_for_thread(self, thread_id: str) -> Optional[Dict]:
         """会話グループのAIレビュー結果を取得
 
         Args:
-            conversation_id: 会話ID
+            thread_id: 会話ID
 
         Returns:
             AIレビュー結果を含む辞書（ない場合はNone）
         """
-        if self.db_manager is None or not conversation_id:
+        if self.db_manager is None or not thread_id:
             return None
 
         try:
             query = """
                 SELECT result
                 FROM ai_reviews
-                WHERE conversation_id = ?
+                WHERE thread_id = ?
                 """
-            results = self.db_manager.execute_query(query, (conversation_id,))
+            results = self.db_manager.execute_query(query, (thread_id,))
 
             if not results or not results[0].get("result"):
                 return None
@@ -363,7 +363,7 @@ class PreviewContentModel:
                     sent_time as date, 
                     unread,
                     has_attachments,
-                    conversation_id
+                    thread_id
                 FROM mail_items
                 WHERE entry_id = ?
                 """
@@ -404,10 +404,8 @@ class PreviewContentModel:
             mail["attachments"] = attachments
 
             # 会話IDがあれば、AIレビュー結果を取得
-            if mail.get("conversation_id"):
-                mail["ai_review"] = self.get_ai_review_for_conversation(
-                    mail["conversation_id"]
-                )
+            if mail.get("thread_id"):
+                mail["ai_review"] = self.get_ai_review_for_thread(mail["thread_id"])
 
             return mail
         except Exception as e:
@@ -448,7 +446,7 @@ class PreviewContentModel:
                     unread,
                     folder_id,
                     has_attachments,
-                    conversation_id
+                    thread_id
                 FROM mail_items
                 ORDER BY sent_time DESC
                 """
@@ -459,25 +457,25 @@ class PreviewContentModel:
                 return []
 
             # 会話IDをキーにしてAIレビュー結果をまとめて取得
-            conversation_ids = set()
+            thread_ids = set()
             for mail in results:
-                if mail.get("conversation_id"):
-                    conversation_ids.add(mail["conversation_id"])
+                if mail.get("thread_id"):
+                    thread_ids.add(mail["thread_id"])
 
             ai_reviews = {}
-            if conversation_ids:
-                placeholders = ", ".join(["?"] * len(conversation_ids))
+            if thread_ids:
+                placeholders = ", ".join(["?"] * len(thread_ids))
                 ai_review_query = f"""
-                    SELECT conversation_id, result
+                    SELECT thread_id, result
                     FROM ai_reviews
-                    WHERE conversation_id IN ({placeholders})
+                    WHERE thread_id IN ({placeholders})
                     """
                 ai_review_results = self.db_manager.execute_query(
-                    ai_review_query, tuple(conversation_ids)
+                    ai_review_query, tuple(thread_ids)
                 )
 
                 for review in ai_review_results:
-                    conv_id = review.get("conversation_id")
+                    conv_id = review.get("thread_id")
                     result = review.get("result")
                     if conv_id and result:
                         try:
@@ -518,11 +516,8 @@ class PreviewContentModel:
                 mail["attachments"] = attachments
 
                 # AIレビュー結果を設定
-                if (
-                    mail.get("conversation_id")
-                    and mail["conversation_id"] in ai_reviews
-                ):
-                    mail["ai_review"] = ai_reviews[mail["conversation_id"]]
+                if mail.get("thread_id") and mail["thread_id"] in ai_reviews:
+                    mail["ai_review"] = ai_reviews[mail["thread_id"]]
 
                 formatted_mails.append(mail)
 

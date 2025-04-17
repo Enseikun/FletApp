@@ -39,8 +39,9 @@ CREATE TABLE IF NOT EXISTS mail_items (
     store_id TEXT,
     folder_id TEXT NOT NULL, -- from_folder_id を所与、使わない
     conversation_id TEXT, -- OutlookのConversationID
+    conversation_index TEXT, -- OutlookのConversationIndex
     thread_id TEXT, -- このアプリケーションで付与
-    message_type TEXT CHECK (message_type IN ('email', 'meeting', 'task', 'guardian', 'msg')),
+    message_type TEXT CHECK (message_type IN ('email', 'chat', 'task', 'guardian', 'msg')),
     parent_entry_id TEXT, -- 自身が添付ファイルの場合, 元メッセージのentry_id
     parent_folder_name TEXT, -- 自身が添付ファイルの場合, 元メッセージのフォルダ名
     message_size INTEGER DEFAULT 0,
@@ -50,7 +51,7 @@ CREATE TABLE IF NOT EXISTS mail_items (
     attachment_count INTEGER DEFAULT 0, -- 添付ファイルの個数
 
     -- メッセージヘッダー
-    subject TEXT NOT NULL,
+    subject TEXT,
     sent_time TEXT NOT NULL CHECK (
         datetime(sent_time) IS NOT NULL AND
         length(sent_time) = 19 AND
@@ -66,7 +67,6 @@ CREATE TABLE IF NOT EXISTS mail_items (
     body TEXT,
     
     -- 処理情報
-    process_type TEXT, -- 特別な処理を行うためのタイプ判定（GUARDIAN）
     processed_at TIMESTAMP CHECK (
         datetime(processed_at) IS NOT NULL AND
         processed_at LIKE '____-__-__ __:__:__'
@@ -119,11 +119,11 @@ CREATE TABLE IF NOT EXISTS attachments (
     UNIQUE (mail_id, path)
 );
 
--- AI評価（conversation単位）
+-- AI評価（thread単位）
 CREATE TABLE IF NOT EXISTS ai_reviews (
-    conversation_id TEXT PRIMARY KEY,
+    thread_id TEXT PRIMARY KEY,
     result JSON,
-    FOREIGN KEY (conversation_id) REFERENCES mail_items(conversation_id)
+    FOREIGN KEY (thread_id) REFERENCES mail_items(thread_id)
 );
 
 -- styled_body（本文中のキーワードを装飾）
@@ -136,9 +136,9 @@ CREATE TABLE IF NOT EXISTS styled_body (
 
 -- Chat View（会話のチャット形式表示）
 CREATE TABLE IF NOT EXISTS chat_view (
-    conversation_id TEXT PRIMARY KEY,
+    thread_id TEXT PRIMARY KEY,
     chat_view JSON,
-    FOREIGN KEY (conversation_id) REFERENCES mail_items(conversation_id)
+    FOREIGN KEY (thread_id) REFERENCES mail_items(thread_id)
 );
 
 
@@ -264,7 +264,7 @@ CREATE INDEX IF NOT EXISTS idx_outlook_snapshot_path ON outlook_snapshot(path);
 CREATE INDEX IF NOT EXISTS idx_outlook_snapshot_time ON outlook_snapshot(snapshot_time);
 CREATE INDEX IF NOT EXISTS idx_mail_items_store ON mail_items(store_id);
 CREATE INDEX IF NOT EXISTS idx_mail_items_folder ON mail_items(folder_id);
-CREATE INDEX IF NOT EXISTS idx_mail_items_conversation ON mail_items(conversation_id);
+CREATE INDEX IF NOT EXISTS idx_mail_items_thread ON mail_items(thread_id);
 CREATE INDEX IF NOT EXISTS idx_mail_items_thread ON mail_items(thread_id);
 CREATE INDEX IF NOT EXISTS idx_mail_items_parent ON mail_items(parent_entry_id);
 CREATE INDEX IF NOT EXISTS idx_mail_items_sent_time ON mail_items(sent_time);
@@ -349,43 +349,3 @@ BEGIN
     )
     WHERE id = NEW.id;
 END;
-
--- GUARDIAN処理タイプのメールがエラーになった場合は特殊処理を行うトリガー
--- 注意: mail_tasksテーブルにprocess_typeカラムがないため一時的に無効化
-/*
-CREATE TRIGGER IF NOT EXISTS handle_guardian_mail_error AFTER UPDATE ON mail_tasks
-WHEN NEW.mail_fetch_status = 'error' AND OLD.mail_fetch_status != 'error' AND NEW.process_type = 'GUARDIAN'
-BEGIN
-    UPDATE mail_tasks
-    SET 
-        mail_fetch_status = 'success',
-        status = 'completed',
-        error_message = 'GUARDIANタイプのため自動成功扱い',
-        completed_at = CURRENT_TIMESTAMP
-    WHERE id = NEW.id;
-END;
-*/
-
--- process_typeを同期させるトリガー（mail_itemsのprocess_type更新時）
--- 注意: mail_tasksテーブルにprocess_typeカラムがないため一時的に無効化
-/*
-CREATE TRIGGER IF NOT EXISTS sync_process_type_on_mail_items_update AFTER UPDATE ON mail_items
-WHEN NEW.process_type IS NOT NULL AND (OLD.process_type IS NULL OR NEW.process_type != OLD.process_type)
-BEGIN
-    UPDATE mail_tasks
-    SET process_type = NEW.process_type
-    WHERE message_id = NEW.entry_id;
-END;
-*/
-
--- process_typeを同期させるトリガー（mail_items挿入時）
--- 注意: mail_tasksテーブルにprocess_typeカラムがないため一時的に無効化
-/*
-CREATE TRIGGER IF NOT EXISTS sync_process_type_on_mail_items_insert AFTER INSERT ON mail_items
-WHEN NEW.process_type IS NOT NULL
-BEGIN
-    UPDATE mail_tasks
-    SET process_type = NEW.process_type
-    WHERE message_id = NEW.entry_id;
-END;
-*/

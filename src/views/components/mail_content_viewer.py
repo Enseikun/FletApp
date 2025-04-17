@@ -497,7 +497,7 @@ class MailContentViewer(ft.Container):
             "MailContentViewer: メール内容表示完了", mail_id=self.current_mail_id
         )
 
-    def show_conversation_content(
+    def show_thread_content(
         self, mails: List[Dict[str, Any]], sort_button: ft.Control = None
     ):
         """会話内容を表示"""
@@ -507,7 +507,7 @@ class MailContentViewer(ft.Container):
 
         # 詳細なデバッグ情報
         self.logger.debug(
-            "MailContentViewer: show_conversation_content引数詳細",
+            "MailContentViewer: show_thread_content引数詳細",
             mails_type=type(mails).__name__,
             mails_is_list=isinstance(mails, list),
             sort_button_type=type(sort_button).__name__ if sort_button else "None",
@@ -622,7 +622,7 @@ class MailContentViewer(ft.Container):
         # ViewModelからリスクスコア情報を取得
         risk_score = None
         if self.viewmodel:
-            risk_score = self.viewmodel.get_conversation_risk_score(mails)
+            risk_score = self.viewmodel.get_thread_risk_score(mails)
             self.logger.debug(
                 "MailContentViewer: ViewModelからリスクスコア情報を取得",
                 risk_score=risk_score,
@@ -1359,20 +1359,20 @@ class MailContentViewer(ft.Container):
             return
 
         # 会話IDを取得
-        conversation_id = None
+        thread_id = None
         # 現在表示中のメールがあれば、そのメールから会話IDを取得
         if hasattr(self, "current_mail_id") and self.current_mail_id:
             mail = self.viewmodel.get_mail_content(self.current_mail_id)
-            if mail and mail.get("conversation_id"):
-                conversation_id = mail["conversation_id"]
+            if mail and mail.get("thread_id"):
+                thread_id = mail["thread_id"]
                 self.logger.debug(
                     "MailContentViewer: 現在のメールから会話IDを取得",
                     mail_id=self.current_mail_id,
-                    conversation_id=conversation_id,
+                    thread_id=thread_id,
                 )
 
         # 会話IDが取得できなかった場合は、モック処理を行う
-        if not conversation_id:
+        if not thread_id:
             self.logger.warning("MailContentViewer: 会話IDが取得できません")
 
             async def fallback_ai_review():
@@ -1453,15 +1453,13 @@ class MailContentViewer(ft.Container):
                 await asyncio.sleep(2)  # APIレスポンスを待つ時間を模倣
 
                 # ViewModelからAIレビュー結果を再取得
-                ai_review = self.viewmodel.model.get_ai_review_for_conversation(
-                    conversation_id
-                )
+                ai_review = self.viewmodel.model.get_ai_review_for_thread(thread_id)
 
                 # AIレビュー結果がない場合はモックデータを使用
                 if not ai_review:
                     self.logger.warning(
                         "MailContentViewer: AIレビュー結果がないためモックデータを使用",
-                        conversation_id=conversation_id,
+                        thread_id=thread_id,
                     )
                     # 新しい形式のモックデータ
                     ai_review = {

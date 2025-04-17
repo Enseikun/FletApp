@@ -47,6 +47,8 @@ class TaskContent(ft.Container):
             text="Outlook接続",
             icon=ft.icons.SYNC,
             on_click=self._on_outlook_connect,
+            bgcolor=Colors.PRIMARY,
+            color=Colors.TEXT_ON_PRIMARY,
         )
 
         # フォルダ選択ドロップダウン（送信元）

@@ -34,16 +34,16 @@ class PreviewContent(ft.Container):
         self.task_id = None
 
         # 会話ごとに集約するフラグ
-        self.group_by_conversation = False
+        self.group_by_thread = False
 
         # 会話表示の時系列ソート順（True: 新しい順、False: 古い順）
-        self.conversation_sort_newest_first = True
+        self.thread_sort_newest_first = True
 
         # メール一覧のソート順
         self.mail_sort_order = "date_desc"
 
         # 会話グループのコンテナを保存する辞書
-        self.conversation_containers = {}
+        self.thread_containers = {}
 
         # メールリストコンポーネント
         self.mail_list_component = MailList(
@@ -55,12 +55,10 @@ class PreviewContent(ft.Container):
         self.mail_list_component.on_search = self.on_search
 
         # 会話グループ変更イベントを設定
-        self.mail_list_component.on_group_changed = (
-            self.on_group_by_conversation_changed
-        )
+        self.mail_list_component.on_group_changed = self.on_group_by_thread_changed
 
         # 会話選択イベントを設定
-        self.mail_list_component.on_conversation_selected = self._show_conversation
+        self.mail_list_component.on_thread_selected = self._show_thread
 
         # メール内容表示コンポーネント
         self.mail_content_viewer = MailContentViewer(
@@ -174,11 +172,8 @@ class PreviewContent(ft.Container):
                 self.viewmodel = None
 
             # 会話コンテナのリセット
-            if (
-                hasattr(self, "conversation_containers")
-                and self.conversation_containers
-            ):
-                self.conversation_containers.clear()
+            if hasattr(self, "thread_containers") and self.thread_containers:
+                self.thread_containers.clear()
                 self.logger.debug("PreviewContent: 会話コンテナをクリア")
 
             # メールリストとメールコンテンツビューアーのリセット
@@ -687,30 +682,28 @@ class PreviewContent(ft.Container):
             "PreviewContent: メール内容表示切り替え完了", expanded=not is_expanded
         )
 
-    def _toggle_conversation_sort_order(self, e):
+    def _toggle_thread_sort_order(self, e):
         """会話表示の時系列ソート順を切り替える"""
         self.logger.info(
             "PreviewContent: 会話ソート順切り替え",
-            current_order=(
-                "新しい順" if self.conversation_sort_newest_first else "古い順"
-            ),
+            current_order=("新しい順" if self.thread_sort_newest_first else "古い順"),
         )
 
         # ソート順を反転
-        self.conversation_sort_newest_first = not self.conversation_sort_newest_first
+        self.thread_sort_newest_first = not self.thread_sort_newest_first
 
         # ボタンのテキストとアイコンを更新
         button = e.control
-        button.text = "新しい順" if self.conversation_sort_newest_first else "古い順"
+        button.text = "新しい順" if self.thread_sort_newest_first else "古い順"
         button.icon = (
             ft.icons.ARROW_DOWNWARD
-            if self.conversation_sort_newest_first
+            if self.thread_sort_newest_first
             else ft.icons.ARROW_UPWARD
         )
         button.update()
 
         # 現在表示中の会話グループを再表示
-        for group_id, mails in self.conversation_containers.items():
+        for group_id, mails in self.thread_containers.items():
             # 現在選択されているグループを特定
             for item in self.mail_list_component.mail_list_view.controls:
                 if (
@@ -718,12 +711,12 @@ class PreviewContent(ft.Container):
                     and item.data == group_id
                     and item.bgcolor == ft.colors.BLUE_50
                 ):
-                    self._show_conversation(mails)
+                    self._show_thread(mails)
                     break
 
         self.logger.info(
             "PreviewContent: 会話ソート順切り替え完了",
-            new_order="新しい順" if self.conversation_sort_newest_first else "古い順",
+            new_order="新しい順" if self.thread_sort_newest_first else "古い順",
         )
 
     def _on_ai_review_refresh(self, e):
@@ -919,7 +912,7 @@ class PreviewContent(ft.Container):
                                         ft.colors.RED if is_flagged else ft.colors.GREY
                                     )
                                     control.visible = True
-                                    control.width = 20
+                                    control.width = 42
                     item.update()
                     break
 
@@ -929,34 +922,34 @@ class PreviewContent(ft.Container):
             flagged=is_flagged,
         )
 
-    def on_group_by_conversation_changed(self, e):
+    def on_group_by_thread_changed(self, e):
         """会話ごとに集約するフラグを切り替える"""
         self.logger.info(
             "PreviewContent: 会話ごとに集約フラグ切り替え開始",
             value=e.control.value if hasattr(e, "control") else e,
-            current_group_by_conversation=self.group_by_conversation,
+            current_group_by_thread=self.group_by_thread,
         )
 
         # フラグを切り替え
         if hasattr(e, "control"):
             # イベントオブジェクトの場合
-            self.group_by_conversation = e.control.value
+            self.group_by_thread = e.control.value
             self.logger.debug("PreviewContent: イベントオブジェクトから値を取得")
         else:
             # 直接値が渡された場合
-            self.group_by_conversation = e
+            self.group_by_thread = e
             self.logger.debug("PreviewContent: 直接値が渡された")
 
         self.logger.debug(
-            "PreviewContent: group_by_conversationフラグを更新",
-            new_value=self.group_by_conversation,
+            "PreviewContent: group_by_threadフラグを更新",
+            new_value=self.group_by_thread,
         )
 
         # メール一覧コンポーネントのフラグも更新
-        self.mail_list_component.group_by_conversation = self.group_by_conversation
+        self.mail_list_component.group_by_thread = self.group_by_thread
         self.logger.debug(
             "PreviewContent: mail_list_componentのフラグを更新",
-            component_value=self.mail_list_component.group_by_conversation,
+            component_value=self.mail_list_component.group_by_thread,
         )
 
         # メール一覧を再読み込み
@@ -965,7 +958,7 @@ class PreviewContent(ft.Container):
 
         self.logger.info(
             "PreviewContent: 会話ごとに集約フラグ切り替え完了",
-            group_by_conversation=self.group_by_conversation,
+            group_by_thread=self.group_by_thread,
         )
 
     def _display_grouped_mails(self, mails):
@@ -973,60 +966,60 @@ class PreviewContent(ft.Container):
         self.logger.info("PreviewContent: 会話ごとにグループ化されたメール表示開始")
 
         # 会話コンテナを初期化
-        self.conversation_containers = {}
+        self.thread_containers = {}
 
         # 現在のコンテナの状態をログ出力
         self.logger.debug(
             "PreviewContent: 会話コンテナを初期化しました",
-            previous_count=len(self.conversation_containers),
+            previous_count=len(self.thread_containers),
         )
 
-        # conversation_idでグループ化
-        conversations = {}
+        # thread_idでグループ化
+        threads = {}
         for mail in mails:
-            # conversation_idがない場合は単独のメールとして扱う
-            if not mail.get("conversation_id"):
+            # thread_idがない場合は単独のメールとして扱う
+            if not mail.get("thread_id"):
                 # メールIDをキーとして使用
-                conversation_key = f"single_{mail['id']}"
-                if conversation_key not in conversations:
-                    conversations[conversation_key] = []
-                conversations[conversation_key].append(mail)
+                thread_key = f"single_{mail['id']}"
+                if thread_key not in threads:
+                    threads[thread_key] = []
+                threads[thread_key].append(mail)
                 continue
 
-            # conversation_id全体をそのまま使用
-            conversation_id = mail["conversation_id"]
+            # thread_id全体をそのまま使用
+            thread_id = mail["thread_id"]
 
-            if conversation_id not in conversations:
-                conversations[conversation_id] = []
-            conversations[conversation_id].append(mail)
+            if thread_id not in threads:
+                threads[thread_id] = []
+            threads[thread_id].append(mail)
 
         # グループ化されたメールのログ
         self.logger.debug(
             "PreviewContent: 会話グループ化結果",
-            conversation_count=len(conversations),
-            conversation_keys=list(conversations.keys())[:5] if conversations else [],
+            thread_count=len(threads),
+            thread_keys=list(threads.keys())[:5] if threads else [],
         )
 
         # グループごとにリストに追加
-        for conversation_key, mails_in_conversation in conversations.items():
+        for thread_key, mails_in_thread in threads.items():
             # 会話内のメールを日付順にソート
             sorted_mails = sorted(
-                mails_in_conversation,
+                mails_in_thread,
                 key=lambda x: x["date"],
-                reverse=self.conversation_sort_newest_first,
+                reverse=self.thread_sort_newest_first,
             )
 
             # 会話グループ用の識別子を作成（conv_プレフィックスを付与）
             # プレフィックスが既にある場合は追加しない
-            if conversation_key.startswith("conv_"):
-                conversation_id = conversation_key
+            if thread_key.startswith("conv_"):
+                thread_id = thread_key
             else:
-                conversation_id = f"conv_{conversation_key}"
+                thread_id = f"conv_{thread_key}"
 
             self.logger.debug(
                 "PreviewContent: 会話グループ作成",
-                original_key=conversation_key,
-                conversation_id=conversation_id,
+                original_key=thread_key,
+                thread_id=thread_id,
                 mail_count=len(sorted_mails),
                 first_mail_id=(
                     sorted_mails[0].get("id", "不明") if sorted_mails else "なし"
@@ -1034,13 +1027,13 @@ class PreviewContent(ft.Container):
             )
 
             # キャッシュに保存
-            self.conversation_containers[conversation_id] = sorted_mails
+            self.thread_containers[thread_id] = sorted_mails
 
             # メールリストが空でないことを確認
             if not sorted_mails:
                 self.logger.warning(
                     "PreviewContent: 会話グループのメールリストが空です",
-                    conversation_id=conversation_id,
+                    thread_id=thread_id,
                 )
                 continue
 
@@ -1052,7 +1045,7 @@ class PreviewContent(ft.Container):
                 subject = "(件名なし)"
                 self.logger.warning(
                     "PreviewContent: 会話の件名が文字列ではありません",
-                    conversation_id=conversation_id,
+                    thread_id=thread_id,
                     subject_type=type(subject).__name__,
                 )
 
@@ -1085,7 +1078,7 @@ class PreviewContent(ft.Container):
                             break  # AIレビュー情報が見つかったらループを抜ける
 
             try:
-                conversation_header = ft.Container(
+                thread_header = ft.Container(
                     content=ft.Column(
                         [
                             ft.Row(
@@ -1152,59 +1145,55 @@ class PreviewContent(ft.Container):
                     ),
                     padding=10,
                     border_radius=5,
-                    on_click=lambda e, cid=conversation_id: self._show_conversation(
-                        self.conversation_containers[cid], cid
+                    on_click=lambda e, cid=thread_id: self._show_thread(
+                        self.thread_containers[cid], cid
                     ),
-                    data=conversation_id,
+                    data=thread_id,
                     ink=True,
                     bgcolor=ft.colors.WHITE,
                     border=ft.border.all(1, ft.colors.BLACK12),
                     margin=ft.margin.only(bottom=5),
                 )
 
-                self.mail_list_component.mail_list_view.controls.append(
-                    conversation_header
-                )
+                self.mail_list_component.mail_list_view.controls.append(thread_header)
             except Exception as e:
                 self.logger.error(
                     "PreviewContent: 会話ヘッダー作成中にエラーが発生",
                     error=str(e),
-                    conversation_id=conversation_id,
+                    thread_id=thread_id,
                 )
 
         # 会話コンテナの内容をログ出力
         self.logger.debug(
             "PreviewContent: 会話コンテナ作成完了",
-            container_count=len(self.conversation_containers),
+            container_count=len(self.thread_containers),
             container_keys=(
-                list(self.conversation_containers.keys())[:5]
-                if self.conversation_containers
+                list(self.thread_containers.keys())[:5]
+                if self.thread_containers
                 else []
             ),
         )
 
         self.logger.info(
             "PreviewContent: 会話ごとにグループ化されたメール表示完了",
-            conversation_count=len(conversations),
+            thread_count=len(threads),
         )
 
-    def _show_conversation(self, mails=None, conversation_id=None):
+    def _show_thread(self, mails=None, thread_id=None):
         """会話内容を表示"""
         self.logger.info(
             "PreviewContent: 会話内容表示",
             mail_count=len(mails) if isinstance(mails, list) else 0,
-            conversation_id=conversation_id,
+            thread_id=thread_id,
         )
 
         # 詳細なデバッグ情報
         self.logger.debug(
-            "PreviewContent: _show_conversation引数詳細",
+            "PreviewContent: _show_thread引数詳細",
             mails_type=type(mails).__name__,
             mails_is_list=isinstance(mails, list),
-            conversation_id_type=(
-                type(conversation_id).__name__ if conversation_id else "None"
-            ),
-            conversation_id=conversation_id,
+            thread_id_type=(type(thread_id).__name__ if thread_id else "None"),
+            thread_id=thread_id,
         )
 
         if isinstance(mails, list) and len(mails) > 0:
@@ -1219,27 +1208,27 @@ class PreviewContent(ft.Container):
 
         # mailsの型確認と処理
         if isinstance(mails, str):
-            # mailsが文字列の場合、それは会話IDとして扱い、本来のmailsとconversation_idを入れ替える
+            # mailsが文字列の場合、それは会話IDとして扱い、本来のmailsとthread_idを入れ替える
             self.logger.warning(
                 "PreviewContent: mails引数が文字列です。会話IDとして処理します",
                 mails_as_string=mails,
-                original_conversation_id=conversation_id,
+                original_thread_id=thread_id,
             )
-            conversation_id = mails  # 文字列をconversation_idとして設定
+            thread_id = mails  # 文字列をthread_idとして設定
             mails = []  # mailsを空リストにリセット
 
             # 会話コンテナから会話IDに対応するメールリストを取得
-            if conversation_id in self.conversation_containers:
-                mails = self.conversation_containers[conversation_id]
+            if thread_id in self.thread_containers:
+                mails = self.thread_containers[thread_id]
                 self.logger.debug(
                     "PreviewContent: 会話IDからメールを取得",
-                    conversation_id=conversation_id,
+                    thread_id=thread_id,
                     mail_count=len(mails),
                 )
         elif mails is None:
             # mailsがNoneの場合は空リストに変換
             self.logger.warning(
-                "PreviewContent: mails引数がNoneです", conversation_id=conversation_id
+                "PreviewContent: mails引数がNoneです", thread_id=thread_id
             )
             mails = []
         elif not isinstance(mails, list):
@@ -1277,51 +1266,51 @@ class PreviewContent(ft.Container):
         # mailsデータが空の場合のエラーハンドリング
         if not mails:
             self.logger.warning(
-                "PreviewContent: メールデータが空です", conversation_id=conversation_id
+                "PreviewContent: メールデータが空です", thread_id=thread_id
             )
 
-        # mailsが空でconversation_idが指定されている場合、会話コンテナから取得を試みる
-        if (not mails or len(mails) == 0) and conversation_id:
+        # mailsが空でthread_idが指定されている場合、会話コンテナから取得を試みる
+        if (not mails or len(mails) == 0) and thread_id:
             # まず完全一致で検索
-            if conversation_id in self.conversation_containers:
-                mails = self.conversation_containers[conversation_id]
+            if thread_id in self.thread_containers:
+                mails = self.thread_containers[thread_id]
                 self.logger.debug(
                     "PreviewContent: 会話コンテナからメールを取得 (完全一致)",
-                    conversation_id=conversation_id,
+                    thread_id=thread_id,
                     mail_count=len(mails),
                 )
             # conv_プレフィックスがない場合は追加して検索
             elif (
-                not conversation_id.startswith("conv_")
-                and f"conv_{conversation_id}" in self.conversation_containers
+                not thread_id.startswith("conv_")
+                and f"conv_{thread_id}" in self.thread_containers
             ):
-                mails = self.conversation_containers[f"conv_{conversation_id}"]
+                mails = self.thread_containers[f"conv_{thread_id}"]
                 self.logger.debug(
                     "PreviewContent: 会話コンテナからメールを取得 (プレフィックス追加)",
-                    original_id=conversation_id,
-                    modified_id=f"conv_{conversation_id}",
+                    original_id=thread_id,
+                    modified_id=f"conv_{thread_id}",
                     mail_count=len(mails),
                 )
             # conv_プレフィックスがある場合は削除して検索
             elif (
-                conversation_id.startswith("conv_")
-                and conversation_id[5:] in self.conversation_containers
+                thread_id.startswith("conv_")
+                and thread_id[5:] in self.thread_containers
             ):
-                mails = self.conversation_containers[conversation_id[5:]]
+                mails = self.thread_containers[thread_id[5:]]
                 self.logger.debug(
                     "PreviewContent: 会話コンテナからメールを取得 (プレフィックス削除)",
-                    original_id=conversation_id,
-                    modified_id=conversation_id[5:],
+                    original_id=thread_id,
+                    modified_id=thread_id[5:],
                     mail_count=len(mails),
                 )
             else:
                 self.logger.warning(
                     "PreviewContent: 指定された会話IDのメールが見つかりません",
-                    conversation_id=conversation_id,
+                    thread_id=thread_id,
                 )
 
                 # 会話コンテナの内容をデバッグ出力
-                container_keys = list(self.conversation_containers.keys())
+                container_keys = list(self.thread_containers.keys())
                 self.logger.debug(
                     "PreviewContent: 利用可能な会話コンテナ一覧",
                     container_count=len(container_keys),
@@ -1335,16 +1324,12 @@ class PreviewContent(ft.Container):
         # メールリスト内の全アイテムの選択状態をリセット
         for item in self.mail_list_component.mail_list_view.controls:
             # 選択されたアイテムだけ色を変更
-            if (
-                conversation_id
-                and hasattr(item, "data")
-                and item.data == conversation_id
-            ):
+            if thread_id and hasattr(item, "data") and item.data == thread_id:
                 item.bgcolor = ft.colors.BLUE_50
                 self.logger.debug(
                     "PreviewContent: 選択アイテムの背景色を変更",
                     item_id=item.data,
-                    conversation_id=conversation_id,
+                    thread_id=thread_id,
                 )
             else:
                 item.bgcolor = ft.colors.WHITE
@@ -1362,7 +1347,7 @@ class PreviewContent(ft.Container):
         sorted_mails = sorted(
             mails,
             key=lambda x: x["date"],
-            reverse=self.conversation_sort_newest_first,
+            reverse=self.thread_sort_newest_first,
         )
 
         # メールを既読にする
@@ -1427,20 +1412,18 @@ class PreviewContent(ft.Container):
 
         # ソート順切り替えボタン
         sort_button = ft.ElevatedButton(
-            text="新しい順" if self.conversation_sort_newest_first else "古い順",
+            text="新しい順" if self.thread_sort_newest_first else "古い順",
             icon=(
                 ft.icons.ARROW_DOWNWARD
-                if self.conversation_sort_newest_first
+                if self.thread_sort_newest_first
                 else ft.icons.ARROW_UPWARD
             ),
-            on_click=self._toggle_conversation_sort_order,
+            on_click=self._toggle_thread_sort_order,
         )
 
         # メール内容表示
         try:
-            self.mail_content_viewer.show_conversation_content(
-                sorted_mails, sort_button
-            )
+            self.mail_content_viewer.show_thread_content(sorted_mails, sort_button)
         except Exception as e:
             self.logger.error(
                 "PreviewContent: メール内容表示中にエラーが発生", error=str(e)
@@ -1454,15 +1437,25 @@ class PreviewContent(ft.Container):
         self.logger.info(
             "PreviewContent: 会話内容表示完了",
             mail_count=len(sorted_mails),
-            conversation_id=conversation_id,
+            thread_id=thread_id,
         )
+
+    def _on_hover_effect(self, e):
+        """フラグボタンのホバー効果"""
+        # マウスが入ったとき
+        if e.data == "true":
+            e.control.bgcolor = ft.colors.with_opacity(0.1, ft.colors.GREY)
+        # マウスが出たとき
+        else:
+            e.control.bgcolor = None
+        e.control.update()
 
     def create_flag_button(self, mail_id, is_flagged):
         """フラグボタンを作成"""
         return ft.Container(
             content=ft.Icon(
                 name=ft.icons.FLAG if is_flagged else ft.icons.FLAG_OUTLINED,
-                size=16,
+                size=32,
                 color=ft.colors.RED if is_flagged else ft.colors.GREY,
             ),
             tooltip=(
@@ -1470,9 +1463,9 @@ class PreviewContent(ft.Container):
                 if is_flagged
                 else "問題のあるメールとしてフラグを立てる"
             ),
-            width=32,
-            height=32,
-            border_radius=16,
+            width=42,
+            height=42,
+            border_radius=21,
             on_click=lambda e, mid=mail_id: self._toggle_flag(mid, not is_flagged),
             on_hover=self._on_hover_effect,
             alignment=ft.alignment.center,

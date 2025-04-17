@@ -325,7 +325,7 @@ class PreviewContentViewModel:
 
         self.logger.info("PreviewContentViewModel: リソース解放完了")
 
-    def get_conversation_risk_score(self, mails: List[Dict]) -> Dict:
+    def get_thread_risk_score(self, mails: List[Dict]) -> Dict:
         """会話のリスクスコアを取得
 
         Args:
@@ -349,14 +349,14 @@ class PreviewContentViewModel:
             }
 
         # 会話IDを取得
-        conversation_id = None
+        thread_id = None
         for mail in mails:
-            if mail.get("conversation_id"):
-                conversation_id = mail["conversation_id"]
+            if mail.get("thread_id"):
+                thread_id = mail["thread_id"]
                 break
 
         # 会話IDがない場合はデフォルト値を返す
-        if not conversation_id:
+        if not thread_id:
             return {
                 "label": "不明",
                 "color": ft.colors.GREY,
@@ -365,7 +365,7 @@ class PreviewContentViewModel:
             }
 
         # modelからAIレビュー結果を取得
-        ai_review = self.model.get_ai_review_for_conversation(conversation_id)
+        ai_review = self.model.get_ai_review_for_thread(thread_id)
 
         # すでにメールに含まれているAIレビュー結果を使用
         if not ai_review and mails and mails[0].get("ai_review"):

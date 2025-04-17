@@ -1,30 +1,3 @@
-"""
-Outlookからのメール抽出サービス
-
-責務:
-- メール抽出タスクの実行管理
-- 抽出条件に基づくメールの取得
-- メール処理のワークフロー制御
-- 進捗状況の管理
-- Outlookスナップショットの作成と管理
-
-主なメソッド:
-- start_extraction: 抽出作業の開始
-- create_snapshot: Outlookスナップショットの作成
-- get_extraction_conditions: 抽出条件の取得
-- _process_mail_item: 個別メールの処理
-- _process_attachments: 添付ファイルの処理
-- _process_ai_review: AIレビューの処理
-- _update_mail_task_status: タスクステータスの更新
-
-連携:
-- OutlookClient: メールデータの取得
-- OutlookItemModel: メールデータの保存
-- データベース:
-  - items.db（mail_tasks, task_progressテーブル）
-  - outlook.db（extraction_conditionsテーブル）
-"""
-
 import datetime
 import os
 import re
@@ -1259,6 +1232,20 @@ class OutlookExtractionService:
                             # ConversationIDを取得
                             conversation_id = get_safe(msg_item, "ConversationID", "")
 
+                            # ConversationIndexを取得
+                            conversation_index = get_safe(
+                                msg_item, "ConversationIndex", ""
+                            )
+
+                            # ThreadID の生成
+                            message_type = get_safe(msg_item, "MessageType", "")
+                            if message_type == "IPM.Note":
+                                thread_id = conversation_index[:43]
+                            elif message_type == "IPM.SkypeTeams.Message":
+                                thread_id = conversation_index[:11]
+                            else:
+                                thread_id = ""
+
                             # 直接取得したEntryIDを優先して使用
                             msg_entry_id = (
                                 entry_id
@@ -1274,6 +1261,8 @@ class OutlookExtractionService:
                                     "folder_id"
                                 ],  # 親メールと同じフォルダIDを使用
                                 "conversation_id": conversation_id,
+                                "conversation_index": conversation_index,
+                                "thread_id": thread_id,
                                 "message_type": "msg",  # .msg形式を示す
                                 "parent_entry_id": mail_id,  # 親メールのentry_id
                                 "parent_folder_name": folder_name,  # 親メールのフォルダ名
@@ -1292,8 +1281,6 @@ class OutlookExtractionService:
                                     msg_item, "Attachments.Count", 0
                                 ),
                                 "task_id": self.task_id,  # タスクIDを追加
-                                # 元のMSGファイルへのパスは保存しない
-                                # "original_msg_path": file_path,
                             }
 
                             # 参加者情報の抽出
@@ -1470,6 +1457,18 @@ class OutlookExtractionService:
             # ConversationIDを取得（Exchange環境でのみ利用可能）
             conversation_id = get_safe(mail_item, "ConversationID", "")
 
+            # ConversationIndexを取得
+            conversation_index = get_safe(mail_item, "ConversationIndex", "")
+
+            # ThreadID の生成
+            message_type = get_safe(mail_item, "MessageType", "")
+            if message_type == "IPM.Note":
+                thread_id = conversation_index[:43]
+            elif message_type == "IPM.SkypeTeams.Message":
+                thread_id = conversation_index[:11]
+            else:
+                thread_id = ""
+
             # 添付ファイル情報を取得
             has_attachments = False
             attachment_count = 0
@@ -1485,6 +1484,8 @@ class OutlookExtractionService:
                 "store_id": get_safe(mail_item, "StoreID", ""),
                 "folder_id": get_safe(mail_item.Parent, "EntryID", ""),
                 "conversation_id": conversation_id,
+                "conversation_index": conversation_index,
+                "thread_id": thread_id,
                 "message_type": "email",  # デフォルトはemail
                 "subject": self._clean_unicode_text(get_safe(mail_item, "Subject", "")),
                 "sent_time": sent_time_str,
@@ -1503,7 +1504,8 @@ class OutlookExtractionService:
             mail_data["participants"] = self._extract_participants(mail_item)
 
             # 特殊なメッセージタイプの処理
-            mail_data = self._update_message_type(mail_data)
+            message_type = self._update_message_type(mail_item)
+            mail_data["message_type"] = message_type
 
             self.logger.info(f"メールコンテンツを抽出しました: {mail_data['subject']}")
             return mail_data
@@ -1512,32 +1514,54 @@ class OutlookExtractionService:
             self.logger.error(f"メールコンテンツの抽出に失敗: {str(e)}")
             return None
 
-    def _update_message_type(self, mail_data: dict) -> dict:
+    def _update_message_type(self, mail_item) -> str:
         """
         メールタイプの更新処理
 
         Args:
-            mail_data: メールデータ
+            mail_item: Outlookのメールアイテム
 
         Returns:
-            dict: 更新されたメールデータ
+            str: メッセージタイプ
         """
-        if not mail_data:
-            return mail_data
-
         try:
-            # メールの件名にGUARDIANWALLが含まれている場合の処理
-            subject = mail_data.get("subject", "")
-            if "GUARDIANWALL" in subject:
-                # データベース制約に合わせる
-                mail_data["message_type"] = "guardian"
-                # process_typeはNULLのままにする
-                self.logger.info(f"メールタイプを'guardian'に更新しました: {subject}")
+            # メッセージタイプを取得
+            message_type_value = get_safe(mail_item, "MessageClass", "")
 
-            return mail_data
+            # IPM.SkypeTeams.Messageの場合は"chat"を返す
+            if message_type_value == "IPM.SkypeTeams.Message":
+                self.logger.info(
+                    f"メールタイプを'chat'に設定しました: {message_type_value}"
+                )
+                return "chat"
+
+            # IPM.Noteの場合は送信者のメールアドレスをチェック
+            elif message_type_value == "IPM.Note":
+                # 送信者のメールアドレスが条件に一致する場合は"guardian"に設定
+                sender_email = ""
+                if hasattr(mail_item, "Sender") and mail_item.Sender:
+                    try:
+                        address_entry = mail_item.Sender.AddressEntry
+                        if address_entry:
+                            sender_email = get_safe(address_entry, "Address", "")
+                    except Exception as e:
+                        self.logger.warning(f"送信者のメールアドレス取得に失敗: {e}")
+
+                # 条件を精緻化: "root@test"または"root@dr3-gwi"で始まり数字が続くパターンに一致する場合
+                if re.match(r"root@dr3-gwi\d+p", sender_email):
+                    self.logger.info(
+                        f"メールタイプを'guardian'に更新しました: {sender_email}"
+                    )
+                    return "guardian"
+                else:
+                    # IPM.Noteで特殊な送信者でない場合は"email"
+                    return "email"
+            else:
+                # その他のメッセージタイプの場合はデフォルトで"email"
+                return "email"
         except Exception as e:
             self.logger.error(f"メールタイプの更新処理でエラーが発生: {str(e)}")
-            return mail_data
+            return "email"  # エラー時はデフォルト値を返す
 
     def _save_mail_item(self, mail_data: dict) -> bool:
         """
@@ -1558,7 +1582,6 @@ class OutlookExtractionService:
             required_fields = [
                 "entry_id",
                 "folder_id",
-                "subject",
                 "sent_time",
                 "received_time",
             ]
@@ -1606,22 +1629,11 @@ class OutlookExtractionService:
                 # mail_itemsテーブルにメールデータを保存
                 query = """
                 INSERT INTO mail_items (
-                    entry_id, store_id, folder_id, conversation_id, 
+                    entry_id, store_id, folder_id, conversation_id, conversation_index, thread_id,
                     message_type, subject, sent_time, received_time,
                     body, unread, message_size, task_id, has_attachments, attachment_count, processed_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
                 """
-
-                # process_typeがある場合は追加
-                if mail_data.get("process_type"):
-                    query += ", process_type"
-
-                query += ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now')"
-
-                # process_typeがある場合はパラメーターにプレースホルダーを追加
-                if mail_data.get("process_type"):
-                    query += ", ?"
-
-                query += ")"
 
                 # 現在の時刻を取得
                 current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -1634,6 +1646,8 @@ class OutlookExtractionService:
                     mail_data["store_id"],
                     mail_data["folder_id"],
                     mail_data["conversation_id"],
+                    mail_data["conversation_index"],
+                    mail_data["thread_id"],
                     mail_data["message_type"],
                     mail_data["subject"],
                     mail_data["sent_time"],
@@ -1647,10 +1661,6 @@ class OutlookExtractionService:
                     ),  # has_attachments (0=なし、1=あり)
                     attachment_count,  # 添付ファイルの個数
                 ]
-
-                # process_typeがある場合はパラメータに追加
-                if mail_data.get("process_type"):
-                    params.append(mail_data["process_type"])
 
                 # メールデータを保存
                 self.items_db.execute_update(query, tuple(params))
@@ -1903,7 +1913,7 @@ class OutlookExtractionService:
             mail_query = """
             SELECT 
                 entry_id, subject, body, sent_time, received_time,
-                has_attachments, conversation_id
+                has_attachments, thread_id
             FROM mail_items 
             WHERE entry_id = ?
             """
@@ -1918,8 +1928,8 @@ class OutlookExtractionService:
             mail_data = mail_result[0]
 
             # 会話IDを取得（必須）
-            conversation_id = mail_data.get("conversation_id")
-            if not conversation_id:
+            thread_id = mail_data.get("thread_id")
+            if not thread_id:
                 self.logger.error(f"AIレビュー: 会話IDが見つかりません: {mail_id}")
                 return False
 
@@ -1960,7 +1970,7 @@ class OutlookExtractionService:
             # AIレビュー用のプロンプトを構築
             prompt_data = {
                 "mail_id": mail_id[:8] + "...",  # IDは短縮して表示
-                "conversation_id": conversation_id[:8] + "...",  # 会話IDも短縮
+                "thread_id": thread_id[:8] + "...",  # 会話IDも短縮
                 "subject": mail_info["subject"],
                 "body": mail_info["body"],
                 "sender": mail_info["participants"]["sender"],
@@ -2033,15 +2043,13 @@ class OutlookExtractionService:
                 # 新しい結果を保存（INSERT OR REPLACEを使用して既存のデータを上書き）
                 self.items_db.execute_update(
                     """
-                    INSERT OR REPLACE INTO ai_reviews (conversation_id, result)
+                    INSERT OR REPLACE INTO ai_reviews (thread_id, result)
                     VALUES (?, ?)
                     """,
-                    (conversation_id, result),
+                    (thread_id, result),
                 )
 
-                self.logger.info(
-                    f"AIレビュー結果を保存しました: 会話ID {conversation_id}"
-                )
+                self.logger.info(f"AIレビュー結果を保存しました: 会話ID {thread_id}")
                 return True
             else:
                 self.logger.error(f"AIレビュー結果が取得できませんでした: {mail_id}")

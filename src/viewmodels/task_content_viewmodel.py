@@ -37,8 +37,10 @@ class TaskContentViewModel:
         """入力データの初期化"""
         # 現在の日時を取得
         now = datetime.now()
-        self._start_date = now
-        self._end_date = now + timedelta(minutes=30)
+        # start_dateは現在の日付の00:00に設定
+        self._start_date = datetime(now.year, now.month, now.day, 0, 0)
+        # end_dateは現在の日付の23:59に設定
+        self._end_date = datetime(now.year, now.month, now.day, 23, 59)
 
         # フォルダ選択の状態
         self._from_folder_id: str = ""

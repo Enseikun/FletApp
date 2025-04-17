@@ -186,8 +186,8 @@ class HomeContentModel:
                             )
 
                             # 会話コンテナのリセット
-                            if hasattr(preview_content, "conversation_containers"):
-                                preview_content.conversation_containers.clear()
+                            if hasattr(preview_content, "thread_containers"):
+                                preview_content.thread_containers.clear()
 
                             # メールリストとメールコンテンツビューアーのリセット
                             if hasattr(preview_content, "mail_list_component"):

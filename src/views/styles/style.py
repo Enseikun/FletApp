@@ -142,9 +142,9 @@ class Styles:
         },
         ComponentState.ACTIVE: {
             **_COMMON_STYLE,
-            "bgcolor": Colors.BACKGROUND,
+            "bgcolor": Colors.SELECTED,
             "border": ft.border.all(AppTheme.FOCUSED_BORDER_WIDTH, Colors.PRIMARY),
-            "shadow": StyleConstants.SHADOW_MD,
+            "shadow": StyleConstants.SHADOW_SM,
         },
     }
 
@@ -166,6 +166,33 @@ class Styles:
             **_BUTTON_COMMON,
             "bgcolor": Colors.PRIMARY_DARK,
             "color": Colors.TEXT_ON_PRIMARY,
+        },
+        ComponentState.DISABLED: {
+            **_BUTTON_COMMON,
+            "bgcolor": Colors.BACKGROUND_DARK,
+            "color": Colors.TEXT_DISABLED,
+            "opacity": 0.5,
+        },
+    }
+
+    # アクションボタンスタイル（トグル、追加などの操作ボタン）
+    ACTION_BUTTON_STYLES = {
+        ComponentState.NORMAL: {
+            **_BUTTON_COMMON,
+            "bgcolor": Colors.ACTION,
+            "color": Colors.TEXT_ON_ACTION,
+            "shadow": StyleConstants.SHADOW_SM,
+        },
+        ComponentState.HOVERED: {
+            **_BUTTON_COMMON,
+            "bgcolor": Colors.ACTION_LIGHT,
+            "color": Colors.TEXT_ON_ACTION,
+            "shadow": StyleConstants.SHADOW_MD,
+        },
+        ComponentState.PRESSED: {
+            **_BUTTON_COMMON,
+            "bgcolor": Colors.ACTION_DARK,
+            "color": Colors.TEXT_ON_ACTION,
         },
         ComponentState.DISABLED: {
             **_BUTTON_COMMON,
@@ -220,7 +247,7 @@ class Styles:
         "subtitle": {
             "size": AppTheme.SUBTITLE_SIZE,
             "color": Colors.TEXT_PRIMARY,
-            "weight": ft.FontWeight.W500,
+            "weight": ft.FontWeight.W_500,
         },
         "body": {
             "size": AppTheme.BODY_SIZE,
@@ -374,6 +401,45 @@ class Styles:
     def caption(value: str, **kwargs) -> ft.Text:
         """キャプションスタイルのテキストを作成する"""
         return Styles.text(value, style="caption", **kwargs)
+
+    @staticmethod
+    def action_button(
+        text: str, icon=None, on_click=None, **kwargs
+    ) -> ft.ElevatedButton:
+        """操作を促すアクションボタンを作成する"""
+        button = ft.ElevatedButton(
+            text=text,
+            icon=icon,
+            on_click=on_click,
+            bgcolor=Colors.ACTION,
+            color=Colors.TEXT_ON_ACTION,
+            **kwargs,
+        )
+        return button
+
+    @staticmethod
+    def selected_container(content: ft.Control, **kwargs) -> ft.Container:
+        """選択状態のコンテナを作成する"""
+        container = ft.Container(
+            content=content,
+            bgcolor=Colors.SELECTED,
+            **kwargs,
+        )
+        return container
+
+    @staticmethod
+    def action_icon_button(
+        icon: str, tooltip: str = None, on_click=None, **kwargs
+    ) -> ft.IconButton:
+        """操作を促すアイコンボタンを作成する"""
+        button = ft.IconButton(
+            icon=icon,
+            tooltip=tooltip,
+            on_click=on_click,
+            icon_color=Colors.ACTION,
+            **kwargs,
+        )
+        return button
 
     # グリッド作成系メソッド
     @staticmethod

@@ -9,10 +9,13 @@ from typing import Any, Dict, List, Optional
 import flet as ft
 
 from src.core.logger import get_logger
+from src.models.mail.styled_text import StyledText
+from src.models.preview_content_model import PreviewContentModel
 from src.viewmodels.preview_content_viewmodel import PreviewContentViewModel
 from src.views.components.mail_content_viewer import MailContentViewer
 from src.views.components.mail_list import MailList
-from src.views.styles.style import AppTheme
+from src.views.styles.color import Colors
+from src.views.styles.style import AppTheme, ComponentState, Styles
 
 
 class PreviewContent(ft.Container):
@@ -69,7 +72,13 @@ class PreviewContent(ft.Container):
         # Fletコンテナの設定
         self.padding = 20
         self.expand = True
-        self.bgcolor = ft.colors.WHITE
+        self.bgcolor = Colors.BACKGROUND
+
+        # StyledTextインスタンス
+        self.styled_text = StyledText()
+
+        # キーワードリスト
+        self.keywords = self._load_keywords()
 
         # UIを構築
         self._build()
@@ -83,24 +92,24 @@ class PreviewContent(ft.Container):
         self.logger.debug("PreviewContent: UI構築開始")
 
         # 左側のペイン（メールリスト）
-        left_pane = ft.Container(
+        left_pane = Styles.container(
             content=self.mail_list_component,
             expand=1,
+            padding=0,
         )
 
         # 右側のペイン（メール内容表示）
-        right_pane = ft.Container(
+        right_pane = Styles.container(
             content=ft.Column(
                 [
-                    ft.Container(
-                        content=ft.Text("メールプレビュー", weight="bold", size=16),
-                        padding=ft.padding.only(left=10, top=10, right=10, bottom=10),
+                    Styles.container(
+                        content=Styles.title("メールプレビュー", size=16),
+                        padding=10,
+                        border=None,
                     ),
-                    ft.Container(
+                    Styles.card(
                         content=self.mail_content_viewer,
                         expand=True,
-                        border=ft.border.all(1, ft.colors.BLACK12),
-                        border_radius=AppTheme.CONTAINER_BORDER_RADIUS,
                         padding=10,
                     ),
                 ],
@@ -108,6 +117,7 @@ class PreviewContent(ft.Container):
                 expand=True,
             ),
             expand=2,
+            padding=0,
         )
 
         # メインコンテンツ
@@ -122,6 +132,10 @@ class PreviewContent(ft.Container):
             spacing=10,
             expand=True,
         )
+
+        # コンテナのスタイルを設定
+        self.bgcolor = Colors.BACKGROUND
+
         self.logger.debug("PreviewContent: UI構築完了")
 
     def on_close_button_click(self, e):
@@ -410,9 +424,9 @@ class PreviewContent(ft.Container):
         # メールリスト内の該当アイテムの背景色を変更して選択状態を示す
         for item in self.mail_list_component.mail_list_view.controls:
             if hasattr(item, "data") and item.data == mail_id:
-                item.bgcolor = ft.colors.BLUE_50
+                item.bgcolor = Colors.SELECTED
             else:
-                item.bgcolor = ft.colors.WHITE
+                item.bgcolor = Colors.BACKGROUND
             item.update()
 
         self.logger.info("PreviewContent: メール内容表示完了", mail_id=mail_id)
@@ -459,7 +473,7 @@ class PreviewContent(ft.Container):
         # メールリストをクリア
         self.mail_list_component.mail_list_view.controls.clear()
         self.mail_list_component.mail_list_view.controls.append(
-            ft.Container(
+            Styles.container(
                 content=ft.Column(
                     [
                         ft.Icon(
@@ -467,16 +481,14 @@ class PreviewContent(ft.Container):
                             size=40,
                             color=ft.colors.AMBER,
                         ),
-                        ft.Text(
+                        Styles.subtitle(
                             "メールデータがありません",
-                            color=ft.colors.GREY,
+                            color=Colors.TEXT_SECONDARY,
                             text_align=ft.TextAlign.CENTER,
-                            weight="bold",
+                            weight=ft.FontWeight.BOLD,
                         ),
-                        ft.Text(
+                        Styles.caption(
                             message,
-                            color=ft.colors.GREY,
-                            size=12,
                             text_align=ft.TextAlign.CENTER,
                         ),
                     ],
@@ -499,6 +511,20 @@ class PreviewContent(ft.Container):
         if self.viewmodel:
             self.viewmodel.close()
 
+    def _load_keywords(self) -> list[str]:
+        """キーワードをファイルから読み込む"""
+        keywords = []
+        try:
+            with open("config/keywords.txt", "r", encoding="utf-8") as file:
+                for line in file:
+                    keyword = line.strip()
+                    if keyword:  # 空行を除外
+                        keywords.append(keyword)
+            self.logger.info(f"キーワード読み込み完了: {len(keywords)}件")
+        except Exception as e:
+            self.logger.error(f"キーワード読み込みエラー: {str(e)}")
+        return keywords
+
     def _create_mail_content_item(self, mail, index):
         """会話内の個別メールアイテムを作成"""
         # 送信者情報を解析
@@ -516,12 +542,10 @@ class PreviewContent(ft.Container):
                     ft.Icon(
                         name=ft.icons.ATTACH_FILE,
                         size=14,
-                        color=ft.colors.GREY,
+                        color=Colors.TEXT_SECONDARY,
                     ),
-                    ft.Text(
+                    Styles.caption(
                         f"{len(mail['attachments'])}個の添付ファイル",
-                        size=12,
-                        color=ft.colors.GREY,
                     ),
                 ],
                 spacing=2,
@@ -536,14 +560,15 @@ class PreviewContent(ft.Container):
         is_truncated = len(content_lines) > 5
 
         # メール本文を表示するコンテナ
-        content_container = ft.Container(
-            content=ft.Text(
-                "\n".join(content_lines[:5]) + ("..." if is_truncated else "")
+        content_container = Styles.card(
+            content=self.styled_text.generate_styled_text(
+                "\n".join(content_lines[:5]) + ("..." if is_truncated else ""),
+                self.keywords,
+                None,
+                None,
             ),
             padding=10,
             border_radius=5,
-            bgcolor=ft.colors.WHITE,
-            border=ft.border.all(1, ft.colors.BLACK12),
             # データに表示状態を保存
             data={
                 "expanded": False,
@@ -554,17 +579,17 @@ class PreviewContent(ft.Container):
         )
 
         # 続きを見るボタン
-        expand_button = ft.Container(
+        expand_button = Styles.clickable_container(
             content=ft.Row(
                 [
-                    ft.Text(
+                    Styles.text(
                         "続きを見る",
-                        color=ft.colors.BLUE,
+                        color=Colors.ACTION,
                         size=12,
                     ),
                     ft.Icon(
                         name=ft.icons.EXPAND_MORE,
-                        color=ft.colors.BLUE,
+                        color=Colors.ACTION,
                         size=16,
                     ),
                 ],
@@ -577,43 +602,39 @@ class PreviewContent(ft.Container):
             on_click=lambda e, container=content_container: self._toggle_mail_content_container(
                 e, container
             ),
-            on_hover=self._on_expand_button_hover,
             visible=is_truncated,
             height=30,
-            bgcolor=ft.colors.with_opacity(0.05, ft.colors.BLUE),
+            bgcolor=ft.colors.with_opacity(0.05, Colors.ACTION),
         )
 
-        return ft.Container(
+        return Styles.container(
             content=ft.Column(
                 [
                     ft.Row(
                         [
-                            ft.Container(
-                                content=ft.Text(
+                            Styles.container(
+                                content=Styles.text(
                                     f"#{index+1}",
-                                    color=ft.colors.WHITE,
+                                    color=Colors.TEXT_ON_PRIMARY,
                                     text_align=ft.TextAlign.CENTER,
                                     size=12,
                                 ),
                                 bgcolor=(
-                                    ft.colors.BLUE
+                                    Colors.ACTION
                                     if mail.get("unread", 0)
-                                    else ft.colors.GREY
+                                    else Colors.TEXT_SECONDARY
                                 ),
                                 border_radius=15,
                                 width=30,
                                 height=20,
                                 alignment=ft.alignment.center,
                             ),
-                            ft.Text(
+                            Styles.caption(
                                 mail["date"],
-                                size=12,
-                                color=ft.colors.GREY,
                             ),
-                            ft.Text(
+                            Styles.subtitle(
                                 f"送信者: {sender_name}",
                                 size=12,
-                                weight="bold",
                                 expand=True,
                             ),
                             # 新しいフラグボタンを使用
@@ -630,19 +651,21 @@ class PreviewContent(ft.Container):
                 spacing=5,
             ),
             padding=5,
-            bgcolor=ft.colors.BLUE_50 if mail.get("unread", 0) else ft.colors.WHITE,
+            bgcolor=(
+                Colors.SELECTED_LIGHT if mail.get("unread", 0) else Colors.BACKGROUND
+            ),
             border_radius=5,
-            border=ft.border.all(1, ft.colors.BLACK12),
+            border=ft.border.all(1, Colors.BORDER),
         )
 
     def _on_expand_button_hover(self, e):
         """展開ボタンのホバー効果"""
         # マウスが入ったとき
         if e.data == "true":
-            e.control.bgcolor = ft.colors.with_opacity(0.1, ft.colors.BLUE)
+            e.control.bgcolor = ft.colors.with_opacity(0.1, Colors.ACTION)
         # マウスが出たとき
         else:
-            e.control.bgcolor = ft.colors.with_opacity(0.05, ft.colors.BLUE)
+            e.control.bgcolor = ft.colors.with_opacity(0.05, Colors.ACTION)
         e.control.update()
 
     def _toggle_mail_content_container(self, e, content_container):
@@ -660,13 +683,17 @@ class PreviewContent(ft.Container):
 
         if is_expanded:
             # 折りたたむ
-            content_container.content = ft.Text(container_data["preview_text"])
+            content_container.content = self.styled_text.generate_styled_text(
+                container_data["preview_text"], self.keywords, None, None
+            )
             content_container.data["expanded"] = False
             button_text.value = "続きを見る"
             button_icon.name = ft.icons.EXPAND_MORE
         else:
             # 展開する
-            content_container.content = ft.Text(container_data["full_text"])
+            content_container.content = self.styled_text.generate_styled_text(
+                container_data["full_text"], self.keywords, None, None
+            )
             content_container.data["expanded"] = True
             button_text.value = "折りたたむ"
             button_icon.name = ft.icons.EXPAND_LESS
@@ -694,12 +721,20 @@ class PreviewContent(ft.Container):
 
         # ボタンのテキストとアイコンを更新
         button = e.control
-        button.text = "新しい順" if self.thread_sort_newest_first else "古い順"
-        button.icon = (
+        text_control = button.content.controls[0]
+        icon_control = button.content.controls[1]
+
+        text_control.value = "新しい順" if self.thread_sort_newest_first else "古い順"
+        icon_control.name = (
             ft.icons.ARROW_DOWNWARD
             if self.thread_sort_newest_first
             else ft.icons.ARROW_UPWARD
         )
+
+        # ホバー状態を保持
+        is_hovered = button.data.get("is_hovered", False)
+        button.bgcolor = Colors.ACTION_DARK if is_hovered else Colors.ACTION
+
         button.update()
 
         # 現在表示中の会話グループを再表示
@@ -709,7 +744,7 @@ class PreviewContent(ft.Container):
                 if (
                     hasattr(item, "data")
                     and item.data == group_id
-                    and item.bgcolor == ft.colors.BLUE_50
+                    and item.bgcolor == Colors.SELECTED
                 ):
                     self._show_thread(mails)
                     break
@@ -734,7 +769,7 @@ class PreviewContent(ft.Container):
                         ft.Icon(
                             name=ft.icons.PSYCHOLOGY_ALT,
                             size=16,
-                            color=ft.colors.BLUE,
+                            color=Colors.ACTION,
                         ),
                         ft.Text("AIレビュー", weight="bold"),
                         ft.ProgressRing(width=16, height=16),
@@ -774,22 +809,13 @@ class PreviewContent(ft.Container):
                             ft.Icon(
                                 name=ft.icons.PSYCHOLOGY_ALT,
                                 size=16,
-                                color=ft.colors.BLUE,
+                                color=Colors.ACTION,
                             ),
                             ft.Text("AIレビュー (更新済み)", weight="bold"),
-                            ft.Container(
-                                content=ft.Icon(
-                                    name=ft.icons.REFRESH,
-                                    size=16,
-                                    color=ft.colors.BLUE,
-                                ),
+                            Styles.action_icon_button(
+                                icon=ft.icons.REFRESH,
                                 tooltip="AIに再評価させる",
-                                width=32,
-                                height=32,
-                                border_radius=16,
-                                on_hover=self._on_refresh_button_hover,
                                 on_click=self._on_ai_review_refresh,
-                                alignment=ft.alignment.center,
                             ),
                         ],
                         spacing=5,
@@ -857,11 +883,11 @@ class PreviewContent(ft.Container):
 
     def _create_animated_point(self, text, delay_ms, is_important=False):
         """アニメーション付きのポイントを作成"""
-        return ft.Container(
-            content=ft.Text(
+        return Styles.container(
+            content=Styles.text(
                 f"• {text}",
                 size=14,
-                color=ft.colors.RED if is_important else None,
+                color=Colors.ERROR if is_important else None,
                 weight="bold" if is_important else None,
             ),
             opacity=1.0,
@@ -872,7 +898,7 @@ class PreviewContent(ft.Container):
         """更新ボタンのホバー効果"""
         # マウスが入ったとき
         if e.data == "true":
-            e.control.bgcolor = ft.colors.with_opacity(0.1, ft.colors.BLUE)
+            e.control.bgcolor = ft.colors.with_opacity(0.1, Colors.ACTION)
         # マウスが出たとき
         else:
             e.control.bgcolor = None
@@ -1196,17 +1222,6 @@ class PreviewContent(ft.Container):
             thread_id=thread_id,
         )
 
-        if isinstance(mails, list) and len(mails) > 0:
-            self.logger.debug(
-                "PreviewContent: メールリスト最初の要素",
-                first_mail_keys=(
-                    list(mails[0].keys())
-                    if isinstance(mails[0], dict)
-                    else "not a dict"
-                ),
-            )
-
-        # mailsの型確認と処理
         if isinstance(mails, str):
             # mailsが文字列の場合、それは会話IDとして扱い、本来のmailsとthread_idを入れ替える
             self.logger.warning(
@@ -1325,14 +1340,14 @@ class PreviewContent(ft.Container):
         for item in self.mail_list_component.mail_list_view.controls:
             # 選択されたアイテムだけ色を変更
             if thread_id and hasattr(item, "data") and item.data == thread_id:
-                item.bgcolor = ft.colors.BLUE_50
+                item.bgcolor = Colors.SELECTED
                 self.logger.debug(
                     "PreviewContent: 選択アイテムの背景色を変更",
                     item_id=item.data,
                     thread_id=thread_id,
                 )
             else:
-                item.bgcolor = ft.colors.WHITE
+                item.bgcolor = Colors.BACKGROUND
             item.update()
 
         # メール内容表示をクリア
@@ -1411,19 +1426,58 @@ class PreviewContent(ft.Container):
         sorted_mails = cleaned_mails
 
         # ソート順切り替えボタン
-        sort_button = ft.ElevatedButton(
-            text="新しい順" if self.thread_sort_newest_first else "古い順",
-            icon=(
-                ft.icons.ARROW_DOWNWARD
-                if self.thread_sort_newest_first
-                else ft.icons.ARROW_UPWARD
+        sort_button = ft.Container(
+            content=ft.Row(
+                [
+                    ft.Text(
+                        "新しい順" if self.thread_sort_newest_first else "古い順",
+                        color=Colors.TEXT_ON_ACTION,
+                        size=14,
+                    ),
+                    ft.Icon(
+                        name=(
+                            ft.icons.ARROW_DOWNWARD
+                            if self.thread_sort_newest_first
+                            else ft.icons.ARROW_UPWARD
+                        ),
+                        color=Colors.TEXT_ON_ACTION,
+                        size=18,
+                    ),
+                ],
+                spacing=5,
+                alignment=ft.MainAxisAlignment.CENTER,
             ),
+            bgcolor=Colors.ACTION,
+            padding=ft.padding.only(left=12, right=12, top=8, bottom=8),
+            border_radius=4,
             on_click=self._toggle_thread_sort_order,
+            # ホバー効果の追加
+            data={"is_hovered": False},
+            on_hover=self._on_sort_button_hover,
         )
 
         # メール内容表示
         try:
-            self.mail_content_viewer.show_thread_content(sorted_mails, sort_button)
+            self.mail_content_viewer.show_thread_content(sorted_mails)
+
+            # AIレビューセクションの後にソートボタンを配置
+            if len(self.mail_content_viewer.content_column.controls) >= 3:
+                # AIレビューセクションとメール一覧の間にソートボタンを追加
+                self.mail_content_viewer.content_column.controls.insert(
+                    2,  # AIレビューセクションが1番目(0-indexed)、メール一覧が2番目の位置
+                    ft.Container(
+                        content=ft.Row(
+                            [
+                                ft.Text("メール表示順:", size=14),
+                                sort_button,
+                            ],
+                            alignment=ft.MainAxisAlignment.END,
+                            spacing=10,
+                        ),
+                        padding=ft.padding.only(right=10, top=10),
+                    ),
+                )
+                self.mail_content_viewer.update()
         except Exception as e:
             self.logger.error(
                 "PreviewContent: メール内容表示中にエラーが発生", error=str(e)
@@ -1444,19 +1498,31 @@ class PreviewContent(ft.Container):
         """フラグボタンのホバー効果"""
         # マウスが入ったとき
         if e.data == "true":
-            e.control.bgcolor = ft.colors.with_opacity(0.1, ft.colors.GREY)
+            e.control.bgcolor = ft.colors.with_opacity(0.1, Colors.TEXT_SECONDARY)
         # マウスが出たとき
         else:
             e.control.bgcolor = None
         e.control.update()
 
+    def _on_sort_button_hover(self, e):
+        """ソートボタンのホバー効果"""
+        # マウスが入ったとき
+        if e.data == "true":
+            e.control.bgcolor = Colors.ACTION_DARK
+            e.control.data["is_hovered"] = True
+        # マウスが出たとき
+        else:
+            e.control.bgcolor = Colors.ACTION
+            e.control.data["is_hovered"] = False
+        e.control.update()
+
     def create_flag_button(self, mail_id, is_flagged):
         """フラグボタンを作成"""
-        return ft.Container(
+        return Styles.clickable_container(
             content=ft.Icon(
                 name=ft.icons.FLAG if is_flagged else ft.icons.FLAG_OUTLINED,
                 size=32,
-                color=ft.colors.RED if is_flagged else ft.colors.GREY,
+                color=Colors.ERROR if is_flagged else Colors.TEXT_SECONDARY,
             ),
             tooltip=(
                 "フラグを解除する"
@@ -1467,7 +1533,7 @@ class PreviewContent(ft.Container):
             height=42,
             border_radius=21,
             on_click=lambda e, mid=mail_id: self._toggle_flag(mid, not is_flagged),
-            on_hover=self._on_hover_effect,
             alignment=ft.alignment.center,
             data={"flagged": is_flagged},
+            padding=0,
         )

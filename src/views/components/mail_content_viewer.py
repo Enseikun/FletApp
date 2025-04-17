@@ -10,6 +10,7 @@ from typing import Any, Callable, Dict, List, Optional
 import flet as ft
 
 from src.core.logger import get_logger
+from src.models.mail.styled_text import StyledText
 from src.util.object_util import get_safe
 
 
@@ -47,6 +48,12 @@ class MailContentViewer(ft.Container):
         # viewmodel参照用変数（外部から設定される）
         self.viewmodel = None
 
+        # StyledTextインスタンス
+        self.styled_text = StyledText()
+
+        # キーワードリスト
+        self.keywords = self._load_keywords()
+
         # メイン表示領域
         self.content_column = ft.Column(
             expand=True,
@@ -64,6 +71,20 @@ class MailContentViewer(ft.Container):
         self.padding = 10
 
         self.logger.info("MailContentViewer: 初期化完了")
+
+    def _load_keywords(self) -> List[str]:
+        """キーワードをファイルから読み込む"""
+        keywords = []
+        try:
+            with open("config/keywords.txt", "r", encoding="utf-8") as file:
+                for line in file:
+                    keyword = line.strip()
+                    if keyword:  # 空行を除外
+                        keywords.append(keyword)
+            self.logger.info(f"キーワード読み込み完了: {len(keywords)}件")
+        except Exception as e:
+            self.logger.error(f"キーワード読み込みエラー: {str(e)}")
+        return keywords
 
     def _show_empty_content(self):
         """空のメール内容表示"""
@@ -121,10 +142,14 @@ class MailContentViewer(ft.Container):
                             text_align=ft.TextAlign.CENTER,
                             weight="bold",
                         ),
-                        ft.Text(
+                        self.styled_text.generate_styled_text(
                             message,
-                            color=ft.colors.RED_700,
-                            text_align=ft.TextAlign.CENTER,
+                            self.keywords,
+                            None,
+                            {
+                                "color": ft.colors.RED_700,
+                                "text_align": ft.TextAlign.CENTER,
+                            },
                         ),
                     ],
                     alignment=ft.MainAxisAlignment.CENTER,
@@ -312,6 +337,29 @@ class MailContentViewer(ft.Container):
         # 添付ファイルがあれば表示用のリストを作成
         attachments_section = []
         attachments = mail.get("attachments", [])
+
+        # 添付ファイルアイコン
+        attachments_icon = (
+            ft.Row(
+                [
+                    ft.Icon(
+                        name=ft.icons.ATTACH_FILE,
+                        size=14,
+                        color=ft.colors.GREY,
+                    ),
+                    self.styled_text.generate_styled_text(
+                        f"{len(attachments)}個の添付ファイル",
+                        self.keywords,
+                        None,
+                        {"size": 12, "color": ft.colors.GREY},
+                    ),
+                ],
+                spacing=2,
+            )
+            if attachments
+            else ft.Container(width=0)
+        )
+
         if attachments:
             attachments_list = ft.Container(
                 content=ft.Column(
@@ -335,8 +383,13 @@ class MailContentViewer(ft.Container):
                                             self._get_file_icon(
                                                 attachment.get("name", "不明なファイル")
                                             ),
-                                            ft.Text(
-                                                attachment.get("name", "不明なファイル")
+                                            self.styled_text.generate_styled_text(
+                                                attachment.get(
+                                                    "name", "不明なファイル"
+                                                ),
+                                                self.keywords,
+                                                None,
+                                                None,
                                             ),
                                             ft.Text(
                                                 self._get_file_type(
@@ -382,11 +435,11 @@ class MailContentViewer(ft.Container):
                         [
                             ft.Row(
                                 [
-                                    ft.Text(
+                                    self.styled_text.generate_styled_text(
                                         mail.get("subject", "(件名なし)"),
-                                        size=18,
-                                        weight="bold",
-                                        expand=True,
+                                        self.keywords,
+                                        None,
+                                        {"size": 18, "weight": ft.FontWeight.BOLD},
                                     ),
                                     # フラグボタン
                                     self.create_flag_button(
@@ -406,8 +459,14 @@ class MailContentViewer(ft.Container):
                                                         weight="bold",
                                                         width=80,
                                                     ),
-                                                    ft.Text(
-                                                        f"{sender_name} <{sender_email}>"
+                                                    self.styled_text.generate_styled_text(
+                                                        f"{sender_name} <{sender_email}>",
+                                                        self.keywords,
+                                                        None,
+                                                        {
+                                                            "size": 12,
+                                                            "weight": ft.FontWeight.BOLD,
+                                                        },
                                                     ),
                                                 ],
                                             ),
@@ -416,8 +475,11 @@ class MailContentViewer(ft.Container):
                                                     ft.Text(
                                                         "宛先:", weight="bold", width=80
                                                     ),
-                                                    ft.Text(
-                                                        f"{recipient_name} <{recipient_email}>"
+                                                    self.styled_text.generate_styled_text(
+                                                        f"{recipient_name} <{recipient_email}>",
+                                                        self.keywords,
+                                                        None,
+                                                        None,
                                                     ),
                                                 ],
                                             ),
@@ -440,8 +502,11 @@ class MailContentViewer(ft.Container):
                                                     ft.Text(
                                                         "日時:", weight="bold", width=80
                                                     ),
-                                                    ft.Text(
-                                                        mail.get("date", "不明な日時")
+                                                    self.styled_text.generate_styled_text(
+                                                        mail.get("date", "不明な日時"),
+                                                        self.keywords,
+                                                        None,
+                                                        None,
                                                     ),
                                                 ],
                                             ),
@@ -475,7 +540,12 @@ class MailContentViewer(ft.Container):
                                         extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
                                     )
                                     if mail.get("is_markdown", False)
-                                    else ft.Text(mail.get("content", ""))
+                                    else self.styled_text.generate_styled_text(
+                                        mail.get("content", ""),
+                                        self.keywords,
+                                        None,
+                                        None,
+                                    )
                                 ),
                                 padding=10,
                                 bgcolor=ft.colors.WHITE,
@@ -1071,10 +1141,11 @@ class MailContentViewer(ft.Container):
                         size=14,
                         color=ft.colors.GREY,
                     ),
-                    ft.Text(
+                    self.styled_text.generate_styled_text(
                         f"{len(attachments)}個の添付ファイル",
-                        size=12,
-                        color=ft.colors.GREY,
+                        self.keywords,
+                        None,
+                        {"size": 12, "color": ft.colors.GREY},
                     ),
                 ],
                 spacing=2,
@@ -1111,7 +1182,9 @@ class MailContentViewer(ft.Container):
                         extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
                     )
                     if is_markdown
-                    else ft.Text(preview_text)
+                    else self.styled_text.generate_styled_text(
+                        preview_text, self.keywords, None, None
+                    )
                 ),
                 padding=10,
                 border_radius=5,
@@ -1178,20 +1251,24 @@ class MailContentViewer(ft.Container):
                                     height=20,
                                     alignment=ft.alignment.center,
                                 ),
-                                ft.Text(
+                                self.styled_text.generate_styled_text(
                                     mail.get("date", "不明な日時"),
-                                    size=12,
-                                    color=ft.colors.GREY,
+                                    self.keywords,
+                                    None,
+                                    {"size": 12, "color": ft.colors.GREY},
                                 ),
-                                ft.Text(
+                                self.styled_text.generate_styled_text(
                                     f"送信者: {sender_name}",
-                                    size=12,
-                                    weight="bold",
-                                    expand=True,
+                                    self.keywords,
+                                    None,
+                                    {
+                                        "size": 12,
+                                        "weight": ft.FontWeight.BOLD,
+                                    },
                                 ),
                                 # フラグボタン
                                 self.create_flag_button(
-                                    mail_id, mail.get("flagged", False)
+                                    self.current_mail_id, mail.get("flagged", False)
                                 ),
                                 attachments_icon,
                             ],
@@ -1224,7 +1301,7 @@ class MailContentViewer(ft.Container):
 
     def _toggle_mail_content_container(self, e, content_container):
         """メール内容の全文表示/折りたたみを切り替える"""
-        self.logger.info("MailContentViewer: メール内容表示切り替え")
+        self.logger.debug("MailContentViewer: メール内容表示切り替え")
 
         # 現在の表示状態を確認
         container_data = content_container.data
@@ -1238,44 +1315,48 @@ class MailContentViewer(ft.Container):
 
         if is_expanded:
             # 折りたたむ
-            if is_markdown:
-                content_container.content = ft.Markdown(
+            content_container.content = (
+                ft.Markdown(
                     container_data["preview_text"],
                     selectable=True,
                     extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
                 )
-            else:
-                content_container.content = ft.Text(container_data["preview_text"])
-            content_container.data["expanded"] = False
+                if is_markdown
+                else self.styled_text.generate_styled_text(
+                    container_data["preview_text"], self.keywords, None, None
+                )
+            )
+            container_data["expanded"] = False
             button_text.value = "続きを見る"
             button_icon.name = ft.icons.EXPAND_MORE
         else:
             # 展開する
-            if is_markdown:
-                content_container.content = ft.Markdown(
+            content_container.content = (
+                ft.Markdown(
                     container_data["full_text"],
                     selectable=True,
                     extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
                 )
-            else:
-                content_container.content = ft.Text(container_data["full_text"])
-            content_container.data["expanded"] = True
+                if is_markdown
+                else self.styled_text.generate_styled_text(
+                    container_data["full_text"], self.keywords, None, None
+                )
+            )
+            container_data["expanded"] = True
             button_text.value = "折りたたむ"
             button_icon.name = ft.icons.EXPAND_LESS
 
         # 高さを自動調整
         content_container.height = None
 
-        # 更新
-        try:
-            content_container.update()
-            button.update()
-        except Exception as ex:
-            self.logger.debug(
-                f"MailContentViewer: コンテンツ更新を延期します - {str(ex)}"
-            )
+        # データを更新
+        content_container.data = container_data
 
-        self.logger.info(
+        # 更新
+        content_container.update()
+        button.update()
+
+        self.logger.debug(
             "MailContentViewer: メール内容表示切り替え完了", expanded=not is_expanded
         )
 
@@ -1778,58 +1859,33 @@ class MailContentViewer(ft.Container):
     def _create_participants_row(self, role, participants):
         """参加者情報を表示する行を作成"""
         if not participants:
-            return ft.Container(width=0)
+            return ft.Container(height=0)  # 空のコンテナを返す
 
-        # 参加者が辞書形式のリストの場合
-        if participants and isinstance(participants[0], dict):
-            participant_names = []
-            for p in participants:
-                display_name = p.get("display_name") or p.get("name") or ""
-                email = p.get("email") or ""
-                if display_name and email:
-                    participant_names.append(f"{display_name} <{email}>")
-                elif email:
-                    participant_names.append(email)
-                elif display_name:
-                    participant_names.append(display_name)
+        # 参加者情報を整形
+        participant_texts = []
+        for p in participants:
+            name = p.get("display_name") or p.get("name") or ""
+            email = p.get("email") or ""
+            if name and email:
+                participant_texts.append(f"{name} <{email}>")
+            elif email:
+                participant_texts.append(email)
+            elif name:
+                participant_texts.append(name)
 
-            if not participant_names:
-                return ft.Container(width=0)
+        if not participant_texts:
+            return ft.Container(height=0)  # 参加者情報がなければ空のコンテナを返す
 
-            return ft.Row(
-                [
-                    ft.Text(
-                        f"{role}:",
-                        weight="bold",
-                        width=80,
-                    ),
-                    ft.Text(
-                        ", ".join(participant_names),
-                        size=12,
-                    ),
-                ],
-                spacing=5,
-            )
+        # 参加者情報を結合
+        participant_text = ", ".join(participant_texts)
 
-        # 従来の文字列形式の場合（後方互換性のため）
         return ft.Row(
             [
-                ft.Text(
-                    f"{role}:",
-                    weight="bold",
-                    width=80,
-                ),
-                ft.Text(
-                    ", ".join(
-                        [
-                            p.split("<")[0].strip() if "<" in p else p
-                            for p in participants
-                        ]
-                    ),
-                    size=12,
+                ft.Text(f"{role}:", weight="bold", width=80),
+                self.styled_text.generate_styled_text(
+                    participant_text, self.keywords, None, None
                 ),
             ],
-            spacing=5,
         )
 
     def get_formatted_date(self, date_str):

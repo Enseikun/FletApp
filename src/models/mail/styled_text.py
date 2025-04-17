@@ -5,6 +5,7 @@ from typing import Any, Dict, List
 
 import flet as ft
 
+from src.views.styles.color import Colors
 from src.views.styles.style import AppTheme
 
 
@@ -12,15 +13,15 @@ class StyledText:
     def __init__(self):
         self.theme = AppTheme()
         self.default_match_style = ft.TextStyle(
-            color=ft.Color.white,
+            color=ft.colors.WHITE,
             bgcolor=ft.Colors.DEEP_ORANGE,
             weight=ft.FontWeight.BOLD,
             size=self.theme.BODY_SIZE,
         )
 
         self.default_no_match_style = ft.TextStyle(
-            color=self.theme.TEXT_COLOR,
-            bgcolor=self.theme.BACKGROUND,
+            color=Colors.TEXT_PRIMARY,
+            bgcolor=Colors.BACKGROUND,
             weight=ft.FontWeight.NORMAL,
             size=self.theme.BODY_SIZE,
         )

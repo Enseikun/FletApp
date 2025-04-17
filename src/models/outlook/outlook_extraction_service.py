@@ -38,12 +38,7 @@ from src.core.logger import get_logger
 from src.models.outlook.outlook_client import OutlookClient
 from src.models.outlook.outlook_item_model import OutlookItemModel
 from src.models.outlook.outlook_service import OutlookService
-from src.util.object_util import (
-    debug_print_mail_item,
-    debug_print_mail_methods,
-    get_safe,
-    has_property,
-)
+from src.util.object_util import get_safe
 
 
 class OutlookExtractionService:
@@ -1058,7 +1053,7 @@ class OutlookExtractionService:
                             )
                             continue
 
-                    # ファイル保存パスを絶対パスで生成
+                    # 添付ファイル保存パスを絶対パスで生成
                     file_path = os.path.abspath(os.path.join(save_dir, file_name))
 
                     # パスの長さをログ出力
@@ -1071,39 +1066,42 @@ class OutlookExtractionService:
                         self.logger.info(f"ディレクトリを作成します: {dir_path}")
                         os.makedirs(dir_path, exist_ok=True)
 
-                    # 添付ファイルを保存
-                    self.logger.info(f"添付ファイルを保存します: {file_path}")
-                    try:
-                        attachment.SaveAsFile(file_path)
-                        self.logger.info(f"SaveAsFileメソッドの呼び出しが完了しました")
-                    except Exception as save_error:
-                        self.logger.error(f"SaveAsFileで例外が発生: {str(save_error)}")
-                        raise save_error
-
-                    # ファイルが実際に作成されたか確認
-                    if not os.path.exists(file_path):
-                        self.logger.error(
-                            f"添付ファイルの保存に失敗: {file_path} - ファイルが作成されませんでした"
-                        )
-                        continue
-
-                    # ファイルサイズが0でないか確認
-                    file_size = os.path.getsize(file_path)
-                    if file_size == 0:
-                        self.logger.warning(f"添付ファイルのサイズが0です: {file_path}")
-
-                    # .msg形式の添付ファイルの場合、メールアイテムとして処理
+                    # 拡張子を取得
                     extension = os.path.splitext(file_name)[1].lower()
-                    self.logger.info(f"添付ファイルの拡張子: {extension}")
+                    is_msg_file = extension == ".msg"
 
-                    # .msgファイル処理のフラグ
-                    is_msg_file = False
+                    # .msgファイル以外のみattachmentフォルダに保存
+                    if not is_msg_file:
+                        # 添付ファイルを保存
+                        self.logger.info(f"添付ファイルを保存します: {file_path}")
+                        try:
+                            attachment.SaveAsFile(file_path)
+                            self.logger.info(
+                                f"SaveAsFileメソッドの呼び出しが完了しました"
+                            )
+                        except Exception as save_error:
+                            self.logger.error(
+                                f"SaveAsFileで例外が発生: {str(save_error)}"
+                            )
+                            raise save_error
 
-                    if extension == ".msg":
-                        is_msg_file = True
-                        self.logger.info(
-                            f"MSG形式の添付ファイルを処理します: {file_path}"
-                        )
+                        # ファイルが実際に作成されたか確認
+                        if not os.path.exists(file_path):
+                            self.logger.error(
+                                f"添付ファイルの保存に失敗: {file_path} - ファイルが作成されませんでした"
+                            )
+                            continue
+
+                        # ファイルサイズが0でないか確認
+                        file_size = os.path.getsize(file_path)
+                        if file_size == 0:
+                            self.logger.warning(
+                                f"添付ファイルのサイズが0です: {file_path}"
+                            )
+                    else:
+                        # .msg形式の添付ファイルの場合は一時ディレクトリに直接保存
+                        self.logger.info(f"添付ファイルの拡張子: {extension}")
+                        self.logger.info(f"MSG形式の添付ファイルを処理します")
 
                         # 一時ディレクトリの作成
                         import tempfile
@@ -1117,24 +1115,58 @@ class OutlookExtractionService:
                         )
                         self.logger.info(f"一時ファイルパス: {temp_msg_path}")
 
+                        # 一時ファイルに直接保存
                         try:
-                            # 一時ディレクトリに.msgファイルをコピー
-                            import shutil
-
-                            shutil.copy2(file_path, temp_msg_path)
+                            attachment.SaveAsFile(temp_msg_path)
                             self.logger.info(
-                                f".msgファイルを一時ディレクトリにコピーしました: {temp_msg_path}"
+                                f"MSGファイルを一時ディレクトリに直接保存しました: {temp_msg_path}"
                             )
 
-                            # コピー後に一時ファイルが存在するか確認
+                            # ファイルが実際に作成されたか確認
                             if not os.path.exists(temp_msg_path):
                                 self.logger.error(
-                                    f"一時ファイルのコピーに失敗しました: {temp_msg_path}"
+                                    f"一時MSGファイルの保存に失敗: {temp_msg_path}"
                                 )
-                                raise FileNotFoundError(
-                                    f"一時ファイルが見つかりません: {temp_msg_path}"
-                                )
+                                continue
 
+                            # ファイルサイズを取得
+                            file_size = os.path.getsize(temp_msg_path)
+                            if file_size == 0:
+                                self.logger.warning(
+                                    f"一時MSGファイルのサイズが0です: {temp_msg_path}"
+                                )
+                                continue
+                        except Exception as save_error:
+                            self.logger.error(
+                                f"MSGファイルの一時保存で例外が発生: {str(save_error)}"
+                            )
+                            # 一時ディレクトリを削除して次へ
+                            try:
+                                import shutil
+
+                                shutil.rmtree(temp_dir)
+                                self.logger.info(
+                                    f"一時ディレクトリを削除しました: {temp_dir}"
+                                )
+                            except Exception as e:
+                                self.logger.warning(
+                                    f"一時ディレクトリの削除に失敗: {str(e)}"
+                                )
+                            continue
+
+                    # .msg形式の添付ファイルの場合、メールアイテムとして処理
+                    self.logger.info(f"添付ファイルの拡張子: {extension}")
+
+                    # .msgファイル処理のフラグ
+                    is_msg_file = False
+
+                    if extension == ".msg":
+                        is_msg_file = True
+                        self.logger.info(
+                            f"MSG形式の添付ファイルを処理します: {temp_msg_path}"
+                        )
+
+                        try:
                             # MSG形式のファイルを一時的な場所からOutlookアイテムとして読み込む
                             try:
                                 msg_item = outlook_service.get_item_from_msg(
@@ -1148,6 +1180,13 @@ class OutlookExtractionService:
                                 self.logger.info(
                                     "MSGファイルから復元したメールアイテムのプロパティを調査します"
                                 )
+
+                                # object_util.pyのデバッグ関数を呼び出す
+                                from src.util.object_util import (
+                                    debug_print_mail_item,
+                                    debug_print_mail_methods,
+                                )
+
                                 debug_print_mail_item(
                                     msg_item,
                                     "MSGファイルから復元したメールアイテムのプロパティ",
@@ -1158,15 +1197,28 @@ class OutlookExtractionService:
                                 )
 
                                 # EntryIDプロパティの存在を確認
+                                from src.util.object_util import has_property
+
                                 has_entry_id = has_property(msg_item, "EntryID")
                                 self.logger.info(
                                     f"復元したアイテムにEntryIDプロパティが存在するか: {has_entry_id}"
                                 )
-                                if has_entry_id:
-                                    entry_id_value = get_safe(
-                                        msg_item, "EntryID", "未設定"
+
+                                # EntryIDを取得（直接アクセスを試みる）
+                                entry_id = None
+                                try:
+                                    # COMオブジェクトは通常のPythonオブジェクトと異なる動作をするため
+                                    # hasattr()でfalseを返してもgetattr()で値を取得できる場合がある
+                                    entry_id = getattr(msg_item, "EntryID", None)
+                                    if entry_id:
+                                        self.logger.info(
+                                            f"復元したメールからEntryIDを直接取得: {entry_id}"
+                                        )
+                                except Exception as attr_error:
+                                    self.logger.warning(
+                                        f"EntryID直接取得に失敗: {str(attr_error)}"
                                     )
-                                    self.logger.info(f"EntryIDの値: {entry_id_value}")
+
                             except Exception as msg_error:
                                 self.logger.error(
                                     f"MSGファイルの読み込みに失敗: {str(msg_error)}"
@@ -1207,11 +1259,16 @@ class OutlookExtractionService:
                             # ConversationIDを取得
                             conversation_id = get_safe(msg_item, "ConversationID", "")
 
+                            # 直接取得したEntryIDを優先して使用
+                            msg_entry_id = (
+                                entry_id
+                                if entry_id
+                                else f"{mail_id}_MSG_{uuid.uuid4()}"
+                            )
+
                             # MSG添付メールデータの構築
                             msg_mail_data = {
-                                "entry_id": get_safe(
-                                    msg_item, "EntryID", f"{mail_id}_MSG_{uuid.uuid4()}"
-                                ),
+                                "entry_id": msg_entry_id,
                                 "store_id": get_safe(msg_item, "StoreID", ""),
                                 "folder_id": mail_data[
                                     "folder_id"
@@ -1235,6 +1292,8 @@ class OutlookExtractionService:
                                     msg_item, "Attachments.Count", 0
                                 ),
                                 "task_id": self.task_id,  # タスクIDを追加
+                                # 元のMSGファイルへのパスは保存しない
+                                # "original_msg_path": file_path,
                             }
 
                             # 参加者情報の抽出
@@ -1249,7 +1308,7 @@ class OutlookExtractionService:
                                     f"MSG形式のメールをDBに保存しました: {file_name}"
                                 )
 
-                                # MSGメール内の添付ファイルも即時処理する（メールオブジェクトが生きている間に）
+                                # MSG内の添付ファイルも即時処理する（メールオブジェクトが生きている間に）
                                 if msg_mail_data["has_attachments"]:
                                     # 再帰的に添付ファイルを処理
                                     self.logger.info(
@@ -1287,16 +1346,10 @@ class OutlookExtractionService:
                                                 f"MSG形式メール {msg_mail_id} の添付ファイル処理ステータスを成功としてマークしました"
                                             )
 
-                                # DBへの保存とその中の添付ファイル処理が完了したら、元のファイルを削除
-                                try:
-                                    os.remove(file_path)
-                                    self.logger.info(
-                                        f"元の.msgファイルを削除しました: {file_path}"
-                                    )
-                                except Exception as e:
-                                    self.logger.warning(
-                                        f"元の.msgファイルの削除に失敗: {str(e)}"
-                                    )
+                                self.logger.info(
+                                    f"MSG形式のメールの処理が完了しました: {file_name}"
+                                )
+                                processed_count += 1
                             else:
                                 self.logger.error(
                                     f"MSG形式のメールの保存に失敗: {file_name}"
@@ -1309,6 +1362,8 @@ class OutlookExtractionService:
                         finally:
                             # 一時ディレクトリの削除
                             try:
+                                import shutil
+
                                 shutil.rmtree(temp_dir)
                                 self.logger.info(
                                     f"一時ディレクトリを削除しました: {temp_dir}"
@@ -1318,19 +1373,24 @@ class OutlookExtractionService:
                                     f"一時ディレクトリの削除に失敗: {str(e)}"
                                 )
 
+                        # MSGファイルは処理完了後にDBに情報登録しないためcontinueする
+                        continue
+
                     # .msgファイルでない場合のみデータベースに添付ファイル情報を登録
-                    # (.msgファイルの場合は、処理後に元ファイルを削除するため登録しない)
-                    if not is_msg_file:
-                        query = """
-                        INSERT INTO attachments (mail_id, name, path)
-                        VALUES (?, ?, ?)
-                        """
-                        self.items_db.execute_update(
-                            query, (mail_id, file_name, file_path)
-                        )
-                        self.logger.info(
-                            f"添付ファイル情報をDBに登録しました: {file_name}"
-                        )
+                    query = """
+                    INSERT INTO attachments (mail_id, name, path, type)
+                    VALUES (?, ?, ?, ?)
+                    """
+                    self.items_db.execute_update(
+                        query,
+                        (
+                            mail_id,
+                            file_name,
+                            file_path,
+                            os.path.splitext(file_name)[1].lower().replace(".", ""),
+                        ),
+                    )
+                    self.logger.info(f"添付ファイル情報をDBに登録しました: {file_name}")
 
                     processed_count += 1
                     self.logger.info(

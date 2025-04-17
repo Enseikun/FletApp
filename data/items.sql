@@ -114,6 +114,7 @@ CREATE TABLE IF NOT EXISTS attachments (
     mail_id TEXT NOT NULL,
     name TEXT NOT NULL,
     path TEXT NOT NULL,
+    type TEXT,
     FOREIGN KEY (mail_id) REFERENCES mail_items(entry_id),
     UNIQUE (mail_id, path)
 );

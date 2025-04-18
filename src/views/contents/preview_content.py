@@ -120,16 +120,35 @@ class PreviewContent(ft.Container):
             padding=0,
         )
 
+        # FloatingActionButtonを作成
+        self.floating_action_button = ft.FloatingActionButton(
+            text="査閲終了",
+            bgcolor=Colors.ACTION_LIGHT,
+            icon=ft.icons.CHECK_CIRCLE,
+            on_click=None,
+        )
+
         # メインコンテンツ
-        self.content = ft.Column(
+        self.content = ft.Stack(
             [
-                ft.Row(
-                    [left_pane, right_pane],
+                ft.Column(
+                    [
+                        ft.Row(
+                            [left_pane, right_pane],
+                            spacing=10,
+                            expand=True,
+                        ),
+                    ],
                     spacing=10,
                     expand=True,
                 ),
+                # ft.Container(
+                #     content=self.floating_action_button,
+                #     alignment=ft.alignment.bottom_right,
+                #     padding=20,
+                #     bgcolor=None,
+                # ),
             ],
-            spacing=10,
             expand=True,
         )
 

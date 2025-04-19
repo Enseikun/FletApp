@@ -120,14 +120,6 @@ class PreviewContent(ft.Container):
             padding=0,
         )
 
-        # FloatingActionButtonを作成
-        self.floating_action_button = ft.FloatingActionButton(
-            text="査閲終了",
-            bgcolor=Colors.ACTION_LIGHT,
-            icon=ft.icons.CHECK_CIRCLE,
-            on_click=None,
-        )
-
         # メインコンテンツ
         self.content = ft.Stack(
             [
@@ -142,14 +134,29 @@ class PreviewContent(ft.Container):
                     spacing=10,
                     expand=True,
                 ),
-                # ft.Container(
-                #     content=self.floating_action_button,
-                #     alignment=ft.alignment.bottom_right,
-                #     padding=20,
-                #     bgcolor=None,
-                # ),
             ],
             expand=True,
+        )
+
+        self.floating_action_button = ft.FloatingActionButton(
+            content=ft.Row(
+                [
+                    ft.Icon(
+                        ft.icons.CHECK_CIRCLE,
+                        size=AppTheme.ICON_SIZE_SM,
+                        color=Colors.TEXT_ON_ACTION,
+                    ),
+                    ft.Text(
+                        "査閲終了", size=AppTheme.BODY_SIZE, color=Colors.TEXT_ON_ACTION
+                    ),
+                ],
+                alignment=ft.MainAxisAlignment.CENTER,
+            ),
+            shape=ft.RoundedRectangleBorder(radius=AppTheme.BORDER_RADIUS),
+            bgcolor=Colors.ACTION,
+            height=36,
+            width=112,
+            on_click=None,
         )
 
         # コンテナのスタイルを設定
@@ -189,8 +196,13 @@ class PreviewContent(ft.Container):
             use_sample=self.use_sample_data,
         )
 
+        # FloatingActionButton
+        self.page.floating_action_button = self.floating_action_button
+        self.page.update()
+
         # データを読み込む
         self.load_data()
+
         self.logger.info("PreviewContent: マウント処理完了")
 
     def will_unmount(self):
@@ -222,6 +234,10 @@ class PreviewContent(ft.Container):
 
             # タスクIDをクリア
             self.task_id = None
+
+            # FloatingActionButtonをクリア
+            self.page.floating_action_button = None
+            self.page.update()
 
             self.logger.info("PreviewContent: アンマウント処理完了")
         except Exception as e:
@@ -656,13 +672,18 @@ class PreviewContent(ft.Container):
                                 size=12,
                                 expand=True,
                             ),
-                            # 新しいフラグボタンを使用
-                            self.create_flag_button(
-                                mail["id"], mail.get("flagged", False)
-                            ),
                             attachments_icon,
+                            # 新しいフラグボタンを使用
+                            ft.Container(
+                                content=self.create_flag_button(
+                                    mail["id"], mail.get("flagged", False)
+                                ),
+                                alignment=ft.alignment.center_right,
+                                expand=True,
+                            ),
                         ],
                         spacing=5,
+                        expand=True,
                     ),
                     content_container,
                     expand_button,

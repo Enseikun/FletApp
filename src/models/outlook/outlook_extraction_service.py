@@ -1238,7 +1238,7 @@ class OutlookExtractionService:
                             )
 
                             # ThreadID の生成
-                            message_type = get_safe(msg_item, "MessageType", "")
+                            message_type = get_safe(msg_item, "MessageClass", "")
                             if message_type == "IPM.Note":
                                 thread_id = conversation_index[:43]
                             elif message_type == "IPM.SkypeTeams.Message":
@@ -1461,7 +1461,7 @@ class OutlookExtractionService:
             conversation_index = get_safe(mail_item, "ConversationIndex", "")
 
             # ThreadID の生成
-            message_type = get_safe(mail_item, "MessageType", "")
+            message_type = get_safe(mail_item, "MessageClass", "")
             if message_type == "IPM.Note":
                 thread_id = conversation_index[:43]
             elif message_type == "IPM.SkypeTeams.Message":
@@ -1541,7 +1541,7 @@ class OutlookExtractionService:
                 sender_email = ""
                 if hasattr(mail_item, "Sender") and mail_item.Sender:
                     try:
-                        address_entry = mail_item.Sender.AddressEntry
+                        address_entry = mail_item.Sender
                         if address_entry:
                             sender_email = get_safe(address_entry, "Address", "")
                     except Exception as e:
@@ -1783,6 +1783,11 @@ class OutlookExtractionService:
         """
         try:
             email = user_info.get("email", "")
+
+            # メールアドレスがExchangeの場合はsmtp_addressを使用
+            if "/o=Exchange" in email:
+                email = user_info.get("smtp_address", "")
+
             if not email:
                 return None
 
@@ -2077,7 +2082,7 @@ class OutlookExtractionService:
             if sender:
                 try:
                     # SenderのAddressEntryを取得
-                    address_entry = sender.AddressEntry
+                    address_entry = sender
                     if address_entry:
                         sender_info = {
                             "display_name": get_safe(sender, "Name"),

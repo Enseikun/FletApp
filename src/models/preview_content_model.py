@@ -113,7 +113,7 @@ class PreviewContentModel:
                     sent_time as date, 
                     unread
                 FROM mail_items
-                WHERE folder_id = ?
+                WHERE (folder_id = ?) AND (message_type IS NULL OR message_type != 'guardian')
                 ORDER BY sent_time DESC
                 """
             return self.db_manager.execute_query(query, (folder_id,))
@@ -267,8 +267,8 @@ class PreviewContentModel:
                     has_attachments
                 FROM mail_items
                 WHERE 
-                    subject LIKE ? OR 
-                    body LIKE ?
+                    (subject LIKE ? OR body LIKE ?) AND
+                    (message_type IS NULL OR message_type != 'guardian')
                 ORDER BY sent_time DESC
                 """
             results = self.db_manager.execute_query(
@@ -365,7 +365,7 @@ class PreviewContentModel:
                     has_attachments,
                     thread_id
                 FROM mail_items
-                WHERE entry_id = ?
+                WHERE (entry_id = ?) AND (message_type IS NULL OR message_type != 'guardian')
                 """
             results = self.db_manager.execute_query(query, (entry_id,))
             if not results:
@@ -448,6 +448,7 @@ class PreviewContentModel:
                     has_attachments,
                     thread_id
                 FROM mail_items
+                WHERE (message_type IS NULL OR message_type != 'guardian')
                 ORDER BY sent_time DESC
                 """
             results = self.db_manager.execute_query(query)

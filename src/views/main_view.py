@@ -10,6 +10,7 @@ from src.viewmodels.main_viewmodel import MainViewModel
 from src.viewmodels.sidebar_viewmodel import SideBarViewModel
 from src.views.components.side_bar import SideBar
 from src.views.contents.main_contents import MainContents
+from src.views.styles.color import Colors
 
 
 class MainView(ft.Container):
@@ -26,7 +27,14 @@ class MainView(ft.Container):
 
         # UI
         if self.page is not None:
-            self.page.appbar = ft.AppBar(title=ft.Text("TestApp"))
+            self.page.appbar = ft.AppBar(
+                title=ft.Text(
+                    "ComSentry",
+                    color=Colors.TEXT_ON_PRIMARY,
+                    weight=ft.FontWeight.BOLD,
+                ),
+                bgcolor=Colors.PRIMARY,
+            )
 
         # ビューモデルの初期化
         self.main_viewmodel = MainViewModel()

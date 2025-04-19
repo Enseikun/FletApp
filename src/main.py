@@ -18,7 +18,7 @@ def main(page: ft.Page):
     logger.info("アプリケーション起動")
 
     # ページの設定
-    page.title = "TestApp"
+    page.title = "ComSentry"
 
     # ProgressDialogの初期化
     progress_dialog = ProgressDialog()

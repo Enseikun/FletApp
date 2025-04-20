@@ -115,6 +115,9 @@ class OutlookExtractionService:
             query = """
                 SELECT 
                     from_folder_id,
+                    from_folder_name,
+                    to_folder_id,
+                    to_folder_name,
                     start_date,
                     end_date,
                     file_download,
@@ -151,6 +154,9 @@ class OutlookExtractionService:
             # get_safeを使用して安全にデータを取得
             conditions = {
                 "folder_id": get_safe(task_info, "from_folder_id"),
+                "from_folder_name": get_safe(task_info, "from_folder_name"),
+                "to_folder_id": get_safe(task_info, "to_folder_id"),
+                "to_folder_name": get_safe(task_info, "to_folder_name"),
                 "date_filter": date_filter,
                 "file_download": bool(get_safe(task_info, "file_download", False)),
                 "exclude_extensions": get_safe(task_info, "exclude_extensions"),
@@ -364,6 +370,8 @@ class OutlookExtractionService:
                 task = task_info[0]
                 from_folder_id = get_safe(task, "from_folder_id")
                 from_folder_name = get_safe(task, "from_folder_name")
+                to_folder_id = get_safe(task, "to_folder_id")
+                to_folder_name = get_safe(task, "to_folder_name")
                 start_date = get_safe(task, "start_date")
                 end_date = get_safe(task, "end_date")
                 exclude_extensions = get_safe(task, "exclude_extensions")
@@ -423,9 +431,10 @@ class OutlookExtractionService:
                 extraction_conditions_query = """
                 INSERT INTO extraction_conditions (
                     task_id, from_folder_id, from_folder_name,
+                    to_folder_id, to_folder_name,
                     start_date, end_date, exclude_extensions,
                     created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """
                 self.items_db.execute_update(
                     extraction_conditions_query,
@@ -433,6 +442,8 @@ class OutlookExtractionService:
                         self.task_id,
                         from_folder_id,
                         from_folder_name,
+                        to_folder_id,
+                        to_folder_name,
                         start_date,
                         end_date,
                         exclude_extensions,
@@ -506,6 +517,7 @@ class OutlookExtractionService:
                     task_id=self.task_id,
                     total_messages=len(mail_items_basic),
                     from_folder=from_folder_name,
+                    to_folder=to_folder_name,
                     start_date=start_date,
                     end_date=end_date,
                 )

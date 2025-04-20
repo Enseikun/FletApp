@@ -74,6 +74,7 @@ class MailListItem(ft.Container):
                             if is_flagged
                             else ft.Container(width=0)
                         ),
+                        # 添付ファイルアイコン（添付ファイルがある場合）
                         (
                             ft.Icon(
                                 name=ft.icons.ATTACH_FILE,

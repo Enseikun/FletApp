@@ -304,6 +304,14 @@ class Styles:
                     if key not in excluded_keys:
                         setattr(container, key, value)
 
+                # ホバーが終了した時に、明示的にshadowをNoneに設定
+                if (
+                    not is_hovering
+                    and "shadow" in style_map[ComponentState.HOVERED]
+                    and "shadow" not in style_map[ComponentState.NORMAL]
+                ):
+                    container.shadow = None
+
                 container.update()
 
         container.on_hover = on_hover

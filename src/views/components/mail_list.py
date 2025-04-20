@@ -30,7 +30,7 @@ class MailList(ft.Container):
 
         Args:
             on_mail_selected: メール選択時のコールバック関数
-            on_refresh: 更新ボタンクリック時のコールバック関数
+            on_refresh: 更新時のコールバック関数
             **kwargs: その他のキーワード引数
         """
         self.logger = get_logger()
@@ -40,20 +40,13 @@ class MailList(ft.Container):
         self.on_mail_selected = on_mail_selected
         self.on_refresh = on_refresh
 
-        # 会話ごとに集約するフラグ
-        self.group_by_thread = False
-
-        # 会話表示の時系列ソート順（True: 新しい順、False: 古い順）
-        self.thread_sort_newest_first = True
-
-        # 会話グループのコンテナを保存する辞書
-        self.thread_containers = {}
-
-        # 現在選択されているメールID
-        self.selected_mail_id = None
-
-        # メールリストアイテムの辞書（mail_id: MailListItem）
-        self.mail_items = {}
+        # 状態変数を初期化
+        self.mail_items = {}  # メールIDをキーにしたアイテムのディクショナリ
+        self.thread_containers = {}  # 会話IDをキーにしたメールリストのディクショナリ
+        self.selected_mail_id = None  # 選択中のメールID（通常モード用）
+        self.selected_thread_id = None  # 選択中の会話ID（会話集約モード用）
+        self.group_by_thread = False  # 会話ごとに集約するかどうか
+        self.thread_sort_newest_first = True  # 会話内のメールソート順：trueなら新しい順
 
         # 検索フィールド
         self.search_field = ft.TextField(
@@ -189,37 +182,21 @@ class MailList(ft.Container):
 
     def _show_thread(self, thread_id):
         """会話内容表示のトリガー"""
-        self.logger.info("MailList: 会話表示リクエスト", thread_id=thread_id)
+        thread_mails = None
+        self.logger.debug("MailList: 会話内容表示", thread_id=thread_id)
 
-        # 会話コンテナの状態ログ
-        self.logger.debug(
-            "MailList: 会話コンテナの状態",
-            thread_containers_count=len(self.thread_containers),
-            thread_containers_keys=(
-                list(self.thread_containers.keys())[:5]
-                if self.thread_containers
-                else []
-            ),
-            requested_id=thread_id,
-            id_exists=thread_id in self.thread_containers,
-        )
+        # 会話IDが渡されていることを確認
+        if not thread_id:
+            self.logger.error("MailList: 会話IDが指定されていません")
+            return
 
-        # 会話に属するメールを取得
-        thread_mails = []
+        # 会話ID毎のメールリストを取得
         if thread_id in self.thread_containers:
             thread_mails = self.thread_containers[thread_id]
             self.logger.debug(
-                "MailList: 会話コンテナからメールを取得",
+                "MailList: 会話メール取得成功",
                 thread_id=thread_id,
                 mail_count=len(thread_mails),
-                first_mail_id=(
-                    thread_mails[0].get("id", "不明") if thread_mails else "なし"
-                ),
-                all_mail_ids=(
-                    [m.get("id", "不明") for m in thread_mails[:5]]
-                    if thread_mails
-                    else []
-                ),
             )
         else:
             self.logger.warning(
@@ -246,47 +223,33 @@ class MailList(ft.Container):
                 )
                 thread_mails = self.thread_containers[prefixed_id]
 
+        # 選択中のスレッドIDを更新
+        self.selected_thread_id = thread_id
+        self.logger.debug(
+            "MailList: 選択中のスレッドIDを更新", selected_thread_id=thread_id
+        )
+
         # 選択状態を更新
         for item in self.mail_list_view.controls:
             if hasattr(item, "data") and item.data == thread_id:
                 item.bgcolor = Colors.SELECTED
+                self.logger.debug(
+                    "MailList: スレッドアイテムの選択状態を更新",
+                    item_id=item.data,
+                    selected=True,
+                )
             else:
                 item.bgcolor = Colors.BACKGROUND
             item.update()
 
-        # 会話表示イベントを上位コンポーネントに通知
-        # thread_mailsとthread_idの両方を個別の引数として渡す（順序を修正）
-        if self.on_thread_selected:
-            # 詳細なデバッグ情報
-            self.logger.debug(
-                "MailList: 会話選択イベント引数詳細",
-                thread_id_type=type(thread_id).__name__,
-                thread_id=thread_id,
-                mails_type=type(thread_mails).__name__,
-                mails_is_list=isinstance(thread_mails, list),
-                mail_count=len(thread_mails) if thread_mails else 0,
-                handler_type=type(self.on_thread_selected).__name__,
-                has_handler=self.on_thread_selected is not None,
-            )
-
-            if isinstance(thread_mails, list) and len(thread_mails) > 0:
-                self.logger.debug(
-                    "MailList: 会話メールリスト最初の要素",
-                    first_mail_keys=(
-                        list(thread_mails[0].keys())
-                        if isinstance(thread_mails[0], dict)
-                        else "not a dict"
-                    ),
-                    mail_id=(
-                        thread_mails[0].get("id", "不明")
-                        if isinstance(thread_mails[0], dict)
-                        else "不明"
-                    ),
-                )
-
+        # 会話選択イベントを発火（存在する場合）
+        if (
+            thread_mails
+            and hasattr(self, "on_thread_selected")
+            and self.on_thread_selected
+        ):
             self.logger.debug(
                 "MailList: 会話選択イベント発火",
-                handler=str(self.on_thread_selected),
                 thread_id=thread_id,
                 mail_count=len(thread_mails),
             )
@@ -298,7 +261,9 @@ class MailList(ft.Container):
             except Exception as e:
                 self.logger.error("MailList: 会話選択イベント発火エラー", error=str(e))
         else:
-            self.logger.error("MailList: 会話選択イベントハンドラが設定されていません")
+            self.logger.error(
+                "MailList: 会話選択イベントハンドラが設定されていないか、メールが見つかりません"
+            )
 
     def display_mails(self, mails: List[Dict]):
         """メール一覧を表示"""
@@ -312,6 +277,7 @@ class MailList(ft.Container):
         self.mail_list_view.controls.clear()
         self.mail_items = {}
         self.selected_mail_id = None
+        self.selected_thread_id = None
 
         # メールが存在しない場合のメッセージ
         if not mails:
@@ -375,6 +341,13 @@ class MailList(ft.Container):
     def _display_grouped_mails(self, mails):
         """会話ごとにグループ化されたメールを表示"""
         self.logger.info("MailList: 会話ごとにグループ化されたメール表示開始")
+
+        # 以前選択されていたスレッドIDを保存
+        previously_selected_thread_id = self.selected_thread_id
+        self.logger.debug(
+            "MailList: 以前選択されていたスレッドID",
+            thread_id=previously_selected_thread_id,
+        )
 
         # 会話コンテナを初期化
         self.thread_containers = {}
@@ -450,6 +423,10 @@ class MailList(ft.Container):
                                 risk_color = Colors.SUCCESS
                             break  # AIレビュー情報が見つかったらループを抜ける
 
+            # 前回選択されていたスレッドIDと一致するか確認
+            is_selected = thread_id == previously_selected_thread_id
+            initial_bgcolor = Colors.SELECTED if is_selected else Colors.BACKGROUND
+
             thread_header = Styles.clickable_container(
                 content=ft.Column(
                     [
@@ -515,12 +492,19 @@ class MailList(ft.Container):
                 on_click=lambda e, cid=thread_id: self._show_thread(cid),
                 data=thread_id,
                 ink=True,
-                bgcolor=Colors.BACKGROUND,
+                bgcolor=initial_bgcolor,
                 border=ft.border.all(AppTheme.BORDER_WIDTH, Colors.BORDER),
                 margin=ft.margin.only(bottom=AppTheme.SPACING_XS),
             )
 
             self.mail_list_view.controls.append(thread_header)
+
+            # 選択状態のスレッドが見つかった場合、選択状態を更新
+            if is_selected:
+                self.selected_thread_id = thread_id
+                self.logger.debug(
+                    "MailList: 以前選択されていたスレッドを再選択", thread_id=thread_id
+                )
 
         self.logger.info(
             "MailList: 会話ごとにグループ化されたメール表示完了",
@@ -732,34 +716,25 @@ class MailList(ft.Container):
             self.scroll_container.scroll_to(offset=0, duration=300)
 
     def reset(self):
-        """コンポーネントの状態をリセット"""
-        # メールリストをクリア
-        if hasattr(self, "mail_items") and self.mail_items:
-            self.mail_items.clear()
+        """リストの状態をリセット"""
+        self.logger.info("MailList: リセット")
 
-        # 会話グループをクリア
-        if hasattr(self, "thread_groups") and self.thread_groups:
-            self.thread_groups.clear()
-
-        # 表示中のメールリストをクリア
-        if hasattr(self, "list_view") and self.list_view:
-            self.list_view.controls.clear()
-
-        # 検索ボックスをクリア
-        if hasattr(self, "search_box") and self.search_box:
-            self.search_box.value = ""
-
-        # ソート順をデフォルトに戻す
-        if hasattr(self, "sort_dropdown") and self.sort_dropdown:
-            self.sort_dropdown.value = "date_desc"
-
-        # 会話グループフラグをリセット
-        if hasattr(self, "group_by_thread_toggle") and self.group_by_thread_toggle:
-            self.group_by_thread_toggle.value = False
-
-        # 選択状態をクリア
+        # 内部状態のリセット
+        self.mail_items = {}
+        self.thread_containers = {}
         self.selected_mail_id = None
         self.selected_thread_id = None
+
+        # UIのリセット
+        if hasattr(self, "mail_list_view"):
+            self.mail_list_view.controls.clear()
+
+        # 検索フィールドのリセット
+        if hasattr(self, "search_field"):
+            self.search_field.value = ""
+
+        # 更新
+        self.update()
 
     def update_flag_status(self, mail_id: str, is_flagged: bool) -> None:
         """

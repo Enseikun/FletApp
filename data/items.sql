@@ -241,6 +241,8 @@ CREATE TABLE IF NOT EXISTS extraction_conditions (
     task_id TEXT PRIMARY KEY,
     from_folder_id TEXT NOT NULL,
     from_folder_name TEXT NOT NULL,
+    to_folder_id TEXT,
+    to_folder_name TEXT,
     start_date TIMESTAMP NOT NULL CHECK (
         datetime(start_date) IS NOT NULL AND
         start_date LIKE '____-__-__ __:__:__'
@@ -255,7 +257,8 @@ CREATE TABLE IF NOT EXISTS extraction_conditions (
         datetime(created_at) IS NOT NULL AND
         created_at LIKE '____-__-__ __:__:__'
     ),
-    FOREIGN KEY (from_folder_id) REFERENCES outlook_snapshot(entry_id)
+    FOREIGN KEY (from_folder_id) REFERENCES outlook_snapshot(entry_id),
+    FOREIGN KEY (to_folder_id) REFERENCES outlook_snapshot(entry_id)
 );
 
 -- インデックス
@@ -281,6 +284,7 @@ CREATE INDEX IF NOT EXISTS idx_mail_tasks_mail_fetch ON mail_tasks(mail_fetch_st
 CREATE INDEX IF NOT EXISTS idx_mail_tasks_attachment ON mail_tasks(attachment_status);
 CREATE INDEX IF NOT EXISTS idx_mail_tasks_ai_review ON mail_tasks(ai_review_status);
 CREATE INDEX IF NOT EXISTS idx_extraction_conditions_folder ON extraction_conditions(from_folder_id);
+CREATE INDEX IF NOT EXISTS idx_extraction_conditions_to_folder ON extraction_conditions(to_folder_id);
 CREATE INDEX IF NOT EXISTS idx_extraction_conditions_dates ON extraction_conditions(start_date, end_date);
 
 -- フォルダのitem_count更新用トリガー

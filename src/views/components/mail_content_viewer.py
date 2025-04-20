@@ -146,7 +146,9 @@ class MailContentViewer(ft.Container):
 
     def show_error_message(self, message):
         """エラーメッセージを表示"""
-        self.logger.error("MailContentViewer: エラーメッセージ表示", message=message)
+        # ログ出力を修正: messageキーワード引数を重複させない
+        # self.logger.error(f"MailContentViewer: エラーメッセージ表示 - {str(message)}")
+
         self.content_column.controls.clear()
         self.content_column.controls.append(
             Styles.container(
@@ -312,7 +314,8 @@ class MailContentViewer(ft.Container):
                 )
 
         except Exception as e:
-            self.logger.error(f"フラグ切替処理でエラー: {e}")
+            # エラーメッセージの修正 - messageキーワード引数の重複を修正
+            # self.logger.error(f"フラグ切替処理でエラー: {str(e)}")
             self.show_error_message(f"フラグ操作に失敗しました: {str(e)}")
 
     def _update_flag_button_ui(self, is_flagged=None):
@@ -362,7 +365,7 @@ class MailContentViewer(ft.Container):
 
     def _download_attachment(self, e, file_id):
         """添付ファイルのダウンロード処理"""
-        self.logger.info("MailContentViewer: 添付ファイルダウンロード", file_id=file_id)
+        self.logger.info(f"MailContentViewer: 添付ファイルダウンロード {file_id}")
         if self.on_download_attachment:
             self.on_download_attachment(file_id)
 
@@ -374,7 +377,7 @@ class MailContentViewer(ft.Container):
             self.current_mail_id = mail.get("id", None)
 
         self.logger.info(
-            "MailContentViewer: メール内容表示", mail_id=self.current_mail_id
+            f"MailContentViewer: メール内容表示 mail_id={self.current_mail_id}"
         )
 
         if not mail:
@@ -396,9 +399,7 @@ class MailContentViewer(ft.Container):
         recipient = mail.get("recipient", "不明 <unknown@example.com>")
         if not isinstance(recipient, str):
             self.logger.warning(
-                "MailContentViewer: 受信者情報が文字列ではありません",
-                recipient_type=type(recipient).__name__,
-                mail_id=mail_id,
+                f"MailContentViewer: 受信者情報が文字列ではありません recipient_type={type(recipient).__name__} mail_id={mail_id}"
             )
             recipient = "不明 <unknown@example.com>"
 
@@ -971,7 +972,7 @@ class MailContentViewer(ft.Container):
             return
 
         self._safe_update()
-        self.logger.info("MailContentViewer: 会話内容表示完了", mail_count=len(mails))
+        self.logger.info(f"MailContentViewer: 会話内容表示完了 mail_count={len(mails)}")
 
     def _create_ai_review_section(self, ai_review_info=None, risk_score=None):
         """AIレビュー情報セクションを作成"""
@@ -1181,17 +1182,12 @@ class MailContentViewer(ft.Container):
         mail_id = mail.get("id", "")
 
         self.logger.debug(
-            "MailContentViewer: _create_mail_content_item詳細",
-            mail_id=mail_id,
-            mail_idx=index,
-            mail_type=type(mail).__name__,
+            f"MailContentViewer: _create_mail_content_item詳細 mail_id={mail_id} mail_idx={index} mail_type={type(mail).__name__}"
         )
 
         if not isinstance(mail, dict):
             self.logger.error(
-                "MailContentViewer: メールデータが辞書型ではありません",
-                mail_type=type(mail).__name__,
-                mail_idx=index,
+                f"MailContentViewer: メールデータが辞書型ではありません mail_type={type(mail).__name__} mail_idx={index}"
             )
             return ft.Container(
                 content=ft.Text(f"無効なメールデータ (ID: {mail_id})"),
@@ -1205,9 +1201,7 @@ class MailContentViewer(ft.Container):
         sender = mail.get("sender", "不明 <unknown@example.com>")
         if not isinstance(sender, str):
             self.logger.warning(
-                "MailContentViewer: 送信者情報が文字列ではありません",
-                sender_type=type(sender).__name__,
-                mail_id=mail_id,
+                f"MailContentViewer: 送信者情報が文字列ではありません sender_type={type(sender).__name__} mail_id={mail_id}"
             )
             sender = "不明 <unknown@example.com>"
 
@@ -1220,9 +1214,7 @@ class MailContentViewer(ft.Container):
         recipient = mail.get("recipient", "不明 <unknown@example.com>")
         if not isinstance(recipient, str):
             self.logger.warning(
-                "MailContentViewer: 受信者情報が文字列ではありません",
-                recipient_type=type(recipient).__name__,
-                mail_id=mail_id,
+                f"MailContentViewer: 受信者情報が文字列ではありません recipient_type={type(recipient).__name__} mail_id={mail_id}"
             )
             recipient = "不明 <unknown@example.com>"
 
@@ -1253,9 +1245,7 @@ class MailContentViewer(ft.Container):
         attachments = mail.get("attachments", [])
         if not isinstance(attachments, list):
             self.logger.warning(
-                "MailContentViewer: 添付ファイル情報がリスト型ではありません",
-                attachments_type=type(attachments).__name__,
-                mail_id=mail_id,
+                f"MailContentViewer: 添付ファイル情報がリスト型ではありません attachments_type={type(attachments).__name__} mail_id={mail_id}"
             )
             attachments = []
 
@@ -1284,9 +1274,7 @@ class MailContentViewer(ft.Container):
         content = mail.get("content", "")
         if not isinstance(content, str):
             self.logger.warning(
-                "MailContentViewer: メール本文が文字列ではありません",
-                content_type=type(content).__name__,
-                mail_id=mail_id,
+                f"MailContentViewer: メール本文が文字列ではありません content_type={type(content).__name__} mail_id={mail_id}"
             )
             content = str(content) if content is not None else ""
 

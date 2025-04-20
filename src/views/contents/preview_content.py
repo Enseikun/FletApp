@@ -13,6 +13,7 @@ from src.models.mail.styled_text import StyledText
 from src.viewmodels.preview_content_viewmodel import PreviewContentViewModel
 from src.views.components.mail_content_viewer import MailContentViewer
 from src.views.components.mail_list import MailList
+from src.views.components.progress_dialog import ProgressDialog
 from src.views.styles.color import Colors
 from src.views.styles.style import AppTheme, ComponentState, Styles
 
@@ -26,29 +27,40 @@ class PreviewContent(ft.Container):
     def __init__(self, contents_viewmodel):
         """初期化"""
         super().__init__()
-        self.contents_viewmodel = contents_viewmodel  # ViewModelへの参照を保持
+        self.contents_viewmodel = contents_viewmodel
         self.logger = get_logger()
         self.logger.info("PreviewContent: 初期化開始")
+        self.progress_dialog = ProgressDialog()
+        self.floating_action_button = None
+        self.task_id = None
 
-        # 初期化パラメータ
+        # ダイアログ管理用変数
+        self._current_dialog = None
+        self._is_dialog_open = False
+
+        # コンポーネント初期化
         self._init_parameters()
-
-        # コンポーネントの初期化
         self._init_components()
-
-        # スタイル設定
         self._init_styles()
+        self._init_floating_action_button()
 
-        # UIを構築
+        # UIを構築（重要：this was missing）
         self._build()
 
+        # サイズ設定
+        self.expand = True
+
         self.logger.info("PreviewContent: 初期化完了")
+
+    def _reset_click_states(self):
+        """クリックポイント状態をリセット（空の実装）"""
+        # この関数は空の実装としておく（必要に応じて後で実装）
+        pass
 
     def _init_parameters(self):
         """パラメータの初期化"""
         # ViewModelの初期化（遅延）
         self.viewmodel = None
-        self.task_id = None
 
         # 設定パラメータ
         self.group_by_thread = False
@@ -90,14 +102,10 @@ class PreviewContent(ft.Container):
         # キーワードリスト
         self.keywords = self._load_keywords()
 
-        # FloatingActionButton
-        self._init_floating_action_button()
-
     def _init_styles(self):
         """スタイルの初期化"""
         # Fletコンテナの設定
         self.padding = AppTheme.CONTENT_PADDING
-        self.expand = True
         self.bgcolor = Colors.BACKGROUND
 
     def _init_floating_action_button(self):
@@ -120,7 +128,7 @@ class PreviewContent(ft.Container):
             bgcolor=Colors.ACTION,
             height=36,
             width=112,
-            on_click=None,
+            on_click=self.on_review_complete,
         )
 
     def _build(self):
@@ -203,8 +211,12 @@ class PreviewContent(ft.Container):
         # ViewModelを初期化
         self._init_viewmodel()
 
+        # ProgressDialogを初期化
+        self.progress_dialog.initialize(self.page)
+
         # FloatingActionButton
         self.page.floating_action_button = self.floating_action_button
+        self.logger.info("PreviewContent: FloatingActionButton を設定しました")
         self.page.update()
 
         # データを読み込む
@@ -447,9 +459,24 @@ class PreviewContent(ft.Container):
 
     def _update_mail_selection_in_list(self, mail_id):
         """メールリスト内の選択状態を更新"""
+        # メールリストコンポーネントの選択状態を更新
+        if hasattr(self.mail_list_component, "selected_thread_id"):
+            self.mail_list_component.selected_thread_id = mail_id
+            self.logger.debug(
+                "PreviewContent: メールリストコンポーネントの選択状態を更新",
+                thread_id=mail_id,
+            )
+
+        # 各アイテムの背景色を更新
         for item in self.mail_list_component.mail_list_view.controls:
-            if hasattr(item, "data") and item.data == mail_id:
+            # 選択されたアイテムだけ色を変更
+            if mail_id and hasattr(item, "data") and item.data == mail_id:
                 item.bgcolor = Colors.SELECTED
+                self.logger.debug(
+                    "PreviewContent: 選択アイテムの背景色を変更",
+                    item_id=item.data,
+                    thread_id=mail_id,
+                )
             else:
                 item.bgcolor = Colors.BACKGROUND
             item.update()
@@ -486,7 +513,9 @@ class PreviewContent(ft.Container):
 
     def show_error_message(self, message):
         """エラーメッセージを表示"""
-        self.logger.error("PreviewContent: エラーメッセージ表示", message=message)
+        # ログ出力を修正: messageキーワード引数を重複させない
+        self.logger.error(f"PreviewContent: エラーメッセージ表示 - {message}")
+
         # メール内容表示をクリア
         self.mail_content_viewer._show_empty_content()
         self.mail_content_viewer.show_error_message(message)
@@ -494,7 +523,8 @@ class PreviewContent(ft.Container):
 
     def show_no_data_message(self, message):
         """データがない場合のメッセージを表示"""
-        self.logger.info("PreviewContent: データなしメッセージ表示", message=message)
+        # ログ出力を修正: messageキーワード引数を重複させない
+        self.logger.info(f"PreviewContent: データなしメッセージ表示 - {message}")
 
         # メールリストをクリア
         self.mail_list_component.mail_list_view.controls.clear()
@@ -1010,16 +1040,16 @@ class PreviewContent(ft.Container):
                     "PreviewContent: メールフラグ切り替え完了",
                     mail_id=mail_id,
                     flagged=is_flagged,
-                    message=message,
+                    message=str(message),
                 )
             else:
                 self.logger.error(
                     "PreviewContent: メールフラグ切り替え失敗",
                     mail_id=mail_id,
-                    message=message,
+                    message=str(message),
                 )
                 # エラーメッセージを表示
-                self.show_error_message(message)
+                self.show_error_message(str(message))
 
     def _update_related_thread_flags(self, mail_id, is_flagged):
         """関連する会話内の他のメールのフラグも更新"""
@@ -1284,6 +1314,15 @@ class PreviewContent(ft.Container):
 
     def _update_thread_selection_in_list(self, thread_id):
         """メールリスト内の選択状態を更新"""
+        # メールリストコンポーネントの選択状態を更新
+        if hasattr(self.mail_list_component, "selected_thread_id"):
+            self.mail_list_component.selected_thread_id = thread_id
+            self.logger.debug(
+                "PreviewContent: メールリストコンポーネントの選択状態を更新",
+                thread_id=thread_id,
+            )
+
+        # 各アイテムの背景色を更新
         for item in self.mail_list_component.mail_list_view.controls:
             # 選択されたアイテムだけ色を変更
             if thread_id and hasattr(item, "data") and item.data == thread_id:
@@ -1642,9 +1681,7 @@ class PreviewContent(ft.Container):
             ),
             padding=10,
             border_radius=5,
-            on_click=lambda e, cid=thread_id: self._show_thread(
-                self.thread_containers[cid], cid
-            ),
+            on_click=lambda e, tid=thread_id: self._show_thread(thread_id=tid),
             data=thread_id,
             ink=True,
             bgcolor=ft.colors.WHITE,
@@ -1663,3 +1700,360 @@ class PreviewContent(ft.Container):
                 else []
             ),
         )
+
+    def on_review_complete(self, e):
+        """査閲終了処理"""
+        self.logger.info("PreviewContent: 査閲終了ボタンがクリックされました")
+        print("査閲終了ボタンがクリックされました")  # 直接コンソール出力
+
+        # 確認ダイアログを表示
+        self._show_confirmation_dialog()
+
+    def _show_confirmation_dialog(self):
+        """査閲終了確認ダイアログを表示"""
+        dialog = ft.AlertDialog(
+            modal=True,  # モーダルダイアログとして表示
+            title=ft.Text("査閲終了の確認"),
+            content=ft.Text(
+                "査閲を終了してよろしいですか？\n\n"
+                "フラグありメールはOutlookにフラグが設定され、\n"
+                "フラグなしメールは別フォルダに移動されます。"
+            ),
+            actions=[
+                ft.TextButton(
+                    text="いいえ",
+                    on_click=lambda e: self._close_dialog(e, dialog),
+                    style=ft.ButtonStyle(
+                        color=Colors.TEXT,
+                    ),
+                ),
+                ft.ElevatedButton(
+                    text="はい",
+                    on_click=lambda e: self._on_confirmation_confirmed(e, dialog),
+                    style=ft.ButtonStyle(
+                        shape=ft.RoundedRectangleBorder(radius=4),
+                        color=Colors.TEXT_ON_ACTION,
+                        bgcolor=Colors.ACTION,
+                    ),
+                ),
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+        self.logger.debug("PreviewContent: 確認ダイアログを作成しました")
+        self._show_dialog(dialog)
+
+    def _on_confirmation_confirmed(self, e, dialog):
+        """確認ダイアログでYesが選択された場合の処理"""
+        # 確認ダイアログを閉じる
+        self._close_dialog(e, dialog)
+
+        # ここから本来の査閲終了処理を実行
+        self.logger.info("PreviewContent: 査閲終了処理開始")
+
+        try:
+            # 処理中表示（ProgressDialogのIndeterminateモードを使用）
+            self.progress_dialog.show(
+                title="査閲終了",
+                content="査閲終了処理中です。しばらくお待ちください...",
+                current_value=0,
+                max_value=0,  # Indeterminateモード
+            )
+
+            # 保留中の変更をDBに確実に保存
+            self._commit_pending_changes()
+
+            # フラグが立っていないメールを移動フォルダに移動
+            self._move_unflagged_mails_to_destination()
+
+            # ProgressDialogを閉じる
+            if self.progress_dialog.is_open:
+                self.page.close(self.progress_dialog._dialog)
+                self.page.update()
+
+            # 完了メッセージをAlertDialogで表示
+            moved_count = getattr(self, "_last_moved_count", 0)
+            self._show_completion_dialog(moved_count)
+
+            self.logger.info("PreviewContent: 査閲終了処理完了")
+        except Exception as e:
+            self.logger.error(f"PreviewContent: 査閲終了処理中にエラー - {str(e)}")
+
+            # ProgressDialogを閉じる
+            if hasattr(self, "progress_dialog") and self.progress_dialog.is_open:
+                self.page.close(self.progress_dialog._dialog)
+                self.page.update()
+
+            # エラーメッセージをAlertDialogで表示
+            self._show_error_dialog(str(e))
+
+    def _show_completion_dialog(self, moved_count):
+        """完了ダイアログを表示"""
+        flag_set_count = getattr(self, "_last_flag_set_count", 0)
+
+        dialog = ft.AlertDialog(
+            modal=True,  # モーダルダイアログとして表示
+            title=ft.Text("査閲終了"),
+            content=ft.Text(
+                f"査閲終了処理が完了しました。\n\n"
+                f"・フラグなしメール {moved_count} 件を移動しました。\n"
+                f"・フラグありメール {flag_set_count} 件にフラグを設定しました。"
+            ),
+            actions=[
+                ft.ElevatedButton(
+                    text="OK",
+                    on_click=lambda e: self._close_dialog(e, dialog),
+                    style=ft.ButtonStyle(
+                        shape=ft.RoundedRectangleBorder(radius=4),
+                    ),
+                ),
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+        self.logger.debug("PreviewContent: 完了ダイアログを作成しました")
+        self._show_dialog(dialog)
+
+    def _show_error_dialog(self, error_message):
+        """エラーダイアログを表示"""
+        dialog = ft.AlertDialog(
+            modal=True,  # モーダルダイアログとして表示
+            title=ft.Text("エラー"),
+            content=ft.Text(
+                f"査閲終了処理中にエラーが発生しました:\n\n{error_message}"
+            ),
+            actions=[
+                ft.ElevatedButton(
+                    text="OK",
+                    on_click=lambda e: self._close_dialog(e, dialog),
+                    style=ft.ButtonStyle(
+                        shape=ft.RoundedRectangleBorder(radius=4),
+                    ),
+                ),
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+        self.logger.debug("PreviewContent: エラーダイアログを作成しました")
+        self._show_dialog(dialog)
+
+    def _close_dialog(self, e, dialog):
+        """ダイアログを閉じる"""
+        dialog.open = False
+        self.page.update()
+        self._current_dialog = None
+        self._is_dialog_open = False
+        self.logger.debug("PreviewContent: ダイアログを閉じます")
+
+    def _commit_pending_changes(self):
+        """保留中の変更をDBに確実に保存"""
+        self.logger.debug("PreviewContent: 保留中の変更をDBに保存")
+
+        # ViewModelの確認
+        if not hasattr(self, "viewmodel") or not self.viewmodel:
+            self.logger.warning("PreviewContent: ViewModelが初期化されていません")
+            return
+
+        # 保留中のフラグ変更をコミット
+        if hasattr(self.viewmodel, "commit_flag_changes"):
+            self.logger.info("PreviewContent: 保留中のフラグ変更をコミット")
+            self.viewmodel.commit_flag_changes()
+
+        # 保留中の既読変更をコミット
+        if hasattr(self.viewmodel, "commit_read_changes"):
+            self.logger.info("PreviewContent: 保留中の既読変更をコミット")
+            self.viewmodel.commit_read_changes()
+
+    def _move_unflagged_mails_to_destination(self):
+        """フラグが立っていないメールを移動フォルダに移動"""
+        self.logger.info("PreviewContent: フラグなしメールの移動処理開始")
+
+        # ViewModelの確認
+        if not hasattr(self, "viewmodel") or not self.viewmodel:
+            self.logger.warning("PreviewContent: ViewModelが初期化されていません")
+            return
+
+        # モデルの取得
+        model = self.viewmodel.model
+
+        try:
+            # 抽出条件からto_folder_idを取得
+            to_folder_id = self._get_destination_folder_id(model)
+
+            if not to_folder_id:
+                self.logger.warning(
+                    "PreviewContent: 移動先フォルダIDが取得できませんでした"
+                )
+                return
+
+            # Outlookサービスを初期化
+            from src.models.outlook.outlook_service import OutlookService
+
+            outlook_service = OutlookService()
+
+            # フラグなしメールを取得して移動
+            unflagged_mails = self._get_unflagged_mails(model)
+            if not unflagged_mails:
+                self.logger.info("PreviewContent: 移動対象のメールはありません")
+                self._last_moved_count = 0
+            else:
+                # メールをOutlook内で移動
+                moved_count = 0
+                for mail in unflagged_mails:
+                    mail_id = mail.get("entry_id")
+                    if mail_id:
+                        success = outlook_service.move_item(mail_id, to_folder_id)
+                        if success:
+                            moved_count += 1
+                            self.logger.debug(f"メールを移動しました: {mail_id}")
+                        else:
+                            self.logger.warning(
+                                f"メールの移動に失敗しました: {mail_id}"
+                            )
+
+                # 移動数を保存（完了ダイアログ用）
+                self._last_moved_count = moved_count
+                self.logger.info(
+                    f"PreviewContent: {moved_count}件のメールを移動しました"
+                )
+
+            # フラグありメールのフラグを設定
+            flagged_mails = self._get_flagged_mails(model)
+            flag_set_count = 0
+
+            if flagged_mails:
+                self.logger.info(
+                    f"フラグありメール: {len(flagged_mails)}件にフラグを設定します"
+                )
+
+                # 定数定義
+                FLAG_COMPLETE = 1  # 完了フラグ
+
+                # Outlookアイテムにフラグを設定
+                for mail in flagged_mails:
+                    mail_id = mail.get("entry_id")
+                    if mail_id:
+                        try:
+                            success = outlook_service.set_flag(
+                                mail_id, FLAG_COMPLETE, 2
+                            )  # FlagStatus=2は標準フラグ
+                            if success:
+                                flag_set_count += 1
+                                self.logger.debug(
+                                    f"メールにフラグを設定しました: {mail_id}"
+                                )
+                            else:
+                                self.logger.warning(
+                                    f"メールのフラグ設定に失敗しました: {mail_id}"
+                                )
+                        except Exception as flag_error:
+                            self.logger.warning(
+                                f"メールのフラグ設定中にエラー: {mail_id} - {str(flag_error)}"
+                            )
+
+                self.logger.info(
+                    f"PreviewContent: {flag_set_count}件のメールにフラグを設定しました"
+                )
+            else:
+                self.logger.info("PreviewContent: フラグ設定対象のメールはありません")
+
+            # フラグ設定数も保存（完了ダイアログ用）
+            self._last_flag_set_count = flag_set_count
+
+        except Exception as e:
+            self.logger.error(f"PreviewContent: メール処理中にエラー - {str(e)}")
+            raise
+
+    def _get_destination_folder_id(self, model):
+        """移動先フォルダIDを取得"""
+        try:
+            query = """
+                SELECT to_folder_id
+                FROM extraction_conditions
+                WHERE task_id = ?
+                LIMIT 1
+            """
+
+            if not hasattr(model, "db_manager") or not model.db_manager:
+                self.logger.warning(
+                    "PreviewContent: DBマネージャーが初期化されていません"
+                )
+                return None
+
+            results = model.db_manager.execute_query(query, (self.task_id,))
+
+            if results and len(results) > 0:
+                return results[0].get("to_folder_id")
+            else:
+                self.logger.warning(f"抽出条件が見つかりません: {self.task_id}")
+                return None
+        except Exception as e:
+            self.logger.error(f"移動先フォルダID取得エラー: {str(e)}")
+            return None
+
+    def _get_unflagged_mails(self, model):
+        """フラグが立っていないメールを取得"""
+        try:
+            query = """
+                SELECT entry_id
+                FROM mail_items
+                WHERE (flagged = 0 OR flagged IS NULL)
+                AND task_id = ?
+            """
+
+            if not hasattr(model, "db_manager") or not model.db_manager:
+                self.logger.warning(
+                    "PreviewContent: DBマネージャーが初期化されていません"
+                )
+                return []
+
+            results = model.db_manager.execute_query(query, (self.task_id,))
+
+            self.logger.info(f"フラグなしメール: {len(results)}件")
+            return results
+        except Exception as e:
+            self.logger.error(f"フラグなしメール取得エラー: {str(e)}")
+            return []
+
+    def _get_flagged_mails(self, model):
+        """フラグが立っているメールを取得"""
+        try:
+            query = """
+                SELECT entry_id
+                FROM mail_items
+                WHERE flagged = 1
+                AND task_id = ?
+            """
+
+            if not hasattr(model, "db_manager") or not model.db_manager:
+                self.logger.warning(
+                    "PreviewContent: DBマネージャーが初期化されていません"
+                )
+                return []
+
+            results = model.db_manager.execute_query(query, (self.task_id,))
+
+            self.logger.info(f"フラグありメール: {len(results)}件")
+            return results
+        except Exception as e:
+            self.logger.error(f"フラグありメール取得エラー: {str(e)}")
+            return []
+
+    def _show_dialog(self, dialog):
+        """ダイアログを表示する共通メソッド"""
+        if hasattr(self, "page") and self.page:
+            # 前のダイアログが開いていれば閉じる
+            self._close_current_dialog()
+            # 新しいダイアログを表示
+            self._current_dialog = dialog
+            self._is_dialog_open = True
+            self.page.dialog = dialog
+            dialog.open = True
+            self.page.update()
+            self.logger.debug("PreviewContent: ダイアログを表示しました")
+
+    def _close_current_dialog(self):
+        """現在開いているダイアログを閉じる"""
+        if self._current_dialog is not None and self._is_dialog_open:
+            self._current_dialog.open = False
+            self.page.update()
+            self._current_dialog = None
+            self._is_dialog_open = False
+            self.logger.debug("PreviewContent: ダイアログを閉じました")

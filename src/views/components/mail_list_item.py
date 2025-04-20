@@ -154,20 +154,27 @@ class MailListItem(ft.Container):
 
     def update_flag_status(self, is_flagged: bool):
         """フラグ状態を更新"""
+        # 内部のデータも更新
+        self.mail_data["flagged"] = is_flagged
+
+        # UIを更新
         row = self.content.controls[0]
         if isinstance(row, ft.Row) and len(row.controls) > 3:
-            for control in row.controls:
-                # フラグアイコンを探す
-                if hasattr(control, "name") and control.name in [
-                    ft.icons.FLAG,
-                    ft.icons.FLAG_OUTLINED,
-                ]:
-                    # フラグを更新
-                    control.name = (
-                        ft.icons.FLAG if is_flagged else ft.icons.FLAG_OUTLINED
-                    )
-                    control.color = ft.colors.RED if is_flagged else ft.colors.GREY
-                    control.visible = True
-                    control.width = 20
-                    break
+            # フラグアイコンの位置（インデックス3）を直接使用
+            if is_flagged:
+                # フラグがオンの場合はアイコンを表示
+                row.controls[3] = ft.Icon(
+                    name=ft.icons.FLAG,
+                    size=14,
+                    color=ft.colors.RED,
+                )
+            else:
+                # フラグがオフの場合は幅0のコンテナ
+                row.controls[3] = ft.Container(width=0)
+
+        # Containerのツールチップを更新
+        self.tooltip = f"{self.mail_data['subject']} - {self.mail_data['sender']}"
+        if is_flagged:
+            self.tooltip += " [フラグ付き]"
+
         self.update()

@@ -8,10 +8,12 @@ from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional
 
 import flet as ft
+from flet import ControlEvent
 
 from src.core.logger import get_logger
 from src.models.mail.styled_text import StyledText
 from src.util.object_util import get_safe
+from src.views.styles.style import AppTheme, Colors, Styles
 
 
 class MailContentViewer(ft.Container):
@@ -38,6 +40,22 @@ class MailContentViewer(ft.Container):
         self.logger = get_logger()
         self.logger.info("MailContentViewer: 初期化開始")
 
+        # 初期化パラメータ
+        self._init_parameters(on_flag_click, on_download_attachment)
+
+        # コンポーネントの初期化
+        self._init_components()
+
+        # スタイル設定
+        self._init_styles()
+
+        # 初期表示を設定
+        self._show_empty_content()
+
+        self.logger.info("MailContentViewer: 初期化完了")
+
+    def _init_parameters(self, on_flag_click, on_download_attachment):
+        """パラメータの初期化"""
         # コールバック関数
         self.on_flag_click = on_flag_click
         self.on_download_attachment = on_download_attachment
@@ -48,29 +66,32 @@ class MailContentViewer(ft.Container):
         # viewmodel参照用変数（外部から設定される）
         self.viewmodel = None
 
-        # StyledTextインスタンス
-        self.styled_text = StyledText()
-
         # キーワードリスト
         self.keywords = self._load_keywords()
+
+    def _init_components(self):
+        """コンポーネントの初期化"""
+        # StyledTextインスタンス
+        self.styled_text = StyledText()
 
         # メイン表示領域
         self.content_column = ft.Column(
             expand=True,
             scroll=ft.ScrollMode.AUTO,
+            alignment=ft.MainAxisAlignment.CENTER,
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
         )
-
-        # 初期表示を設定
-        self._show_empty_content()
 
         # コンテナの設定
         self.content = self.content_column
-        self.expand = True
-        self.border = ft.border.all(1, ft.colors.BLACK12)
-        self.border_radius = 10
-        self.padding = 10
 
-        self.logger.info("MailContentViewer: 初期化完了")
+    def _init_styles(self):
+        """スタイルの初期化"""
+        self.expand = True
+        self.bgcolor = Colors.BACKGROUND
+        self.border = ft.border.all(1, Colors.BORDER)
+        self.border_radius = AppTheme.CONTAINER_BORDER_RADIUS
+        self.padding = AppTheme.DEFAULT_PADDING
 
     def _load_keywords(self) -> List[str]:
         """キーワードをファイルから読み込む"""
@@ -90,19 +111,18 @@ class MailContentViewer(ft.Container):
         """空のメール内容表示"""
         self.content_column.controls.clear()
         self.content_column.controls.append(
-            ft.Container(
+            Styles.container(
                 content=ft.Column(
                     [
                         ft.Icon(
                             name=ft.icons.EMAIL_OUTLINED,
                             size=40,
-                            color=ft.colors.GREY,
+                            color=Colors.TEXT_SECONDARY,
                         ),
-                        ft.Text(
+                        Styles.subtitle(
                             "メールを選択してください",
-                            color=ft.colors.GREY,
+                            color=Colors.TEXT_SECONDARY,
                             text_align=ft.TextAlign.CENTER,
-                            weight="bold",
                         ),
                     ],
                     alignment=ft.MainAxisAlignment.CENTER,
@@ -111,6 +131,7 @@ class MailContentViewer(ft.Container):
                 ),
                 alignment=ft.alignment.center,
                 expand=True,
+                border=None,
             )
         )
         self._safe_update()
@@ -128,26 +149,26 @@ class MailContentViewer(ft.Container):
         self.logger.error("MailContentViewer: エラーメッセージ表示", message=message)
         self.content_column.controls.clear()
         self.content_column.controls.append(
-            ft.Container(
+            Styles.container(
                 content=ft.Column(
                     [
                         ft.Icon(
                             name=ft.icons.ERROR_OUTLINE,
                             size=40,
-                            color=ft.colors.RED,
+                            color=Colors.ERROR,
                         ),
-                        ft.Text(
+                        Styles.subtitle(
                             "エラーが発生しました",
-                            color=ft.colors.RED,
+                            color=Colors.ERROR,
                             text_align=ft.TextAlign.CENTER,
-                            weight="bold",
+                            weight=ft.FontWeight.BOLD,
                         ),
                         self.styled_text.generate_styled_text(
                             message,
                             self.keywords,
                             None,
                             {
-                                "color": ft.colors.RED_700,
+                                "color": Colors.ERROR,
                                 "text_align": ft.TextAlign.CENTER,
                             },
                         ),
@@ -158,6 +179,7 @@ class MailContentViewer(ft.Container):
                 ),
                 alignment=ft.alignment.center,
                 expand=True,
+                border=None,
             )
         )
         self._safe_update()
@@ -166,13 +188,13 @@ class MailContentViewer(ft.Container):
         """ファイル種類に応じたアイコンを取得"""
         ext = filename.split(".")[-1].lower() if "." in filename else ""
         if ext in ["pdf"]:
-            return ft.Icon(name=ft.icons.PICTURE_AS_PDF, size=16, color=ft.colors.RED)
+            return ft.Icon(name=ft.icons.PICTURE_AS_PDF, size=16, color=Colors.ERROR)
         elif ext in ["jpg", "jpeg", "png", "gif", "bmp"]:
-            return ft.Icon(name=ft.icons.IMAGE, size=16, color=ft.colors.BLUE)
+            return ft.Icon(name=ft.icons.IMAGE, size=16, color=Colors.PRIMARY)
         elif ext in ["doc", "docx"]:
-            return ft.Icon(name=ft.icons.DESCRIPTION, size=16, color=ft.colors.BLUE)
+            return ft.Icon(name=ft.icons.DESCRIPTION, size=16, color=Colors.PRIMARY)
         elif ext in ["xls", "xlsx"]:
-            return ft.Icon(name=ft.icons.TABLE_CHART, size=16, color=ft.colors.GREEN)
+            return ft.Icon(name=ft.icons.TABLE_CHART, size=16, color=Colors.ACTION)
         elif ext in ["ppt", "pptx"]:
             return ft.Icon(
                 name=ft.icons.PRESENT_TO_ALL, size=16, color=ft.colors.ORANGE
@@ -182,10 +204,10 @@ class MailContentViewer(ft.Container):
         elif ext in ["mp3", "wav", "ogg"]:
             return ft.Icon(name=ft.icons.AUDIO_FILE, size=16, color=ft.colors.PURPLE)
         elif ext in ["mp4", "avi", "mov"]:
-            return ft.Icon(name=ft.icons.VIDEO_FILE, size=16, color=ft.colors.RED_700)
+            return ft.Icon(name=ft.icons.VIDEO_FILE, size=16, color=Colors.ERROR)
         else:
             return ft.Icon(
-                name=ft.icons.INSERT_DRIVE_FILE, size=16, color=ft.colors.GREY
+                name=ft.icons.INSERT_DRIVE_FILE, size=16, color=Colors.TEXT_SECONDARY
             )
 
     def _get_file_type(self, filename):
@@ -218,31 +240,36 @@ class MailContentViewer(ft.Container):
 
     def create_flag_button(self, mail_id, is_flagged):
         """フラグボタンを作成"""
-        return ft.Container(
-            content=ft.Icon(
-                name=ft.icons.FLAG if is_flagged else ft.icons.FLAG_OUTLINED,
-                size=16,
-                color=ft.colors.RED if is_flagged else ft.colors.GREY,
-            ),
+        self.flag_button = ft.IconButton(
+            icon=ft.icons.FLAG if is_flagged else ft.icons.FLAG_OUTLINED,
+            icon_color=Colors.ERROR if is_flagged else Colors.TEXT_SECONDARY,
             tooltip=(
                 "フラグを解除する"
                 if is_flagged
                 else "問題のあるメールとしてフラグを立てる"
             ),
-            width=32,
-            height=32,
-            border_radius=16,
             on_click=lambda e, mid=mail_id: self._toggle_flag(e, mid),
+            icon_size=AppTheme.ICON_SIZE_MD,
+        )
+
+        return Styles.container(
+            content=self.flag_button,
+            tooltip=self.flag_button.tooltip,
+            border=None,
+            width=AppTheme.ICON_SIZE_LG,
+            height=AppTheme.ICON_SIZE_LG,
+            border_radius=AppTheme.ICON_SIZE_LG,
             on_hover=self._on_hover_effect,
             alignment=ft.alignment.center,
             data={"flagged": is_flagged},
+            padding=0,
         )
 
     def _on_hover_effect(self, e):
         """ホバー効果"""
         # マウスが入ったとき
         if e.data == "true":
-            e.control.bgcolor = ft.colors.with_opacity(0.1, ft.colors.BLUE)
+            e.control.bgcolor = ft.colors.with_opacity(0.1, Colors.PRIMARY)
         # マウスが出たとき
         else:
             e.control.bgcolor = None
@@ -254,44 +281,84 @@ class MailContentViewer(ft.Container):
                 f"MailContentViewer: コントロール更新を延期します - {str(ex)}"
             )
 
-    def _toggle_flag(self, e, mail_id):
-        """メールのフラグ状態を切り替える"""
-        self.logger.info("MailContentViewer: メールフラグ切り替え", mail_id=mail_id)
-
-        # ボタンの状態を取得
-        button = e.control
-        is_flagged = button.data.get("flagged", False)
-
-        # フラグ状態を切り替え
-        is_flagged = not is_flagged
-        button.data["flagged"] = is_flagged
-
-        # アイコンと色を更新
-        if is_flagged:
-            button.content.name = ft.icons.FLAG
-            button.content.color = ft.colors.RED
-            button.tooltip = "フラグを解除する"
-        else:
-            button.content.name = ft.icons.FLAG_OUTLINED
-            button.content.color = ft.colors.GREY
-            button.tooltip = "問題のあるメールとしてフラグを立てる"
-
-        # 外部コールバック関数に通知
-        if self.on_flag_click:
-            self.on_flag_click(mail_id, is_flagged)
-
+    def _toggle_flag(self, e: ControlEvent, mail_id: str):
+        """
+        フラグ状態を切り替える
+        即座にUIを更新し、親コンポーネントに通知する
+        """
         try:
-            button.update()
-        except Exception as ex:
-            self.logger.debug(
-                f"MailContentViewer: フラグボタン更新を延期します - {str(ex)}"
-            )
+            # 現在のメール情報が取得できない場合は何もしない
+            if not self.viewmodel or not mail_id:
+                self.logger.warning("フラグ操作: 現在のメール情報がありません")
+                return
 
-        self.logger.info(
-            "MailContentViewer: メールフラグ切り替え完了",
-            mail_id=mail_id,
-            flagged=is_flagged,
-        )
+            # 現在のフラグ状態を取得
+            current_flag_state = self.viewmodel.get_mail_flag(mail_id)
+
+            # フラグ状態を反転
+            new_flag_state = not current_flag_state
+
+            # ViewModelに変更を通知 (バックグラウンドでの処理)
+            self.viewmodel.set_mail_flag(mail_id, new_flag_state)
+
+            # まず即座にUIを更新
+            self._update_flag_button_ui(new_flag_state)
+
+            # 親コンポーネントのコールバックを呼び出す
+            if self.on_flag_click:
+                self.on_flag_click(mail_id, new_flag_state)
+                self.logger.debug(
+                    f"フラグ状態変更を通知: {mail_id}, 状態: {new_flag_state}"
+                )
+
+        except Exception as e:
+            self.logger.error(f"フラグ切替処理でエラー: {e}")
+            self.show_error_message(f"フラグ操作に失敗しました: {str(e)}")
+
+    def _update_flag_button_ui(self, is_flagged=None):
+        """
+        フラグボタンのUI状態を更新する
+        """
+        try:
+            # フラグボタンが存在しない場合は何もしない
+            if not hasattr(self, "flag_button") or not self.flag_button:
+                return
+
+            # 現在のメール情報が取得できない場合はボタンを無効化
+            if not self.current_mail_id:
+                self.flag_button.disabled = True
+                self.flag_button.icon_color = ft.colors.GREY_400
+                self.flag_button.tooltip = "メール未選択"
+                self.flag_button.update()
+                return
+
+            # is_flaggedが指定されていない場合は、ViewModelから取得
+            if is_flagged is None and self.viewmodel:
+                is_flagged = self.viewmodel.get_mail_flag(self.current_mail_id)
+
+            # ボタンをアクティブ化
+            self.flag_button.disabled = False
+
+            # アニメーション効果を追加
+            self.flag_button.animate_opacity = 300  # ミリ秒
+
+            if is_flagged:
+                # フラグが立っている場合の表示
+                self.flag_button.icon = ft.icons.FLAG
+                self.flag_button.icon_color = Colors.ERROR
+                self.flag_button.tooltip = "フラグを解除する"
+            else:
+                # フラグが立っていない場合の表示
+                self.flag_button.icon = ft.icons.FLAG_OUTLINED
+                self.flag_button.icon_color = Colors.TEXT_SECONDARY
+                self.flag_button.tooltip = "問題のあるメールとしてフラグを立てる"
+
+            # UIを更新
+            self.flag_button.update()
+
+        except Exception as e:
+            self.logger.error(f"フラグボタンUI更新中にエラー: {e}")
+            # UI更新失敗してもクラッシュさせない
 
     def _download_attachment(self, e, file_id):
         """添付ファイルのダウンロード処理"""
@@ -327,12 +394,36 @@ class MailContentViewer(ft.Container):
 
         # 受信者情報を解析
         recipient = mail.get("recipient", "不明 <unknown@example.com>")
+        if not isinstance(recipient, str):
+            self.logger.warning(
+                "MailContentViewer: 受信者情報が文字列ではありません",
+                recipient_type=type(recipient).__name__,
+                mail_id=mail_id,
+            )
+            recipient = "不明 <unknown@example.com>"
+
         recipient_name = (
             recipient.split("<")[0].strip() if "<" in recipient else recipient
         )
         recipient_email = (
             recipient.split("<")[1].replace(">", "") if "<" in recipient else recipient
         )
+
+        # 受信者が複数いる場合（カンマで区切られている場合）
+        recipients = []
+        if "," in recipient:
+            # カンマで区切って複数の受信者を分割
+            recipient_parts = recipient.split(",")
+            for part in recipient_parts:
+                part = part.strip()
+                if not part:
+                    continue
+                r_name = part.split("<")[0].strip() if "<" in part else part
+                r_email = part.split("<")[1].replace(">", "") if "<" in part else part
+                recipients.append(f"{r_name} <{r_email}>")
+        else:
+            # 単一の受信者の場合
+            recipients.append(f"{recipient_name} <{recipient_email}>")
 
         # 添付ファイルがあれば表示用のリストを作成
         attachments_section = []
@@ -435,15 +526,27 @@ class MailContentViewer(ft.Container):
                         [
                             ft.Row(
                                 [
-                                    self.styled_text.generate_styled_text(
-                                        mail.get("subject", "(件名なし)"),
-                                        self.keywords,
-                                        None,
-                                        {"size": 18, "weight": ft.FontWeight.BOLD},
+                                    ft.Container(
+                                        content=self.styled_text.generate_styled_text(
+                                            mail.get("subject", "(件名なし)"),
+                                            self.keywords,
+                                            None,
+                                            {
+                                                "size": 18,
+                                                "weight": ft.FontWeight.BOLD,
+                                            },
+                                        ),
+                                        expand=True,
                                     ),
                                     # フラグボタン
-                                    self.create_flag_button(
-                                        self.current_mail_id, mail.get("flagged", False)
+                                    ft.Container(
+                                        content=self.create_flag_button(
+                                            self.current_mail_id,
+                                            mail.get("flagged", False),
+                                        ),
+                                        border=None,
+                                        alignment=ft.alignment.center_right,
+                                        width=50,
                                     ),
                                 ],
                             ),
@@ -475,13 +578,20 @@ class MailContentViewer(ft.Container):
                                                     ft.Text(
                                                         "宛先:", weight="bold", width=80
                                                     ),
-                                                    self.styled_text.generate_styled_text(
-                                                        f"{recipient_name} <{recipient_email}>",
-                                                        self.keywords,
-                                                        None,
-                                                        None,
+                                                    ft.Column(
+                                                        [
+                                                            self.styled_text.generate_styled_text(
+                                                                recipient_text,
+                                                                self.keywords,
+                                                                None,
+                                                                None,
+                                                            )
+                                                            for recipient_text in recipients
+                                                        ],
+                                                        spacing=2,
                                                     ),
                                                 ],
+                                                vertical_alignment=ft.CrossAxisAlignment.START,
                                             ),
                                             # CC参加者を表示（存在する場合）
                                             self._create_participants_row(
@@ -1123,6 +1233,22 @@ class MailContentViewer(ft.Container):
             recipient.split("<")[1].replace(">", "") if "<" in recipient else recipient
         )
 
+        # 受信者が複数いる場合（カンマで区切られている場合）
+        recipients = []
+        if "," in recipient:
+            # カンマで区切って複数の受信者を分割
+            recipient_parts = recipient.split(",")
+            for part in recipient_parts:
+                part = part.strip()
+                if not part:
+                    continue
+                r_name = part.split("<")[0].strip() if "<" in part else part
+                r_email = part.split("<")[1].replace(">", "") if "<" in part else part
+                recipients.append(f"{r_name} <{r_email}>")
+        else:
+            # 単一の受信者の場合
+            recipients.append(f"{recipient_name} <{recipient_email}>")
+
         # 添付ファイルアイコン
         attachments = mail.get("attachments", [])
         if not isinstance(attachments, list):
@@ -1267,8 +1393,14 @@ class MailContentViewer(ft.Container):
                                     },
                                 ),
                                 # フラグボタン
-                                self.create_flag_button(
-                                    self.current_mail_id, mail.get("flagged", False)
+                                ft.Container(
+                                    content=self.create_flag_button(
+                                        self.current_mail_id,
+                                        mail.get("flagged", False),
+                                    ),
+                                    border=None,
+                                    alignment=ft.alignment.center_right,
+                                    width=50,
                                 ),
                                 attachments_icon,
                             ],
@@ -1362,15 +1494,16 @@ class MailContentViewer(ft.Container):
 
     def _create_animated_point(self, text, delay_ms, is_important=False):
         """アニメーション付きのポイントを作成"""
-        return ft.Container(
-            content=ft.Text(
+        return Styles.container(
+            content=Styles.text(
                 f"• {text}",
                 size=14,
-                color=ft.colors.RED if is_important else None,
+                color=Colors.ERROR if is_important else None,
                 weight="bold" if is_important else None,
             ),
             opacity=1.0,
             data={"delay": delay_ms, "text": text},
+            border=None,
         )
 
     def _on_ai_review_refresh(self, e):
@@ -1707,6 +1840,7 @@ class MailContentViewer(ft.Container):
             risk_level = {
                 "label": "なし",
                 "color": ft.colors.GREEN,
+                "score": 0,
                 "tooltip": "特に問題は見つかりませんでした。",
             }
 
@@ -1881,7 +2015,7 @@ class MailContentViewer(ft.Container):
 
         return ft.Row(
             [
-                ft.Text(f"{role}:", weight="bold", width=80),
+                Styles.text(f"{role}:", weight=ft.FontWeight.BOLD, width=80),
                 self.styled_text.generate_styled_text(
                     participant_text, self.keywords, None, None
                 ),
@@ -1914,30 +2048,33 @@ class MailContentViewer(ft.Container):
 
     def reset(self):
         """コンポーネントの状態をリセット"""
-        # コンテンツをクリア
-        if hasattr(self, "header_container") and self.header_container:
-            # 件名をクリア
-            if hasattr(self, "subject_text") and self.subject_text:
-                self.subject_text.value = ""
+        self.logger.info("MailContentViewer: 状態をリセット")
 
-            # 送信者情報をクリア
-            if hasattr(self, "sender_text") and self.sender_text:
-                self.sender_text.value = ""
-
-            # 日付をクリア
-            if hasattr(self, "date_text") and self.date_text:
-                self.date_text.value = ""
-
-        # 本文コンテナをクリア
-        if hasattr(self, "content_container") and self.content_container:
-            self.content_container.content = None
-
-        # 添付ファイルコンテナをクリア
-        if hasattr(self, "attachments_container") and self.attachments_container:
-            self.attachments_container.content = None
+        # メール内容表示をクリア
+        self._show_empty_content()
 
         # 現在表示中のメールIDをクリア
         self.current_mail_id = None
 
-        # 表示中のメールデータをクリア
-        self.current_mail = None
+        # viewmodelをクリア
+        self.viewmodel = None
+
+        self.logger.debug("MailContentViewer: リセット完了")
+
+    def update_flag_status(self, mail_id: str, is_flagged: bool) -> None:
+        """
+        外部からフラグ状態を更新する
+
+        Args:
+            mail_id: メールID
+            is_flagged: 新しいフラグ状態
+        """
+        self.logger.debug(
+            "MailContentViewer: フラグ状態を外部から更新",
+            mail_id=mail_id,
+            is_flagged=is_flagged,
+        )
+
+        # 表示中のメールIDと一致する場合のみUIを更新
+        if mail_id == self.current_mail_id:
+            self._update_flag_button_ui(is_flagged)

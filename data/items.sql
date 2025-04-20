@@ -49,6 +49,7 @@ CREATE TABLE IF NOT EXISTS mail_items (
     task_id TEXT, -- 関連するタスクID
     has_attachments INTEGER DEFAULT 0, -- 添付ファイルの有無（0=なし、1=あり）
     attachment_count INTEGER DEFAULT 0, -- 添付ファイルの個数
+    flagged INTEGER DEFAULT 0, -- メールのフラグ状態（0=なし、1=あり）
 
     -- メッセージヘッダー
     subject TEXT,

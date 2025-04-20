@@ -61,6 +61,7 @@ class AppTheme:
     # 共通パディング設定
     DEFAULT_PADDING = 8
     CARD_PADDING = 16
+    CONTENT_PADDING = 20
 
 
 class StyleConstants:
@@ -243,11 +244,13 @@ class Styles:
             "size": AppTheme.TITLE_SIZE,
             "color": Colors.TEXT_PRIMARY,
             "weight": ft.FontWeight.BOLD,
+            "overflow": ft.TextOverflow.ELLIPSIS,
         },
         "subtitle": {
             "size": AppTheme.SUBTITLE_SIZE,
             "color": Colors.TEXT_PRIMARY,
             "weight": ft.FontWeight.W_500,
+            "overflow": ft.TextOverflow.ELLIPSIS,
         },
         "body": {
             "size": AppTheme.BODY_SIZE,
@@ -348,8 +351,11 @@ class Styles:
         return container
 
     @staticmethod
-    def card(content: ft.Control, **kwargs) -> ft.Container:
-        """カードスタイルのコンテナを作成する"""
+    def styled_container(content: ft.Control, **kwargs) -> ft.Container:
+        """カードスタイルのコンテナを作成する
+
+        シャドウ付きで角丸の背景を持つコンテナを作成します。
+        """
         container = ft.Container(content=content, **kwargs)
 
         # カードスタイルを適用（明示的に指定されていない場合のみ）
@@ -361,8 +367,13 @@ class Styles:
         return container
 
     @staticmethod
-    def interactive_card(content: ft.Control, on_click=None, **kwargs) -> ft.Container:
-        """インタラクティブなカードを作成する"""
+    def interactive_styled_container(
+        content: ft.Control, on_click=None, **kwargs
+    ) -> ft.Container:
+        """インタラクティブなカードスタイルのコンテナを作成する
+
+        ホバー効果を持つカードスタイルのコンテナを作成します。
+        """
         container = ft.Container(content=content, on_click=on_click, **kwargs)
 
         # カードスタイルを適用（明示的に指定されていない場合のみ）
@@ -379,12 +390,34 @@ class Styles:
 
         return container
 
+    @staticmethod
+    def interactive_card(content: ft.Control, on_click=None, **kwargs) -> ft.Container:
+        """インタラクティブなカードを作成する（互換性のため）
+
+        interactive_styled_containerの別名です。
+        """
+        return Styles.interactive_styled_container(content, on_click, **kwargs)
+
+    @staticmethod
+    def card(content: ft.Control, **kwargs) -> ft.Container:
+        """カードスタイルのコンテナを作成する（互換性のため）
+
+        styled_containerの別名です。
+        """
+        return Styles.styled_container(content, **kwargs)
+
     # テキスト作成系メソッド
     @staticmethod
     def text(value: str, style: str = "body", **kwargs) -> ft.Text:
         """スタイル指定付きのテキストを作成する"""
         style_dict = Styles.TEXT_STYLES.get(style, Styles.TEXT_STYLES["body"])
-        text_props = {**style_dict, **kwargs}
+
+        # スタイル辞書をコピーしてから更新
+        text_props = {**style_dict}
+
+        # 明示的に指定されたプロパティで上書き
+        text_props.update(kwargs)
+
         return ft.Text(value=value, **text_props)
 
     @staticmethod
@@ -508,7 +541,7 @@ class Styles:
             )
 
             # カードの作成
-            card = Styles.interactive_card(
+            card = Styles.interactive_styled_container(
                 content=ft.Column(controls=content_controls),
                 on_click=lambda e, item=item: (
                     on_item_click(e, item) if on_item_click else None

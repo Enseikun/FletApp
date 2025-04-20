@@ -9,7 +9,8 @@ import flet as ft
 
 from src.core.logger import get_logger
 from src.views.components.mail_list_item import MailListItem
-from src.views.styles.style import AppTheme
+from src.views.styles.color import Colors, ComponentColors
+from src.views.styles.style import AppTheme, ComponentState, Styles
 
 
 class MailList(ft.Container):
@@ -67,8 +68,8 @@ class MailList(ft.Container):
         # メールリスト
         self.mail_list_view = ft.ListView(
             expand=True,
-            spacing=2,
-            padding=5,
+            spacing=AppTheme.SPACING_XS,
+            padding=AppTheme.SPACING_XS,
         )
 
         # メインコンテンツ
@@ -77,7 +78,7 @@ class MailList(ft.Container):
                 ft.Container(
                     content=ft.Row(
                         [
-                            ft.Text("メール一覧", weight="bold", size=16),
+                            Styles.subtitle("メール一覧", size=16),
                         ],
                         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                     ),
@@ -90,28 +91,28 @@ class MailList(ft.Container):
                 ft.Container(
                     content=ft.Row(
                         [
-                            ft.Text("会話ごとに集約:", size=12),
+                            Styles.caption("会話ごとに集約:", size=12),
                             ft.Switch(
                                 value=False,
                                 on_change=self._on_group_by_thread_changed,
                                 scale=0.8,
                             ),
-                            ft.IconButton(
+                            Styles.action_icon_button(
                                 icon=ft.icons.HELP_OUTLINE,
                                 tooltip="同じ会話IDを持つメールをまとめて表示します",
-                                icon_size=16,
+                                icon_size=AppTheme.ICON_SIZE_SM,
                             ),
                         ],
                         alignment=ft.MainAxisAlignment.START,
                     ),
                     padding=ft.padding.only(left=10, right=10, bottom=5),
+                    border=None,
                 ),
-                ft.Container(
+                Styles.container(
                     content=self.mail_list_view,
                     expand=True,
-                    border=ft.border.all(1, ft.colors.BLACK12),
-                    border_radius=AppTheme.CONTAINER_BORDER_RADIUS,
-                    padding=5,
+                    padding=AppTheme.SPACING_XS,
+                    border=None,
                 ),
             ],
             spacing=0,
@@ -248,9 +249,9 @@ class MailList(ft.Container):
         # 選択状態を更新
         for item in self.mail_list_view.controls:
             if hasattr(item, "data") and item.data == thread_id:
-                item.bgcolor = ft.colors.BLUE_50
+                item.bgcolor = Colors.SELECTED
             else:
-                item.bgcolor = ft.colors.WHITE
+                item.bgcolor = Colors.BACKGROUND
             item.update()
 
         # 会話表示イベントを上位コンポーネントに通知
@@ -316,30 +317,29 @@ class MailList(ft.Container):
         if not mails:
             self.logger.debug("MailList: メールデータなし")
             self.mail_list_view.controls.append(
-                ft.Container(
+                Styles.container(
                     content=ft.Column(
                         [
                             ft.Icon(
                                 name=ft.icons.EMAIL_OUTLINED,
                                 size=40,
-                                color=ft.colors.GREY,
+                                color=Colors.TEXT_SECONDARY,
                             ),
-                            ft.Text(
+                            Styles.subtitle(
                                 "メールはありません",
-                                color=ft.colors.GREY,
+                                color=Colors.TEXT_SECONDARY,
                                 text_align=ft.TextAlign.CENTER,
-                                weight="bold",
                             ),
-                            ft.Text(
+                            Styles.caption(
                                 "このタスクにはメールデータが登録されていません",
-                                color=ft.colors.GREY,
+                                color=Colors.TEXT_SECONDARY,
                                 size=12,
                                 text_align=ft.TextAlign.CENTER,
                             ),
                         ],
                         alignment=ft.MainAxisAlignment.CENTER,
                         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                        spacing=10,
+                        spacing=AppTheme.SPACING_SM,
                     ),
                     alignment=ft.alignment.center,
                     expand=True,
@@ -431,7 +431,7 @@ class MailList(ft.Container):
 
             # AIレビュースコアを取得
             ai_score = 0
-            risk_color = ft.colors.GREEN  # デフォルトは緑（安全）
+            risk_color = Colors.SUCCESS  # デフォルトは緑（安全）
 
             # メールからAIレビュー情報を取得
             for mail in sorted_mails:
@@ -443,22 +443,22 @@ class MailList(ft.Container):
                         if isinstance(ai_score, int) or isinstance(ai_score, float):
                             # スコアに応じた色分け
                             if ai_score >= 4:
-                                risk_color = ft.colors.RED
+                                risk_color = Colors.ERROR
                             elif ai_score >= 1:
-                                risk_color = ft.colors.YELLOW
+                                risk_color = Colors.WARNING
                             else:
-                                risk_color = ft.colors.GREEN
+                                risk_color = Colors.SUCCESS
                             break  # AIレビュー情報が見つかったらループを抜ける
 
-            thread_header = ft.Container(
+            thread_header = Styles.clickable_container(
                 content=ft.Column(
                     [
                         ft.Row(
                             [
                                 ft.Container(
-                                    content=ft.Text(
+                                    content=Styles.text(
                                         f"{ai_score}",  # メール数の代わりにAIスコアを表示
-                                        color=ft.colors.WHITE,
+                                        color=Colors.TEXT_ON_PRIMARY,
                                         text_align=ft.TextAlign.CENTER,
                                         size=12,
                                     ),
@@ -469,17 +469,17 @@ class MailList(ft.Container):
                                     alignment=ft.alignment.center,
                                     tooltip=f"AIリスクスコア: {ai_score}",
                                 ),
-                                ft.Text(
+                                Styles.text(
                                     subject,
                                     weight="bold" if unread_count else "normal",
                                     expand=True,
                                     overflow=ft.TextOverflow.ELLIPSIS,
                                 ),
                                 (
-                                    ft.Text(
+                                    Styles.text(
                                         f"{unread_count}件の未読",
                                         size=12,
-                                        color=ft.colors.BLUE,
+                                        color=Colors.INFO,
                                     )
                                     if unread_count
                                     else ft.Container(width=0)
@@ -487,42 +487,37 @@ class MailList(ft.Container):
                                 (
                                     ft.Icon(
                                         name=ft.icons.ATTACH_FILE,
-                                        size=14,
-                                        color=ft.colors.GREY,
+                                        size=AppTheme.ICON_SIZE_SM,
+                                        color=Colors.TEXT_SECONDARY,
                                     )
                                     if attachment_count
                                     else ft.Container(width=0)
                                 ),
                             ],
-                            spacing=5,
+                            spacing=AppTheme.SPACING_XS,
                         ),
                         ft.Row(
                             [
-                                ft.Text(
+                                Styles.caption(
                                     f"最新: {sorted_mails[0]['date']}",
-                                    size=12,
-                                    color=ft.colors.GREY,
                                     expand=True,
                                 ),
-                                ft.Text(
+                                Styles.caption(
                                     f"メール数: {len(sorted_mails)}",
-                                    size=12,
-                                    color=ft.colors.GREY,
                                 ),
                             ],
-                            spacing=5,
+                            spacing=AppTheme.SPACING_XS,
                         ),
                     ],
                     spacing=2,
                 ),
-                padding=10,
-                border_radius=5,
+                padding=AppTheme.SPACING_SM,
                 on_click=lambda e, cid=thread_id: self._show_thread(cid),
                 data=thread_id,
                 ink=True,
-                bgcolor=ft.colors.WHITE,
-                border=ft.border.all(1, ft.colors.BLACK12),
-                margin=ft.margin.only(bottom=5),
+                bgcolor=Colors.BACKGROUND,
+                border=ft.border.all(AppTheme.BORDER_WIDTH, Colors.BORDER),
+                margin=ft.margin.only(bottom=AppTheme.SPACING_XS),
             )
 
             self.mail_list_view.controls.append(thread_header)
@@ -546,28 +541,30 @@ class MailList(ft.Container):
         # 検索結果がない場合
         if not mails:
             self.mail_list_view.controls.append(
-                ft.Container(
+                Styles.container(
                     content=ft.Column(
                         [
                             ft.Icon(
                                 name=ft.icons.SEARCH_OFF,
                                 size=40,
-                                color=ft.colors.GREY,
+                                color=Colors.TEXT_SECONDARY,
                             ),
-                            ft.Text(
+                            Styles.subtitle(
                                 f"「{search_term}」に一致するメールはありません",
-                                color=ft.colors.GREY,
+                                color=Colors.TEXT_SECONDARY,
                                 text_align=ft.TextAlign.CENTER,
-                                weight="bold",
                             ),
                             ft.TextButton(
                                 text="すべてのメールを表示",
                                 on_click=lambda _: self._on_refresh_clicked(None),
+                                style=ft.ButtonStyle(
+                                    color=Colors.PRIMARY,
+                                ),
                             ),
                         ],
                         alignment=ft.MainAxisAlignment.CENTER,
                         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                        spacing=10,
+                        spacing=AppTheme.SPACING_SM,
                     ),
                     alignment=ft.alignment.center,
                     expand=True,
@@ -592,19 +589,142 @@ class MailList(ft.Container):
             self.mail_items[mail_id].mark_as_read()
             self.logger.info("MailList: メールを既読に設定", mail_id=mail_id)
 
-    def update_flag_status(self, mail_id, is_flagged):
-        """メールのフラグ状態を更新"""
-        if mail_id in self.mail_items:
-            self.mail_items[mail_id].update_flag_status(is_flagged)
-            self.logger.info(
-                "MailList: メールのフラグ状態を更新",
-                mail_id=mail_id,
-                flagged=is_flagged,
-            )
+    def _update_flag_icon_in_container(self, container, is_flagged):
+        """コンテナ内のフラグアイコンを更新"""
+        # コンテナからフラグアイコンを探す
+        if hasattr(container, "content") and container.content:
+            # Rowを探す
+            for control in self._get_all_controls(container):
+                if isinstance(control, ft.Container) and hasattr(control, "content"):
+                    # アイコンを含むコンテナを探す
+                    if isinstance(
+                        control.content, ft.Icon
+                    ) and control.content.name in [
+                        ft.icons.FLAG,
+                        ft.icons.FLAG_OUTLINED,
+                    ]:
+                        # フラグアイコンが見つかった
+                        control.content.name = (
+                            ft.icons.FLAG if is_flagged else ft.icons.FLAG_OUTLINED
+                        )
+                        control.content.color = (
+                            Colors.ERROR if is_flagged else Colors.TEXT_SECONDARY
+                        )
+                        if hasattr(control, "data"):
+                            control.data["flagged"] = is_flagged
+                        if hasattr(control, "tooltip"):
+                            control.tooltip = (
+                                "フラグを解除する"
+                                if is_flagged
+                                else "問題のあるメールとしてフラグを立てる"
+                            )
 
-    def get_thread_mails(self, thread_id):
-        """会話に含まれるメール一覧を取得"""
-        return self.thread_containers.get(thread_id, [])
+                        # 即時更新
+                        try:
+                            control.update()
+
+                            # 親階層も更新
+                            parent = getattr(control, "parent", None)
+                            if parent:
+                                parent.update()
+
+                                # さらに親も更新
+                                grandparent = getattr(parent, "parent", None)
+                                if grandparent:
+                                    grandparent.update()
+                        except Exception as e:
+                            self.logger.warning(f"フラグアイコン更新エラー: {str(e)}")
+
+                        return True
+        return False
+
+    def _get_all_controls(self, container):
+        """コンテナから再帰的にすべてのコントロールを取得"""
+        controls = []
+
+        if not container:
+            return controls
+
+        # コンテナ自体を追加
+        controls.append(container)
+
+        # コンテナの中身を探索
+        if hasattr(container, "content"):
+            content = container.content
+            if content:
+                # contentがRow/Columnの場合
+                if hasattr(content, "controls"):
+                    controls.append(content)
+                    for child in content.controls:
+                        controls.extend(self._get_all_controls(child))
+                else:
+                    controls.append(content)
+
+        # controlsプロパティがある場合
+        elif hasattr(container, "controls"):
+            for child in container.controls:
+                controls.extend(self._get_all_controls(child))
+
+        return controls
+
+    def _update_flag_in_cached_mail(self, mail_id, is_flagged):
+        """キャッシュされたメールデータのフラグ状態を更新"""
+        # キャッシュされたメールリストを更新
+        if hasattr(self, "cached_mail_list"):
+            for mail in self.cached_mail_list:
+                if mail.get("id") == mail_id:
+                    mail["flagged"] = is_flagged
+                    break
+
+        # スレッドコンテナを更新
+        if hasattr(self, "thread_mails"):
+            for thread_id, mails in self.thread_mails.items():
+                for mail in mails:
+                    if mail.get("id") == mail_id:
+                        mail["flagged"] = is_flagged
+                        break
+
+    def get_thread_mails(self, thread_id: str) -> List[Dict]:
+        """
+        指定された会話IDに属するメールのリストを取得
+
+        Args:
+            thread_id: 会話ID
+
+        Returns:
+            List[Dict]: メールのリスト
+        """
+        self.logger.debug("MailList: 会話メール取得", thread_id=thread_id)
+
+        # thread_containersから会話に属するメールを取得
+        if hasattr(self, "thread_containers") and thread_id in self.thread_containers:
+            return self.thread_containers[thread_id]
+
+        # 会話IDのプレフィックスを削除したパターンで検索
+        if (
+            thread_id.startswith("conv_")
+            and hasattr(self, "thread_containers")
+            and thread_id[5:] in self.thread_containers
+        ):
+            return self.thread_containers[thread_id[5:]]
+
+        # 前回の検索結果から探す
+        if hasattr(self, "last_search_results"):
+            thread_mails = []
+            for mail in self.last_search_results:
+                if (
+                    mail.get("thread_id") == thread_id
+                    or mail.get("thread_id") == thread_id[5:]
+                ):
+                    thread_mails.append(mail)
+
+            if thread_mails:
+                return thread_mails
+
+        self.logger.warning(
+            "指定された会話IDのメールが見つかりません", thread_id=thread_id
+        )
+        return []
 
     def do_scroll_top(self):
         """リストをトップにスクロール"""
@@ -640,3 +760,151 @@ class MailList(ft.Container):
         # 選択状態をクリア
         self.selected_mail_id = None
         self.selected_thread_id = None
+
+    def update_flag_status(self, mail_id: str, is_flagged: bool) -> None:
+        """
+        メールリスト内のフラグ状態を更新する
+
+        Args:
+            mail_id: メールID
+            is_flagged: 新しいフラグ状態
+        """
+        self.logger.debug(
+            "MailList: フラグ状態更新",
+            mail_id=mail_id,
+            is_flagged=is_flagged,
+        )
+
+        # メールリスト内のアイテムを探す
+        for item in self.mail_list_view.controls:
+            if not hasattr(item, "data"):
+                continue
+
+            # 会話モードの場合と個別メールモードの場合で処理を分ける
+            if self.group_by_thread:
+                # 会話モード: 会話内のメールを更新
+                if isinstance(item.data, str) and item.data.startswith("conv_"):
+                    thread_id = item.data
+                    # 会話内のメールを取得
+                    thread_mails = self.get_thread_mails(thread_id)
+                    if thread_mails:
+                        for mail in thread_mails:
+                            if mail.get("id") == mail_id:
+                                # 見つかった場合はUIを更新
+                                mail["flagged"] = is_flagged
+                                # コンテナのフラグアイコンを更新する処理が必要
+                                self._update_container_flag_if_visible(
+                                    item, mail_id, is_flagged
+                                )
+                                item.update()
+                                break
+            else:
+                # 個別メールモード: メールIDが一致するアイテムを更新
+                if item.data == mail_id:
+                    # MailListItemコンポーネントの場合
+                    if hasattr(item, "update_flag_status"):
+                        item.update_flag_status(is_flagged)
+                    # 通常のコンテナの場合はデータを更新
+                    else:
+                        self._update_flag_icon_in_container(item, is_flagged)
+                        item.update()
+
+    def _update_container_flag_if_visible(self, container, mail_id, is_flagged):
+        """表示されているコンテナ内のフラグアイコンを更新する（会話モード用）"""
+        try:
+            # コンテナ内のコントロールにアクセス
+            if hasattr(container, "content") and container.content:
+                if isinstance(container.content, ft.Column):
+                    # 会話アイテム内のフラグアイコンを探す
+                    for row in container.content.controls:
+                        if isinstance(row, ft.Row):
+                            # 行の中の各コントロールを確認
+                            for control in row.controls:
+                                # フラグアイコンまたはそのコンテナを探す
+                                if self._is_flag_icon_or_container(control):
+                                    # フラグアイコンを更新
+                                    self._update_flag_control(control, is_flagged)
+                                    return True
+
+                        # コンテナの場合は中を探索
+                        elif isinstance(row, ft.Container):
+                            if self._update_flag_in_container(row, is_flagged):
+                                return True
+
+            self.logger.debug(
+                "会話コンテナ内でフラグアイコンが見つかりませんでした", mail_id=mail_id
+            )
+            return False
+
+        except Exception as e:
+            self.logger.error(f"会話コンテナ内のフラグ更新エラー: {e}")
+            return False
+
+    def _is_flag_icon_or_container(self, control):
+        """フラグアイコンまたはそのコンテナかどうかを判定"""
+        # アイコン自体の場合
+        if isinstance(control, ft.Icon) and control.name in [
+            ft.icons.FLAG,
+            ft.icons.FLAG_OUTLINED,
+        ]:
+            return True
+
+        # アイコンを含むコンテナの場合
+        if isinstance(control, ft.Container) and hasattr(control, "content"):
+            if isinstance(control.content, ft.Icon) and control.content.name in [
+                ft.icons.FLAG,
+                ft.icons.FLAG_OUTLINED,
+            ]:
+                return True
+
+        return False
+
+    def _update_flag_control(self, control, is_flagged):
+        """フラグコントロールを更新"""
+        # アイコン自体の場合
+        if isinstance(control, ft.Icon):
+            control.name = ft.icons.FLAG if is_flagged else ft.icons.FLAG_OUTLINED
+            control.color = Colors.ERROR if is_flagged else Colors.TEXT_SECONDARY
+
+        # アイコンを含むコンテナの場合
+        elif isinstance(control, ft.Container) and hasattr(control, "content"):
+            if isinstance(control.content, ft.Icon):
+                control.content.name = (
+                    ft.icons.FLAG if is_flagged else ft.icons.FLAG_OUTLINED
+                )
+                control.content.color = (
+                    Colors.ERROR if is_flagged else Colors.TEXT_SECONDARY
+                )
+
+                # データも更新
+                if hasattr(control, "data"):
+                    control.data["flagged"] = is_flagged
+
+                # ツールチップも更新
+                if hasattr(control, "tooltip"):
+                    control.tooltip = (
+                        "フラグを解除する"
+                        if is_flagged
+                        else "問題のあるメールとしてフラグを立てる"
+                    )
+
+        return True
+
+    def _update_flag_in_container(self, container, is_flagged):
+        """コンテナ内のフラグアイコンを更新"""
+        if hasattr(container, "content"):
+            # コンテナ内に行がある場合
+            if isinstance(container.content, ft.Row):
+                for control in container.content.controls:
+                    if self._is_flag_icon_or_container(control):
+                        return self._update_flag_control(control, is_flagged)
+
+            # コンテナ内に列がある場合
+            elif isinstance(container.content, ft.Column):
+                for row in container.content.controls:
+                    if isinstance(row, ft.Row):
+                        for control in row.controls:
+                            if self._is_flag_icon_or_container(control):
+                                return self._update_flag_control(control, is_flagged)
+
+        return False

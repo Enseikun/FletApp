@@ -83,16 +83,36 @@ class DatabaseManager:
                 self.logger.error(f"SQLスクリプト実行エラー ({script_file}): {str(e)}")
                 raise
 
-    def connect(self) -> None:
-        """データベースに接続する"""
-        self._get_connection()
+    def connect(self) -> bool:
+        """
+        データベースに接続する
 
-    def disconnect(self) -> None:
-        """データベース接続を閉じる"""
-        if hasattr(self._local, "connection"):
-            self._local.connection.close()
-            del self._local.connection
-            del self._local.cursor
+        Returns:
+            bool: 接続に成功したかどうか
+        """
+        try:
+            self._get_connection()
+            return True
+        except Exception as e:
+            self.logger.error(f"データベース接続エラー: {e}")
+            return False
+
+    def disconnect(self) -> bool:
+        """
+        データベース接続を閉じる
+
+        Returns:
+            bool: 切断に成功したかどうか
+        """
+        try:
+            if hasattr(self._local, "connection"):
+                self._local.connection.close()
+                del self._local.connection
+                del self._local.cursor
+            return True
+        except Exception as e:
+            self.logger.error(f"データベース切断エラー: {e}")
+            return False
 
     def execute_query(self, query: str, params: tuple = ()) -> List[Dict[str, Any]]:
         """
@@ -207,20 +227,50 @@ class DatabaseManager:
             )
             raise
 
-    def begin_transaction(self) -> None:
-        """トランザクションを開始する"""
-        self.connect()
-        self._get_connection().execute("BEGIN TRANSACTION")
+    def begin_transaction(self) -> bool:
+        """
+        トランザクションを開始する
 
-    def commit(self) -> None:
-        """トランザクションをコミットする"""
-        if hasattr(self._local, "connection"):
-            self._get_connection().commit()
+        Returns:
+            bool: トランザクション開始に成功したかどうか
+        """
+        try:
+            self.connect()
+            self._get_connection().execute("BEGIN TRANSACTION")
+            return True
+        except Exception as e:
+            self.logger.error(f"トランザクション開始エラー: {e}")
+            return False
 
-    def rollback(self) -> None:
-        """トランザクションをロールバックする"""
-        if hasattr(self._local, "connection"):
-            self._get_connection().rollback()
+    def commit(self) -> bool:
+        """
+        トランザクションをコミットする
+
+        Returns:
+            bool: コミットに成功したかどうか
+        """
+        try:
+            if hasattr(self._local, "connection"):
+                self._get_connection().commit()
+            return True
+        except Exception as e:
+            self.logger.error(f"コミットエラー: {e}")
+            return False
+
+    def rollback(self) -> bool:
+        """
+        トランザクションをロールバックする
+
+        Returns:
+            bool: ロールバックに成功したかどうか
+        """
+        try:
+            if hasattr(self._local, "connection"):
+                self._get_connection().rollback()
+            return True
+        except Exception as e:
+            self.logger.error(f"ロールバックエラー: {e}")
+            return False
 
     def table_exists(self, table_name: str) -> bool:
         """

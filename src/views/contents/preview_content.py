@@ -1836,8 +1836,7 @@ class PreviewContent(ft.Container):
 
     def _close_dialog(self, e, dialog):
         """ダイアログを閉じる"""
-        dialog.open = False
-        self.page.update()
+        self.page.close(dialog)
         self._current_dialog = None
         self._is_dialog_open = False
         self.logger.debug("PreviewContent: ダイアログを閉じます")
@@ -2044,16 +2043,14 @@ class PreviewContent(ft.Container):
             # 新しいダイアログを表示
             self._current_dialog = dialog
             self._is_dialog_open = True
-            self.page.dialog = dialog
-            dialog.open = True
+            self.page.open(dialog)
             self.page.update()
             self.logger.debug("PreviewContent: ダイアログを表示しました")
 
     def _close_current_dialog(self):
         """現在開いているダイアログを閉じる"""
         if self._current_dialog is not None and self._is_dialog_open:
-            self._current_dialog.open = False
-            self.page.update()
+            self.page.close(self._current_dialog)
             self._current_dialog = None
             self._is_dialog_open = False
             self.logger.debug("PreviewContent: ダイアログを閉じました")

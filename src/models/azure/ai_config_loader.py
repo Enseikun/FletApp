@@ -15,9 +15,9 @@ class MaxTokensDict(TypedDict):
     output: int
 
 
-class ModelConfigDict(TypedDict):
+class ModelConfigDict(TypedDict, total=False):
     model_id: str
-    encoding_model: str
+    encoding_model: Optional[str]
     max_tokens: MaxTokensDict
     rate_limits: RateLimitsDict
 
@@ -25,7 +25,7 @@ class ModelConfigDict(TypedDict):
 class ModelConfig:
     def __init__(self, config: ModelConfigDict):
         self.model_id: str = config["model_id"]
-        self.encoding_model: str = config["encoding_model"]
+        self.encoding_model: str = config.get("encoding_model", "")
 
         max_tokens = config.get("max_tokens", {})
         self.max_tokens_input: int = max_tokens.get("input", 0)

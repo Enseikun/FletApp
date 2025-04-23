@@ -26,7 +26,7 @@ doc/
 tests/
 
 # Cursor
-.cursor/
+.cursor
 
 # azure
 src/models/azure/ai_config.py

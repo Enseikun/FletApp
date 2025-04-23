@@ -1,0 +1,64 @@
+{
+    "api_key": "your-azure-api-key",
+    "api_base_url": "https://your-resource-name.openai.azure.com/",
+    "api_version": "2024-02-15-preview",
+    "timeout": 30,
+    "token_timeout": 300,
+    "models": [
+        {
+            "model_id": "gpt-4o",
+            "max_tokens": {
+                "input": 128000,
+                "output": 16384
+            },
+            "rate_limits": {
+                "tpm": 1000000,
+                "rpm": 6000
+            }
+        },
+        {
+            "model_id": "gpt-4o-mini",
+            "max_tokens": {
+                "input": 128000,
+                "output": 16384
+            },
+            "rate_limits": {
+                "tpm": 1000000,
+                "rpm": 6000
+            }
+        },
+        {
+            "model_id": "claude-3-haiku",
+            "max_tokens": {
+                "input": 200000,
+                "output": 4096
+            },
+            "rate_limits": {
+                "tpm": 1000000,
+                "rpm": 6000
+            }
+        },
+        {
+            "model_id": "claude-3-opus",
+            "max_tokens": {
+                "input": 200000,
+                "output": 4096
+            },
+            "rate_limits": {
+                "tpm": 1000000,
+                "rpm": 6000
+            }
+        },
+        {
+            "model_id": "gemini-1.5-pro",
+            "max_tokens": {
+                "input": 1000000,
+                "output": 8192
+            },
+            "rate_limits": {
+                "tpm": 1000000,
+                "rpm": 6000
+            }
+        }
+    ]
+}

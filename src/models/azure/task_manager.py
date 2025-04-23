@@ -7,6 +7,7 @@ from src.core.logger import get_logger
 from src.models.azure.model_manager import ModelManager, ModelMetrics
 from src.models.azure.openai_client import OpenAIClient
 from src.models.azure.token_observer import TokenObserver
+from src.util.visualize_model_status import print_model_statuses_async
 
 
 class TaskManagerConfig(TypedDict, total=False):
@@ -43,6 +44,7 @@ class TaskManager:
         async def task_wrapper(prompt: str) -> None:
             model_id, result, token_cost, latency = await self.process_prompt(prompt)
             await callback(prompt, result)
+            await print_model_statuses_async(self.model_manager)
 
             if model_id:
                 metrics = self.model_manager.get_model_metrics(model_id)

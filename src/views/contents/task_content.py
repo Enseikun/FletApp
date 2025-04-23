@@ -9,6 +9,7 @@ import flet as ft
 
 from src.core.logger import get_logger
 from src.viewmodels.task_content_viewmodel import TaskContentViewModel
+from src.views.components.alert_dialog import AlertDialog
 from src.views.components.simple_dropdown import SimpleDropdown
 from src.views.styles.style import AppTheme, Colors
 
@@ -25,6 +26,9 @@ class TaskContent(ft.Container):
         self.contents_viewmodel = contents_viewmodel
         self.viewmodel = TaskContentViewModel()
         self.logger = get_logger()
+
+        # AlertDialogインスタンスを取得
+        self.alert_dialog = AlertDialog()
 
         # フォームの初期化
         self._init_form()
@@ -464,14 +468,22 @@ class TaskContent(ft.Container):
     def show_error(self, message):
         """エラーメッセージを表示"""
         self.logger.error(f"エラーメッセージを表示: {message}")
-        # 実際の実装ではダイアログやスナックバーでエラーを表示
-        print(f"エラー: {message}")
+        # AlertDialogを使用してエラーを表示
+        if hasattr(self, "alert_dialog"):
+            self.alert_dialog.show_error_dialog("エラー", message)
+        else:
+            # フォールバック（初期化前など）
+            print(f"エラー: {message}")
 
     def _show_success_message(self, message):
         """成功メッセージを表示"""
         self.logger.info(f"成功メッセージを表示: {message}")
-        # 実際の実装ではダイアログやスナックバーで成功メッセージを表示
-        print(f"成功: {message}")
+        # AlertDialogを使用して成功メッセージを表示
+        if hasattr(self, "alert_dialog"):
+            self.alert_dialog.show_completion_dialog("完了", message)
+        else:
+            # フォールバック（初期化前など）
+            print(f"成功: {message}")
 
     def _reset_form(self):
         """フォームをリセット"""
@@ -500,3 +512,9 @@ class TaskContent(ft.Container):
             self.contents_viewmodel, "main_viewmodel"
         ):
             self.contents_viewmodel.main_viewmodel.set_destination("home")
+
+    def did_mount(self):
+        """コンポーネントがマウントされた時の処理"""
+        # AlertDialogを初期化
+        self.alert_dialog.initialize(self.page)
+        self.logger.debug("TaskContent: AlertDialogを初期化しました")

@@ -55,9 +55,9 @@ class TokenSubject:
 class TokenRateLimiter(TokenObserver):
     """トークンの状態変更を監視（TokenObserverとして実装）"""
 
-    def __init__(self) -> None:
+    def __init__(self, max_tpm: int) -> None:
         config = AIConfigLoader()
-        self.max_tpm = 600 * 1000 * 0.6
+        self.max_tpm = max_tpm
         self.window_size = 60
         self.token_history: Deque[Tuple[datetime, int]] = deque()
         self.lock = Lock()
@@ -79,32 +79,6 @@ class TokenRateLimiter(TokenObserver):
             self.token_history.append((current_time, token_count))
             self._cleanup_history(current_time)
 
-    async def add_tokens(self, token_count: int) -> None:
-        event = asyncio.Event()
-        current_time = datetime.now()
-
-        # キューサイズが閾値を超えた場合にクリーンアップを実行
-        if len(self.waiting_tokens) > self.cleanup_threshold:
-            await self._cleanup_waiting_tokens()
-
-        async with self.lock:
-            if self._can_process_tokens(token_count):
-                self.active_tokens += token_count
-                event.set()
-            else:
-                self.waiting_tokens.append((token_count, event, current_time))
-
-        try:
-            await asyncio.wait_for(event.wait(), timeout=self.timeout)
-
-        except asyncio.TimeoutError:
-            async with self.lock:
-                # タイムアウトした要求を削除
-                self.waiting_tokens = deque(
-                    (t, e, ts) for t, e, ts in self.waiting_tokens if e != event
-                )
-            raise TimeoutError("トークンの追加がタイムアウトしました")
-
     async def _process_waiting_tokens(self) -> None:
         while self.waiting_tokens:
             token_count, event, timestamp = self.waiting_tokens[0]
@@ -115,7 +89,7 @@ class TokenRateLimiter(TokenObserver):
             else:
                 break
 
-    async def _can_process_tokens(self, token_count: int) -> bool:
+    async def can_process_tokens(self, token_count: int) -> bool:
         current_tpm = await self.get_current_tpm()
         return current_tpm + token_count <= self.max_tpm
 

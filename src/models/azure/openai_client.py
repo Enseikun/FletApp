@@ -29,7 +29,7 @@ class OpenAIClient:
             api_key=self.api_key,
             api_version=self.api_version,
             azure_endpoint=self.api_base_url,
-            # model=self.model_id,
+            model=self.model_id,
         )
 
         self.system_prompt = system_prompt

@@ -13,7 +13,7 @@ class ModelMetrics:
 
     def __init__(self, rate_limits_tpm: int, rate_limits_rpm: int):
         # TPM管理
-        self.tpm_limiter = TokenRateLimiter()
+        self.tpm_limiter = TokenRateLimiter(max_tpm=rate_limits_tpm)
 
         # RPM管理
         self.rpm_limit = rate_limits_rpm
@@ -46,11 +46,11 @@ class ModelMetrics:
             self.rpm_reset_time = now
             self.rpm_counter = 0
 
-        if self.rpm_counter + 1 >= self.rpm_limit:
+        if self.rpm_counter >= self.rpm_limit:
             return False
 
         # TPM制限チェック
-        if not await self.tpm_limiter._can_process_tokens(token_cost):
+        if not await self.tpm_limiter.can_process_tokens(token_cost):
             return False
 
         return True
@@ -111,13 +111,25 @@ class ModelManager:
     - 各モデルごとにインスタンスを保持
     """
 
+    _instance = None
+
+    def __new__(cls, models: Dict[str, ModelConfigDict]):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+            cls._instance._initialized = False
+        return cls._instance
+
     def __init__(self, models: Dict[str, ModelConfigDict]):
+        if self._initialized:
+            return
+
         self.models: Dict[str, ModelMetrics] = {}
         for model_id, model_config in models.items():
             self.models[model_id] = ModelMetrics(
                 rate_limits_tpm=model_config.get("rate_limits_tpm", 1000),
                 rate_limits_rpm=model_config.get("rate_limits_rpm", 1000),
             )
+        self._initialized = True
 
     def get_model_metrics(self, model_id: str) -> Optional[ModelMetrics]:
         """

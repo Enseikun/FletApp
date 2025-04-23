@@ -9,6 +9,7 @@ dependencies = [
     "flet-desktop>=0.27.3",
     "flet-web>=0.27.3",
     "markdownify>=1.1.0",
+    "nest-asyncio>=1.6.0",
     "openai>=1.67.0",
     "psutil>=7.0.0",
     "pytest>=8.3.5",

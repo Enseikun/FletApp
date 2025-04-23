@@ -46,7 +46,19 @@ class AIConfigLoaderDict(TypedDict, total=False):
 
 
 class AIConfigLoader:
+    _instance = None
+
+    def __new__(cls, config_path: str = "config/ai_config.json"):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+            cls._instance._initialized = False
+            cls._instance.config_path = Path(config_path)
+        return cls._instance
+
     def __init__(self, config_path: str = "config/ai_config.json"):
+        if self._initialized:
+            return
+
         self.config_path: Path = Path(config_path)
         self.api_key: str = ""
         self.api_base_url: str = ""
@@ -55,6 +67,7 @@ class AIConfigLoader:
         self.token_timeout: int = 300
         self.models: List[ModelConfig] = []
         self.load_config()
+        self._initialized = True
 
     def load_config(self) -> None:
         with self.config_path.open("r", encoding="utf-8") as f:

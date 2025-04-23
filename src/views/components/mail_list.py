@@ -733,8 +733,17 @@ class MailList(ft.Container):
         if hasattr(self, "search_field"):
             self.search_field.value = ""
 
-        # 更新
-        self.update()
+        # ページに接続されている場合のみ更新を実行
+        if hasattr(self, "page") and self.page:
+            try:
+                self.update()
+                self.logger.debug("MailList: リセット完了 - UIを更新しました")
+            except Exception as e:
+                self.logger.warning(f"MailList: リセット中のUI更新でエラー - {str(e)}")
+        else:
+            self.logger.debug(
+                "MailList: リセット完了 - ページに接続されていないためUI更新をスキップしました"
+            )
 
     def update_flag_status(self, mail_id: str, is_flagged: bool) -> None:
         """

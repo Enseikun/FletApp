@@ -1,4 +1,6 @@
+import asyncio
 import datetime
+import json
 import os
 import re
 import uuid
@@ -8,6 +10,7 @@ from markdownify import markdownify
 
 from src.core.database import DatabaseManager
 from src.core.logger import get_logger
+from src.models.azure.ai_review import AIReview
 from src.models.outlook.outlook_client import OutlookClient
 from src.models.outlook.outlook_item_model import OutlookItemModel
 from src.models.outlook.outlook_service import OutlookService
@@ -892,7 +895,8 @@ class OutlookExtractionService:
                     )
 
                     # AIレビュー処理
-                    if self._process_ai_review(message_id):
+                    result = self._process_ai_review(message_id)
+                    if result:
                         self._update_mail_task_status(
                             task_id, "completed", ai_review_status="success"
                         )
@@ -950,9 +954,9 @@ class OutlookExtractionService:
                     self.logger.warning(f"添付ファイルの処理に失敗: {entry_id}")
 
             # AIレビューの処理
-            if conditions.get("ai_review", False):
-                if not self._process_ai_review(entry_id):
-                    self.logger.warning(f"AIレビューの処理に失敗: {entry_id}")
+            # if conditions.get("ai_review", False):
+            #     if not self._process_ai_review(entry_id):
+            #         self.logger.warning(f"AIレビューの処理に失敗: {entry_id}")
 
             return True
 
@@ -1166,28 +1170,28 @@ class OutlookExtractionService:
                                     "MSGファイルから復元したメールアイテムのプロパティを調査します"
                                 )
 
-                                # object_util.pyのデバッグ関数を呼び出す
-                                from src.util.object_util import (
-                                    debug_print_mail_item,
-                                    debug_print_mail_methods,
-                                )
+                                # # object_util.pyのデバッグ関数を呼び出す
+                                # from src.util.object_util import (
+                                #     debug_print_mail_item,
+                                #     debug_print_mail_methods,
+                                # )
 
-                                debug_print_mail_item(
-                                    msg_item,
-                                    "MSGファイルから復元したメールアイテムのプロパティ",
-                                )
-                                debug_print_mail_methods(
-                                    msg_item,
-                                    "MSGファイルから復元したメールアイテムのメソッド",
-                                )
+                                # debug_print_mail_item(
+                                #     msg_item,
+                                #     "MSGファイルから復元したメールアイテムのプロパティ",
+                                # )
+                                # debug_print_mail_methods(
+                                #     msg_item,
+                                #     "MSGファイルから復元したメールアイテムのメソッド",
+                                # )
 
-                                # EntryIDプロパティの存在を確認
-                                from src.util.object_util import has_property
+                                # # EntryIDプロパティの存在を確認
+                                # from src.util.object_util import has_property
 
-                                has_entry_id = has_property(msg_item, "EntryID")
-                                self.logger.info(
-                                    f"復元したアイテムにEntryIDプロパティが存在するか: {has_entry_id}"
-                                )
+                                # has_entry_id = has_property(msg_item, "EntryID")
+                                # self.logger.info(
+                                #     f"復元したアイテムにEntryIDプロパティが存在するか: {has_entry_id}"
+                                # )
 
                                 # EntryIDを取得（直接アクセスを試みる）
                                 entry_id = None
@@ -2000,60 +2004,20 @@ class OutlookExtractionService:
                 "has_attachments": mail_info["has_attachments"],
             }
 
-            # 非同期処理を実行するための関数
-            async def run_ai_review():
-                ai_review = AIReview()
-                try:
-                    # プロンプトをJSON文字列に変換
-                    import json
-
-                    prompt_json = json.dumps(prompt_data, ensure_ascii=False)
-
-                    # AIクライアントとタスクマネージャーを初期化
-                    from src.models.azure.openai_client import OpenAIClient
-                    from src.models.azure.task_manager import TaskManager
-
-                    # システムプロンプトを読み込む
-                    system_prompt = "メールの内容を分析し、その概要、リスク評価、重要度を判断してください。"
-                    try:
-                        import os
-
-                        prompt_path = os.path.join("config", "prompt.txt")
-                        if os.path.exists(prompt_path):
-                            with open(prompt_path, "r", encoding="utf-8") as f:
-                                system_prompt = f.read().strip()
-                    except Exception as e:
-                        self.logger.warning(
-                            f"システムプロンプトの読み込みに失敗しました: {e}"
-                        )
-
-                    client = OpenAIClient(system_prompt=system_prompt)
-                    manager = TaskManager(client)
-
-                    # コールバック関数
-                    result_data = None
-
-                    async def callback(prompt_str, result):
-                        nonlocal result_data
-                        if result:
-                            result_data = result
-
-                    # AIに処理を依頼
-                    await manager.execute_tasks([prompt_json], callback)
-
-                    # 結果を返す
-                    return result_data
-                except Exception as e:
-                    self.logger.error(f"AIレビュー実行中にエラーが発生しました: {e}")
-                    return None
-
             # 非同期関数を実行
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
             try:
-                result = loop.run_until_complete(run_ai_review())
-            finally:
-                loop.close()
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    import nest_asyncio
+
+                    nest_asyncio.apply()
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+
+            result = loop.run_until_complete(
+                run_ai_review(thread_id, prompt_data, self.logger)
+            )
 
             # AIの結果をデータベースに保存
             if result:
@@ -2229,3 +2193,25 @@ class OutlookExtractionService:
             self.logger.error(f"参加者情報の抽出に失敗: {e}")
 
         return participants
+
+
+async def run_ai_review(thread_id, prompt_data, logger):
+    try:
+        threads = [
+            {
+                "thread_id": thread_id,
+                "content": json.dumps(prompt_data, ensure_ascii=False),
+            }
+        ]
+
+        ai_review = AIReview()
+        results = await ai_review.review(threads)
+
+        for r in results:
+            if r.get("success") and r.get("result"):
+                return json.dumps(r.get("result"), ensure_ascii=False)
+
+        return None
+    except Exception as e:
+        logger.error(f"AIレビュー処理でエラーが発生: {e}")
+        return None

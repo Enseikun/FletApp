@@ -11,6 +11,7 @@ import flet as ft
 from src.core.logger import get_logger
 from src.models.mail.styled_text import StyledText
 from src.viewmodels.preview_content_viewmodel import PreviewContentViewModel
+from src.views.components.alert_dialog import AlertDialog
 from src.views.components.mail_content_viewer import MailContentViewer
 from src.views.components.mail_list import MailList
 from src.views.components.progress_dialog import ProgressDialog
@@ -34,9 +35,8 @@ class PreviewContent(ft.Container):
         self.floating_action_button = None
         self.task_id = None
 
-        # ダイアログ管理用変数
-        self._current_dialog = None
-        self._is_dialog_open = False
+        # AlertDialog インスタンスを取得
+        self.alert_dialog = AlertDialog()
 
         # コンポーネント初期化
         self._init_parameters()
@@ -214,6 +214,9 @@ class PreviewContent(ft.Container):
         # ProgressDialogを初期化
         self.progress_dialog.initialize(self.page)
 
+        # AlertDialogを初期化
+        self.alert_dialog.initialize(self.page)
+
         # FloatingActionButton
         self.page.floating_action_button = self.floating_action_button
         self.logger.info("PreviewContent: FloatingActionButton を設定しました")
@@ -267,21 +270,42 @@ class PreviewContent(ft.Container):
             self.thread_containers.clear()
             self.logger.debug("PreviewContent: 会話コンテナをクリア")
 
-        # メールリストとメールコンテンツビューアーのリセット
-        if hasattr(self, "mail_list_component"):
-            self.mail_list_component.reset()
-            self.logger.debug("PreviewContent: メールリストをリセット")
+        # メールリストとメールコンテンツビューアーのリセット（ページにマウントされている場合のみ）
+        if (
+            hasattr(self, "mail_list_component")
+            and hasattr(self.mail_list_component, "page")
+            and self.mail_list_component.page
+        ):
+            try:
+                self.mail_list_component.reset()
+                self.logger.debug("PreviewContent: メールリストをリセット")
+            except Exception as e:
+                self.logger.warning(
+                    f"PreviewContent: メールリストのリセット中にエラー - {str(e)}"
+                )
 
-        if hasattr(self, "mail_content_viewer"):
-            self.mail_content_viewer.reset()
-            self.logger.debug("PreviewContent: メールコンテンツビューアーをリセット")
+        if (
+            hasattr(self, "mail_content_viewer")
+            and hasattr(self.mail_content_viewer, "page")
+            and self.mail_content_viewer.page
+        ):
+            try:
+                self.mail_content_viewer.reset()
+                self.logger.debug(
+                    "PreviewContent: メールコンテンツビューアーをリセット"
+                )
+            except Exception as e:
+                self.logger.warning(
+                    f"PreviewContent: メールコンテンツビューアーのリセット中にエラー - {str(e)}"
+                )
 
         # タスクIDをクリア
         self.task_id = None
 
-        # FloatingActionButtonをクリア
-        self.page.floating_action_button = None
-        self.page.update()
+        # FloatingActionButtonをクリア（ページが存在する場合のみ）
+        if hasattr(self, "page") and self.page:
+            self.page.floating_action_button = None
+            self.page.update()
 
     def on_dispose(self):
         """リソース解放時の処理"""
@@ -1711,42 +1735,17 @@ class PreviewContent(ft.Container):
 
     def _show_confirmation_dialog(self):
         """査閲終了確認ダイアログを表示"""
-        dialog = ft.AlertDialog(
-            modal=True,  # モーダルダイアログとして表示
-            title=ft.Text("査閲終了の確認"),
-            content=ft.Text(
-                "査閲を終了してよろしいですか？\n\n"
-                "フラグありメールはOutlookにフラグが設定され、\n"
-                "フラグなしメールは別フォルダに移動されます。"
-            ),
-            actions=[
-                ft.TextButton(
-                    text="いいえ",
-                    on_click=lambda e: self._close_dialog(e, dialog),
-                    style=ft.ButtonStyle(
-                        color=Colors.TEXT,
-                    ),
-                ),
-                ft.ElevatedButton(
-                    text="はい",
-                    on_click=lambda e: self._on_confirmation_confirmed(e, dialog),
-                    style=ft.ButtonStyle(
-                        shape=ft.RoundedRectangleBorder(radius=4),
-                        color=Colors.TEXT_ON_ACTION,
-                        bgcolor=Colors.ACTION,
-                    ),
-                ),
-            ],
-            actions_alignment=ft.MainAxisAlignment.END,
+        self.alert_dialog.show_confirmation_dialog(
+            title="査閲終了の確認",
+            content="査閲を終了してよろしいですか？\n\n"
+            "フラグありメールはOutlookにフラグが設定され、\n"
+            "フラグなしメールは別フォルダに移動されます。",
+            on_confirm=self._on_confirmation_confirmed,
         )
         self.logger.debug("PreviewContent: 確認ダイアログを作成しました")
-        self._show_dialog(dialog)
 
-    def _on_confirmation_confirmed(self, e, dialog):
+    def _on_confirmation_confirmed(self, e):
         """確認ダイアログでYesが選択された場合の処理"""
-        # 確認ダイアログを閉じる
-        self._close_dialog(e, dialog)
-
         # ここから本来の査閲終了処理を実行
         self.logger.info("PreviewContent: 査閲終了処理開始")
 
@@ -1790,56 +1789,71 @@ class PreviewContent(ft.Container):
         """完了ダイアログを表示"""
         flag_set_count = getattr(self, "_last_flag_set_count", 0)
 
-        dialog = ft.AlertDialog(
-            modal=True,  # モーダルダイアログとして表示
-            title=ft.Text("査閲終了"),
-            content=ft.Text(
-                f"査閲終了処理が完了しました。\n\n"
-                f"・フラグなしメール {moved_count} 件を移動しました。\n"
-                f"・フラグありメール {flag_set_count} 件にフラグを設定しました。"
-            ),
-            actions=[
-                ft.ElevatedButton(
-                    text="OK",
-                    on_click=lambda e: self._close_dialog(e, dialog),
-                    style=ft.ButtonStyle(
-                        shape=ft.RoundedRectangleBorder(radius=4),
-                    ),
-                ),
-            ],
-            actions_alignment=ft.MainAxisAlignment.END,
+        self.alert_dialog.show_completion_dialog(
+            title="査閲終了",
+            content=f"査閲終了処理が完了しました。\n\n"
+            f"・フラグなしメール {moved_count} 件を移動しました。\n"
+            f"・フラグありメール {flag_set_count} 件にフラグを設定しました。",
         )
         self.logger.debug("PreviewContent: 完了ダイアログを作成しました")
-        self._show_dialog(dialog)
 
     def _show_error_dialog(self, error_message):
         """エラーダイアログを表示"""
-        dialog = ft.AlertDialog(
-            modal=True,  # モーダルダイアログとして表示
-            title=ft.Text("エラー"),
-            content=ft.Text(
-                f"査閲終了処理中にエラーが発生しました:\n\n{error_message}"
-            ),
-            actions=[
-                ft.ElevatedButton(
-                    text="OK",
-                    on_click=lambda e: self._close_dialog(e, dialog),
-                    style=ft.ButtonStyle(
-                        shape=ft.RoundedRectangleBorder(radius=4),
-                    ),
-                ),
-            ],
-            actions_alignment=ft.MainAxisAlignment.END,
+        self.alert_dialog.show_error_dialog(
+            title="エラー",
+            content=f"査閲終了処理中にエラーが発生しました:\n\n{error_message}",
         )
         self.logger.debug("PreviewContent: エラーダイアログを作成しました")
-        self._show_dialog(dialog)
 
-    def _close_dialog(self, e, dialog):
-        """ダイアログを閉じる"""
-        self.page.close(dialog)
-        self._current_dialog = None
-        self._is_dialog_open = False
-        self.logger.debug("PreviewContent: ダイアログを閉じます")
+    def _release_resources(self):
+        """リソースを解放"""
+        # ViewModelリソース解放
+        if hasattr(self, "viewmodel") and self.viewmodel:
+            self.viewmodel.close()
+            self.logger.debug("PreviewContent: ViewModelのリソースを解放")
+            self.viewmodel = None
+
+        # 会話コンテナのリセット
+        if hasattr(self, "thread_containers") and self.thread_containers:
+            self.thread_containers.clear()
+            self.logger.debug("PreviewContent: 会話コンテナをクリア")
+
+        # メールリストとメールコンテンツビューアーのリセット（ページにマウントされている場合のみ）
+        if (
+            hasattr(self, "mail_list_component")
+            and hasattr(self.mail_list_component, "page")
+            and self.mail_list_component.page
+        ):
+            try:
+                self.mail_list_component.reset()
+                self.logger.debug("PreviewContent: メールリストをリセット")
+            except Exception as e:
+                self.logger.warning(
+                    f"PreviewContent: メールリストのリセット中にエラー - {str(e)}"
+                )
+
+        if (
+            hasattr(self, "mail_content_viewer")
+            and hasattr(self.mail_content_viewer, "page")
+            and self.mail_content_viewer.page
+        ):
+            try:
+                self.mail_content_viewer.reset()
+                self.logger.debug(
+                    "PreviewContent: メールコンテンツビューアーをリセット"
+                )
+            except Exception as e:
+                self.logger.warning(
+                    f"PreviewContent: メールコンテンツビューアーのリセット中にエラー - {str(e)}"
+                )
+
+        # タスクIDをクリア
+        self.task_id = None
+
+        # FloatingActionButtonをクリア（ページが存在する場合のみ）
+        if hasattr(self, "page") and self.page:
+            self.page.floating_action_button = None
+            self.page.update()
 
     def _commit_pending_changes(self):
         """保留中の変更をDBに確実に保存"""
@@ -2034,23 +2048,3 @@ class PreviewContent(ft.Container):
         except Exception as e:
             self.logger.error(f"フラグありメール取得エラー: {str(e)}")
             return []
-
-    def _show_dialog(self, dialog):
-        """ダイアログを表示する共通メソッド"""
-        if hasattr(self, "page") and self.page:
-            # 前のダイアログが開いていれば閉じる
-            self._close_current_dialog()
-            # 新しいダイアログを表示
-            self._current_dialog = dialog
-            self._is_dialog_open = True
-            self.page.open(dialog)
-            self.page.update()
-            self.logger.debug("PreviewContent: ダイアログを表示しました")
-
-    def _close_current_dialog(self):
-        """現在開いているダイアログを閉じる"""
-        if self._current_dialog is not None and self._is_dialog_open:
-            self.page.close(self._current_dialog)
-            self._current_dialog = None
-            self._is_dialog_open = False
-            self.logger.debug("PreviewContent: ダイアログを閉じました")

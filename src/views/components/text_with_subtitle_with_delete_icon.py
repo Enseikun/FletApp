@@ -35,12 +35,15 @@ class TextWithSubtitleWithDeleteIcon(ft.Container):
         self.delete_icon = ft.IconButton(
             icon=ft.icons.DELETE,
             icon_color=ft.colors.ERROR,
-            on_click=on_delete,
+            on_click=self._handle_delete_click,
             tooltip="削除",
             hover_color=ft.colors.with_opacity(0.1, ft.colors.ERROR),
             highlight_color=ft.colors.with_opacity(0.2, ft.colors.ERROR),
             splash_color=ft.colors.with_opacity(0.3, ft.colors.ERROR),
         )
+
+        # 外部から渡されたコールバック関数を保存
+        self.on_delete_callback = on_delete
 
         super().__init__(
             content=ft.Row(
@@ -103,3 +106,32 @@ class TextWithSubtitleWithDeleteIcon(ft.Container):
             self.delete_icon.icon_color = ft.colors.ERROR
             self.delete_icon.bgcolor = None
         self.delete_icon.update()
+
+    def _handle_delete_click(self, e):
+        """削除アイコンクリック時の処理"""
+        # ログ出力を追加
+        print(f"削除アイコンがクリックされました: {e}")
+
+        # イベント伝播を停止
+        e.control.page.update()
+
+        # イベントの伝播を停止（親コンポーネントのクリックイベントが発火しないようにする）
+        e.stop_propagation()
+        print("イベント伝播を停止しました")
+
+        # 外部から渡されたコールバック関数を呼び出す
+        if self.on_delete_callback:
+            print(f"コールバック関数を呼び出します: {self.on_delete_callback}")
+            try:
+                # イベントパラメータを渡して呼び出す
+                self.on_delete_callback(e)
+                print("コールバック関数の呼び出しが完了しました")
+            except Exception as ex:
+                print(f"コールバック関数の呼び出しでエラー発生: {str(ex)}")
+                if hasattr(e, "control") and hasattr(e.control, "page"):
+                    e.control.page.add(
+                        ft.Text(f"エラー: {str(ex)}", color=ft.colors.RED)
+                    )
+                    e.control.page.update()
+        else:
+            print("コールバック関数が設定されていません")

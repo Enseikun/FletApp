@@ -28,17 +28,8 @@ class HomeContent(ft.Container):
         # AlertDialogインスタンスを取得
         self.alert_dialog = AlertDialog()
 
-        # pageが既に利用可能な場合はAlertDialogを初期化
-        if hasattr(self, "page") and self.page:
-            self.alert_dialog.initialize(self.page)
-            self.logger.debug(
-                "HomeContent: AlertDialogをコンストラクタで初期化しました"
-            )
-
         # ViewModelの取得または作成（依存性注入パターン）
-        self.contents_viewmodel = (
-            contents_viewmodel if contents_viewmodel else HomeContentViewModel()
-        )
+        self.contents_viewmodel = contents_viewmodel  # 必ず外部から渡されたものを使う
 
         # MainViewModelへの参照を取得
         self.main_viewmodel = None
@@ -109,7 +100,7 @@ class HomeContent(ft.Container):
         """コンポーネントがマウントされた時の処理"""
         print("HomeContent: did_mountが呼び出されました")
 
-        # AlertDialogを初期化
+        # AlertDialogを必ず初期化
         if hasattr(self, "page") and self.page:
             print(
                 f"HomeContent: pageオブジェクトを検出、AlertDialogを初期化します - page: {self.page}"
@@ -147,7 +138,7 @@ class HomeContent(ft.Container):
                         task_id
                     ),
                     on_delete=lambda e, task_id=task.get("id"): self._on_task_delete(
-                        e, task_id
+                        task_id
                     ),
                 )
 
@@ -374,11 +365,9 @@ class HomeContent(ft.Container):
                 )
             return False
 
-    def _on_task_delete(self, e, task_id):
+    def _on_task_delete(self, task_id):
         """タスク削除時の処理"""
-        self.logger.info(
-            f"HomeContent: タスク削除処理開始 - e: {e}, task_id: {task_id}"
-        )
+        self.logger.info(f"HomeContent: タスク削除処理開始 - task_id: {task_id}")
         print(f"タスク削除処理が呼び出されました - task_id: {task_id}")
 
         # Alert Dialogが初期化されているか確認し、必要なら初期化

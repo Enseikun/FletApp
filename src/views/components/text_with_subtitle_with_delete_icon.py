@@ -113,10 +113,10 @@ class TextWithSubtitleWithDeleteIcon(ft.Container):
         print(f"削除アイコンがクリックされました: {e}")
 
         # イベント伝播を停止
-        e.control.page.update()
+        # e.control.page.update()
 
         # イベントの伝播を停止（親コンポーネントのクリックイベントが発火しないようにする）
-        e.stop_propagation()
+        # e.stop_propagation()
         print("イベント伝播を停止しました")
 
         # 外部から渡されたコールバック関数を呼び出す

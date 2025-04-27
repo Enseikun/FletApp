@@ -6,6 +6,7 @@
 import flet as ft
 
 from src.core.logger import get_logger
+from src.viewmodels.home_content_viewmodel import HomeContentViewModel
 from src.viewmodels.main_contents_viewmodel import MainContentsViewModel
 from src.views.contents.content_factory import create_content
 
@@ -57,9 +58,15 @@ class MainContents(ft.Container):
             initial_destination = self._main_viewmodel.get_current_destination()
             self._main_viewmodel.set_initial_destination(initial_destination)
             # 初期コンテンツを設定
-            self._actual_content = create_content(
-                initial_destination, self._contents_viewmodel
-            )
+            self._home_content_viewmodel = HomeContentViewModel()
+            if initial_destination == "home":
+                self._actual_content = create_content(
+                    initial_destination, self._home_content_viewmodel
+                )
+            else:
+                self._actual_content = create_content(
+                    initial_destination, self._contents_viewmodel
+                )
             self.content = self._actual_content
             self.logger.info("MainContents初期化完了")
 
@@ -77,8 +84,11 @@ class MainContents(ft.Container):
         self.content = self._loading_indicator
         self.update()
 
-        # コンテンツファクトリからコンテンツを取得
-        new_content = create_content(destination_key, self._contents_viewmodel)
+        # HomeContentの場合はHomeContentViewModelを渡す
+        if destination_key == "home":
+            new_content = create_content(destination_key, self._home_content_viewmodel)
+        else:
+            new_content = create_content(destination_key, self._contents_viewmodel)
         self._actual_content = new_content
 
         # ローディング状態を解除
@@ -107,5 +117,8 @@ class MainContents(ft.Container):
             作成されたコンテンツ
         """
         self.logger.debug(f"コンテンツ作成: {destination_key}")
-        # コンテンツファクトリからコンテンツを取得
-        return create_content(destination_key, self._contents_viewmodel)
+        # HomeContentの場合はHomeContentViewModelを渡す
+        if destination_key == "home":
+            return create_content(destination_key, self._home_content_viewmodel)
+        else:
+            return create_content(destination_key, self._contents_viewmodel)

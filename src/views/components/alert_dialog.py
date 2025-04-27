@@ -1,12 +1,8 @@
-"""
-アラートダイアログコンポーネント
-アプリケーション全体で使用する再利用可能なダイアログUIを提供
-"""
-
 import flet as ft
 
 from src.core.logger import get_logger
-from src.views.styles.style import AppTheme, Colors
+from src.views.styles.color import Colors
+from src.views.styles.style import AppTheme, Styles
 
 
 class AlertDialog:
@@ -90,6 +86,8 @@ class AlertDialog:
                     on_click=lambda e: self.close_dialog(),
                     style=ft.ButtonStyle(
                         shape=ft.RoundedRectangleBorder(radius=4),
+                        bgcolor=Colors.ACTION,
+                        color=Colors.TEXT_ON_ACTION,
                     ),
                 ),
             ]
@@ -165,7 +163,7 @@ class AlertDialog:
                 text="いいえ",
                 on_click=lambda e: self._on_cancel_clicked(e, on_cancel),
                 style=ft.ButtonStyle(
-                    color=Colors.TEXT,
+                    color=Colors.TEXT_PRIMARY,
                 ),
             ),
             ft.ElevatedButton(
@@ -191,7 +189,7 @@ class AlertDialog:
             if self._page:
                 try:
                     self._page.snack_bar = ft.SnackBar(
-                        content=ft.Text(f"エラー: {str(e)}"), bgcolor=ft.colors.RED_400
+                        content=ft.Text(f"エラー: {str(e)}"), bgcolor=Colors.ERROR
                     )
                     self._page.snack_bar.open = True
                     self._page.update()
@@ -216,6 +214,8 @@ class AlertDialog:
                 on_click=lambda e: self.close_dialog(),
                 style=ft.ButtonStyle(
                     shape=ft.RoundedRectangleBorder(radius=4),
+                    bgcolor=Colors.ERROR,
+                    color=Colors.TEXT_ON_PRIMARY,
                 ),
             ),
         ]
@@ -241,6 +241,8 @@ class AlertDialog:
                 on_click=lambda e: self.close_dialog(),
                 style=ft.ButtonStyle(
                     shape=ft.RoundedRectangleBorder(radius=4),
+                    bgcolor=Colors.SUCCESS,
+                    color=Colors.TEXT_ON_PRIMARY,
                 ),
             ),
         ]

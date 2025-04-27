@@ -15,13 +15,15 @@ class HomeContentViewModel:
     MVVMパターンにおいてModelとViewの間の橋渡しを担当
     """
 
-    def __init__(self, db_path: str = None):
+    def __init__(self, db_path: str = None, main_viewmodel=None):
         """初期化"""
         self.logger = get_logger()
         self.logger.info("HomeContentViewModel: 初期化開始", db_path=db_path)
         self.model = HomeContentModel(db_path)
         self.current_task_id = None
-        self.main_viewmodel = None  # MainViewModelへの参照を保持するためのプロパティ
+        self.main_viewmodel = (
+            main_viewmodel  # MainViewModelへの参照を保持するためのプロパティ
+        )
         self.extraction_completed_callback = None  # 抽出完了コールバック
 
         # ProgressDialogのインスタンスを取得
@@ -295,7 +297,7 @@ class HomeContentViewModel:
             Dict[str, Any]: 処理結果（画面遷移などの指示を含む）
         """
         result = {
-            "should_navigate": False,  # プレビュー画面に遷移すべきか
+            "should_navigate": False,  # プレビュー画面に遷移すべきか（常にFalseに変更）
             "show_progress": False,  # 進捗ダイアログを表示すべきか
             "error": False,  # エラーが発生したか
             "error_message": "",  # エラーメッセージ
@@ -313,12 +315,12 @@ class HomeContentViewModel:
             # タスクの状態を確認
             status = self.check_snapshot_and_extraction_plan(task_id)
 
-            # 抽出が完了している場合は、直接プレビュー画面に遷移
+            # 抽出が完了している場合は、ダイアログ表示のみ（画面遷移はViewのコールバックで実施）
             if status["extraction_completed"]:
                 self.logger.info(
-                    "HomeContentViewModel: 抽出は完了しています。プレビュー画面に遷移します"
+                    "HomeContentViewModel: 抽出は完了しています。ダイアログ表示のみ行います"
                 )
-                result["should_navigate"] = True
+                # ここでshould_navigateはセットしない
                 return result
 
             # 抽出が進行中の場合は、進捗ダイアログを表示して監視
@@ -379,8 +381,7 @@ class HomeContentViewModel:
                 # 抽出が完了したことを確認
                 await self.check_extraction_completed(task_id)
 
-                # 抽出が完了したら、プレビュー画面に遷移
-                result["should_navigate"] = True
+                # ここでもshould_navigateはセットしない
                 result["show_progress"] = True
                 return result
 
@@ -391,8 +392,7 @@ class HomeContentViewModel:
             success = await self._start_extraction_without_confirmation(task_id)
 
             if success:
-                # 抽出が成功したらプレビュー画面に遷移
-                result["should_navigate"] = True
+                # 抽出が成功したらダイアログ表示のみ（画面遷移はViewのコールバックで実施）
                 result["show_progress"] = True
                 return result
             else:

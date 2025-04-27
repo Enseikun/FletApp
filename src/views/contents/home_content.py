@@ -1,3 +1,5 @@
+import asyncio
+
 import flet as ft
 
 from src.core.logger import get_logger
@@ -39,6 +41,10 @@ class HomeContent(ft.Container):
         ):
             self.main_viewmodel = self.contents_viewmodel.main_viewmodel
             self.logger.info("HomeContent: MainViewModelを取得しました")
+        else:
+            self.logger.error(
+                "HomeContent: MainViewModelが取得できません。画面遷移ができません。"
+            )
 
         # 抽出完了時のUIコールバックを設定（HomeContentViewModelの場合のみ）
         if hasattr(self.contents_viewmodel, "set_extraction_completed_callback"):
@@ -63,7 +69,7 @@ class HomeContent(ft.Container):
 
         # 新規タスク追加ボタン
         self.add_button = AddButton(
-            on_click=self._on_add_task_click,
+            on_click=lambda e: self._on_add_task_click(e),
             tooltip="新しいタスクを追加",
             size=50,
         )
@@ -227,38 +233,13 @@ class HomeContent(ft.Container):
 
     def _on_extraction_dialog_closed(self, e, task_id, task_status):
         """抽出完了ダイアログが閉じられたときの処理"""
-        # ViewModelに抽出完了後の処理を委譲（完了ステータスに基づいて画面遷移を判断）
+
+        async def handle_extraction_completion():
+            self.alert_dialog.close_dialog()
+            await asyncio.sleep(0.1)  # UI更新を待つ
+            self._navigate_to_preview(task_id)
+
         if hasattr(self, "page") and self.page:
-
-            async def handle_extraction_completion():
-                # ViewModelがハンドラーメソッドを持っているか確認
-                should_navigate = False
-                if hasattr(self.contents_viewmodel, "handle_extraction_completion"):
-                    should_navigate = (
-                        await self.contents_viewmodel.handle_extraction_completion(
-                            task_id, task_status
-                        )
-                    )
-                else:
-                    # ViewModel側に実装がない場合はデフォルトとして完了のみナビゲーション
-                    should_navigate = task_status == "completed"
-
-                if should_navigate:
-                    self._navigate_to_preview(task_id)
-                else:
-                    # 完了以外の場合はメッセージ表示
-                    self.alert_dialog.show_dialog(
-                        title="抽出未完了",
-                        content="メール抽出処理が完了していないため、プレビュー画面に移動できません。",
-                        actions=[
-                            ft.TextButton(
-                                "OK",
-                                on_click=lambda e: self.alert_dialog.close_dialog(),
-                            ),
-                        ],
-                        modal=True,
-                    )
-
             self.page.run_task(handle_extraction_completion)
 
     def _navigate_to_preview(self, task_id):
@@ -321,20 +302,15 @@ class HomeContent(ft.Container):
                         task_id
                     )
 
-                    # 結果に応じて画面遷移
-                    if result.get("should_navigate", False):
-                        self._navigate_to_preview(task_id)
-                    elif result.get("show_progress", False):
-                        # 進捗ダイアログはViewModelが表示済みなので何もしない
-                        pass
-                    elif result.get("error"):
-                        # エラーダイアログを表示
+                    # エラーの場合のみ即時エラーダイアログ
+                    if result.get("error"):
                         self.alert_dialog.show_dialog(
                             title="エラー",
                             content=result.get(
                                 "error_message", "タスク処理中にエラーが発生しました。"
                             ),
                         )
+                    # それ以外（should_navigateやshow_progress）はViewModelのコールバックでダイアログ表示→OKボタンで遷移
                 else:
                     # ViewModelが必要なメソッドを持っていない場合は直接ホームビューモデルを使用
                     await self._handle_home_viewmodel_select_task(task_id)
@@ -529,5 +505,8 @@ class HomeContent(ft.Container):
         # タスク設定画面に遷移（シンプルな画面遷移処理）
         if self.main_viewmodel:
             self.main_viewmodel.set_destination("task")
+            self.page.update()
         else:
-            self.home_viewmodel.set_destination("task")
+            self.logger.error(
+                "HomeContent: MainViewModelがNoneのため画面遷移できません。"
+            )

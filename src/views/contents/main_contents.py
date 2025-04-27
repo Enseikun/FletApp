@@ -58,7 +58,9 @@ class MainContents(ft.Container):
             initial_destination = self._main_viewmodel.get_current_destination()
             self._main_viewmodel.set_initial_destination(initial_destination)
             # 初期コンテンツを設定
-            self._home_content_viewmodel = HomeContentViewModel()
+            self._home_content_viewmodel = HomeContentViewModel(
+                main_viewmodel=main_viewmodel
+            )
             if initial_destination == "home":
                 self._actual_content = create_content(
                     initial_destination, self._home_content_viewmodel
@@ -86,7 +88,10 @@ class MainContents(ft.Container):
 
         # HomeContentの場合はHomeContentViewModelを渡す
         if destination_key == "home":
-            new_content = create_content(destination_key, self._home_content_viewmodel)
+            new_content = create_content(
+                destination_key,
+                HomeContentViewModel(main_viewmodel=self._main_viewmodel),
+            )
         else:
             new_content = create_content(destination_key, self._contents_viewmodel)
         self._actual_content = new_content
@@ -119,6 +124,9 @@ class MainContents(ft.Container):
         self.logger.debug(f"コンテンツ作成: {destination_key}")
         # HomeContentの場合はHomeContentViewModelを渡す
         if destination_key == "home":
-            return create_content(destination_key, self._home_content_viewmodel)
+            return create_content(
+                destination_key,
+                HomeContentViewModel(main_viewmodel=self._main_viewmodel),
+            )
         else:
             return create_content(destination_key, self._contents_viewmodel)

@@ -3,6 +3,7 @@
 タスクの設定と作成を行うUIを提供するクラス
 """
 
+import os
 from datetime import datetime
 
 import flet as ft
@@ -135,7 +136,9 @@ class TaskContent(ft.Container):
                     ft.Text("フォルダ設定", size=16, weight="bold"),
                     ft.Text("移動元フォルダ", size=14),
                     self.from_folder_dropdown,
-                    ft.Text("移動先フォルダ", size=14),
+                    ft.Text(
+                        "移動先フォルダ（未選択の場合は移動元フォルダを使用）", size=14
+                    ),
                     self.to_folder_dropdown,
                     ft.Divider(),
                     ft.Text("期間設定", size=16, weight="bold"),
@@ -219,6 +222,14 @@ class TaskContent(ft.Container):
         # Outlook接続ボタンのコンテナを保持
         self.outlook_connect_container = content.controls[2].content.controls[0]
 
+    def _filter_folders_by_root(self, folders, root):
+        """指定されたrootフォルダに属するフォルダのみをフィルタリング"""
+        return [
+            ft.dropdownm2.Option(key=folder["entry_id"], text=folder["path"])
+            for folder in folders
+            if os.path.normpath(folder["path"]).split(os.sep)[1] == root
+        ]
+
     async def _update_folders(self):
         """フォルダ選択肢を更新"""
         # フォルダ情報を取得
@@ -226,7 +237,7 @@ class TaskContent(ft.Container):
         if not folders:
             return
 
-        # フォルダパスをドロップダウン用の形式に変換
+        # フォルダパスをドロップダウン用の形式に変換（タプルリストに変更）
         from_options = [(folder["entry_id"], folder["path"]) for folder in folders]
         to_options = [(folder["entry_id"], folder["path"]) for folder in folders]
 
@@ -295,6 +306,24 @@ class TaskContent(ft.Container):
             self.viewmodel.from_folder_name = folder_info["name"]
             self.viewmodel.store_id = folder_info["store_id"]
 
+            # 移動先フォルダの選択肢を更新
+            if selected_value:
+                root = os.path.normpath(folder_info["path"]).split(os.sep)[1]
+                filtered_folders = [
+                    (f["entry_id"], f["path"])
+                    for f in self.viewmodel.get_folder_info()
+                    if os.path.normpath(f["path"]).split(os.sep)[1] == root
+                ]
+                filtered_folders.insert(0, ("", "フォルダを選択"))
+                self.to_folder_dropdown.update_options(filtered_folders)
+            else:
+                # 移動元フォルダが未選択の場合、すべてのフォルダを表示
+                all_folders = [
+                    (f["entry_id"], f["path"]) for f in self.viewmodel.get_folder_info()
+                ]
+                all_folders.insert(0, ("", "フォルダを選択"))
+                self.to_folder_dropdown.update_options(all_folders)
+
     def _on_to_folder_change(self, e):
         """送信先フォルダ変更時の処理"""
         selected_value = e.control.value
@@ -310,6 +339,24 @@ class TaskContent(ft.Container):
         if folder_info:
             self.viewmodel.to_folder_id = folder_info["entry_id"]
             self.viewmodel.to_folder_path = folder_info["path"]
+
+            # 移動元フォルダの選択肢を更新
+            if selected_value:
+                root = os.path.normpath(folder_info["path"]).split(os.sep)[1]
+                filtered_folders = [
+                    (f["entry_id"], f["path"])
+                    for f in self.viewmodel.get_folder_info()
+                    if os.path.normpath(f["path"]).split(os.sep)[1] == root
+                ]
+                filtered_folders.insert(0, ("", "フォルダを選択"))
+                self.from_folder_dropdown.update_options(filtered_folders)
+            else:
+                # 移動先フォルダが未選択の場合、すべてのフォルダを表示
+                all_folders = [
+                    (f["entry_id"], f["path"]) for f in self.viewmodel.get_folder_info()
+                ]
+                all_folders.insert(0, ("", "フォルダを選択"))
+                self.from_folder_dropdown.update_options(all_folders)
 
     def _validate_date(self, value):
         """日時のバリデーション"""

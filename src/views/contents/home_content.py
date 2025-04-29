@@ -104,20 +104,20 @@ class HomeContent(ft.Container):
 
     def did_mount(self):
         """コンポーネントがマウントされた時の処理"""
-        print("HomeContent: did_mountが呼び出されました")
+        # print("HomeContent: did_mountが呼び出されました")
 
         # AlertDialogを必ず初期化
         if hasattr(self, "page") and self.page:
-            print(
-                f"HomeContent: pageオブジェクトを検出、AlertDialogを初期化します - page: {self.page}"
-            )
+            # print(
+            #     f"HomeContent: pageオブジェクトを検出、AlertDialogを初期化します - page: {self.page}"
+            # )
             self.alert_dialog.initialize(self.page)
             self.logger.debug("HomeContent: AlertDialogを初期化しました")
-            print("HomeContent: AlertDialogの初期化が完了しました")
+            # print("HomeContent: AlertDialogの初期化が完了しました")
         else:
-            print(
-                "HomeContent: pageオブジェクトが見つからないためAlertDialogを初期化できません"
-            )
+            # print(
+            #     "HomeContent: pageオブジェクトが見つからないためAlertDialogを初期化できません"
+            # )
             self.logger.warning(
                 "HomeContent: pageオブジェクトが見つからないためAlertDialogを初期化できません"
             )
@@ -344,7 +344,7 @@ class HomeContent(ft.Container):
     def _on_task_delete(self, task_id):
         """タスク削除時の処理"""
         self.logger.info(f"HomeContent: タスク削除処理開始 - task_id: {task_id}")
-        print(f"タスク削除処理が呼び出されました - task_id: {task_id}")
+        # print(f"タスク削除処理が呼び出されました - task_id: {task_id}")
 
         # Alert Dialogが初期化されているか確認し、必要なら初期化
         if not hasattr(self.alert_dialog, "_page") or not self.alert_dialog._page:
@@ -353,7 +353,7 @@ class HomeContent(ft.Container):
                 self.logger.debug(
                     "HomeContent: タスク削除時にAlertDialogを初期化しました"
                 )
-                print("AlertDialogを初期化しました")
+                # print("AlertDialogを初期化しました")
 
         # 削除確認ダイアログを表示
         try:
@@ -362,10 +362,10 @@ class HomeContent(ft.Container):
                 content=f"タスクID: {task_id} を削除してもよろしいですか？",
                 on_confirm=lambda e: self._confirm_delete_task(task_id),
             )
-            print(f"削除確認ダイアログを表示しました - task_id: {task_id}")
+            # print(f"削除確認ダイアログを表示しました - task_id: {task_id}")
         except Exception as ex:
             self.logger.error(f"HomeContent: ダイアログ表示でエラー - {str(ex)}")
-            print(f"ダイアログ表示でエラー: {str(ex)}")
+            # print(f"ダイアログ表示でエラー: {str(ex)}")
 
             # エラーが発生した場合、直接コンソールにメッセージを表示
             if hasattr(self, "page") and self.page:
@@ -376,17 +376,6 @@ class HomeContent(ft.Container):
 
     def _confirm_delete_task(self, task_id):
         """タスク削除確認時の処理"""
-        # 削除準備ダイアログを表示
-        actions = [
-            ft.TextButton(
-                "キャンセル", on_click=lambda e: self.alert_dialog.close_dialog()
-            ),
-            ft.TextButton(
-                "続行",
-                on_click=lambda e: self._execute_task_deletion(task_id),
-            ),
-        ]
-
         content = ft.Column(
             [
                 ft.Text("タスクの削除準備を行います。"),
@@ -403,11 +392,10 @@ class HomeContent(ft.Container):
             tight=True,
         )
 
-        self.alert_dialog.show_dialog(
+        self.alert_dialog.show_confirmation_dialog(
             title="削除準備",
             content=content,
-            actions=actions,
-            modal=True,
+            on_confirm=lambda e: self._execute_task_deletion(task_id),
         )
 
     def _execute_task_deletion(self, task_id):

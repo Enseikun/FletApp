@@ -50,23 +50,23 @@ class AlertDialog:
             width (int): ダイアログの幅
             height (int): ダイアログの高さ
         """
-        print(f"AlertDialog: show_dialogが呼び出されました - title: {title}")
+        # print(f"AlertDialog: show_dialogが呼び出されました - title: {title}")
 
         if not self._page:
             error_msg = (
                 "ダイアログが初期化されていません。initialize()を呼び出してください。"
             )
             self.logger.error(error_msg)
-            print(f"AlertDialog: {error_msg}")
+            # print(f"AlertDialog: {error_msg}")
 
             # 自動初期化を試みる
             if hasattr(self, "page") and self.page:
-                print("AlertDialog: 自動初期化を試みます")
+                # print("AlertDialog: 自動初期化を試みます")
                 self.initialize(self.page)
             else:
-                print(
-                    "AlertDialog: 自動初期化できません - pageオブジェクトがありません"
-                )
+                # print(
+                #     "AlertDialog: 自動初期化できません - pageオブジェクトがありません"
+                # )
                 return
 
         # 前のダイアログが開いていれば閉じる
@@ -121,20 +121,21 @@ class AlertDialog:
 
             # ページが有効かチェック
             if self._page:
-                print("AlertDialog: ダイアログを表示します")
+                # print("AlertDialog: ダイアログを表示します")
                 self._page.open(self._current_dialog)
                 self._page.update()
                 self.logger.debug("AlertDialog: ダイアログを表示しました")
-                print("AlertDialog: ダイアログ表示が完了しました")
+                # print("AlertDialog: ダイアログ表示が完了しました")
             else:
-                print(
-                    "AlertDialog: ページオブジェクトがないためダイアログを表示できません"
-                )
+                # print(
+                #     "AlertDialog: ページオブジェクトがないためダイアログを表示できません"
+                # )
+                pass
 
         except Exception as e:
             error_msg = f"AlertDialog: ダイアログ表示中にエラー発生 - {str(e)}"
             self.logger.error(error_msg)
-            print(error_msg)
+            # print(error_msg)
             # 重大なエラーの場合は状態をリセット
             self._is_open = False
             self._current_dialog = None
@@ -148,13 +149,13 @@ class AlertDialog:
             on_confirm (function): 確認時のコールバック関数
             on_cancel (function): キャンセル時のコールバック関数
         """
-        print(
-            f"AlertDialog: show_confirmation_dialogが呼び出されました - title: {title}"
-        )
+        # print(
+        #     f"AlertDialog: show_confirmation_dialogが呼び出されました - title: {title}"
+        # )
 
         # ページの初期化確認
         if not self._page and hasattr(self, "page"):
-            print("AlertDialog: ページが未初期化、did_mountの前に初期化を実行します")
+            # print("AlertDialog: ページが未初期化、did_mountの前に初期化を実行します")
             self.initialize(self.page)
 
         # アクションボタンを作成
@@ -179,11 +180,11 @@ class AlertDialog:
 
         # ダイアログを表示
         try:
-            print("AlertDialog: show_dialogを呼び出します")
+            # print("AlertDialog: show_dialogを呼び出します")
             self.show_dialog(title=title, content=content, actions=actions, modal=True)
-            print("AlertDialog: show_dialogの呼び出しが完了しました")
+            # print("AlertDialog: show_dialogの呼び出しが完了しました")
         except Exception as e:
-            print(f"AlertDialog: show_dialogでエラーが発生しました - {str(e)}")
+            # print(f"AlertDialog: show_dialogでエラーが発生しました - {str(e)}")
             self.logger.error(f"AlertDialog: show_dialogでエラー発生 - {str(e)}")
             # エラーが発生した場合、フォールバック処理
             if self._page:
@@ -194,7 +195,8 @@ class AlertDialog:
                     self._page.snack_bar.open = True
                     self._page.update()
                 except Exception:
-                    print("AlertDialog: フォールバック処理にも失敗しました")
+                    # print("AlertDialog: フォールバック処理にも失敗しました")
+                    pass
 
     def show_error_dialog(self, title, content):
         """
@@ -241,8 +243,8 @@ class AlertDialog:
                 on_click=lambda e: self.close_dialog(),
                 style=ft.ButtonStyle(
                     shape=ft.RoundedRectangleBorder(radius=4),
-                    bgcolor=Colors.SUCCESS,
-                    color=Colors.TEXT_ON_PRIMARY,
+                    bgcolor=Colors.ACTION,
+                    color=Colors.TEXT_ON_ACTION,
                 ),
             ),
         ]
@@ -294,13 +296,14 @@ class AlertDialog:
 
     def did_mount(self):
         """コンポーネントがマウントされた時の処理"""
-        print("AlertDialog: did_mountが呼び出されました")
+        # print("AlertDialog: did_mountが呼び出されました")
         if self._page is None and hasattr(self, "page"):
-            print(f"AlertDialog: did_mountでpageオブジェクトを検出: {self.page}")
+            # print(f"AlertDialog: did_mountでpageオブジェクトを検出: {self.page}")
             self.initialize(self.page)
             self.logger.debug("AlertDialog: did_mountで自動初期化しました")
-            print("AlertDialog: did_mountで自動初期化しました")
+            # print("AlertDialog: did_mountで自動初期化しました")
         else:
-            print(
-                f"AlertDialog: pageオブジェクトの状態 - self._page: {self._page}, hasattr(self, 'page'): {hasattr(self, 'page')}"
-            )
+            # print(
+            #     f"AlertDialog: pageオブジェクトの状態 - self._page: {self._page}, hasattr(self, 'page'): {hasattr(self, 'page')}"
+            # )
+            pass

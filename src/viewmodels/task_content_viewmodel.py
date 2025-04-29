@@ -37,10 +37,13 @@ class TaskContentViewModel:
         """入力データの初期化"""
         # 現在の日時を取得
         now = datetime.now()
-        # start_dateは現在の日付の00:00に設定
-        self._start_date = datetime(now.year, now.month, now.day, 0, 0)
-        # end_dateは現在の日付の23:59に設定
-        self._end_date = datetime(now.year, now.month, now.day, 23, 59)
+        # end_dateは現在の日時に設定
+        self._end_date = now
+        # start_dateは前日の00:00に設定
+        yesterday = now - timedelta(days=1)
+        self._start_date = datetime(
+            yesterday.year, yesterday.month, yesterday.day, 0, 0
+        )
 
         # フォルダ選択の状態
         self._from_folder_id: str = ""
@@ -100,8 +103,6 @@ class TaskContentViewModel:
     @to_folder_id.setter
     def to_folder_id(self, value: str):
         """送信先フォルダIDを設定"""
-        if value == self._from_folder_id:
-            raise ValueError("移動元と移動先のフォルダが同じです")
         self._to_folder_id = value
 
     @property
@@ -224,11 +225,11 @@ class TaskContentViewModel:
         if not self._from_folder_path:
             raise ValueError("移動元フォルダを選択してください")
 
+        # 移動先フォルダが未選択の場合は移動元フォルダを使用
         if not self._to_folder_path:
-            raise ValueError("移動先フォルダを選択してください")
-
-        if self._from_folder_path == self._to_folder_path:
-            raise ValueError("移動元と移動先のフォルダが同じです")
+            self._to_folder_path = self._from_folder_path
+            self._to_folder_id = self._from_folder_id
+            self._to_folder_name = self._from_folder_name
 
         if self._end_date <= self._start_date:
             raise ValueError("終了日時は開始日時より後に設定してください")

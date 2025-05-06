@@ -59,36 +59,71 @@ class PreviewContent(ft.Container):
 
     def _init_parameters(self):
         """パラメータの初期化"""
-        # ViewModelの初期化（遅延）
+        self.logger.debug("PreviewContent: パラメータ初期化開始")
+
+        # タスクID
+        self.task_id = None
+
+        # Viewmodelインスタンスの格納用変数
         self.viewmodel = None
+        self.home_viewmodel = None
+        self.main_viewmodel = None
+
+        # グループ化するかどうか
+        self.enable_grouping = False
+
+        # グループ化モード（"none", "conversation", "participants", "subject"）
+        self.grouping_mode = "none"
+
+        # グループコンテナの格納用
+        self.group_containers = {}
+
+        # 選択中のメールID
+        self.selected_mail_id = None
+
+        # キーワードリスト
+        self.keywords = []
+
+        self.logger.debug("PreviewContent: パラメータ初期化完了")
 
         # 設定パラメータ
-        self.group_by_thread = False
         self.thread_sort_newest_first = True
         self.mail_sort_order = "date_desc"
-
-        # データストア
-        self.thread_containers = {}
 
         # サンプルデータフラグ
         self.use_sample_data = False
 
     def _init_components(self):
         """コンポーネントの初期化"""
+        self.logger.debug("PreviewContent: コンポーネント初期化開始")
+
+        # アラートダイアログ
+        self.alert_dialog = AlertDialog()
+
+        # プログレスダイアログ
+        self.progress_dialog = ProgressDialog()
+
         # メールリストコンポーネント
         self.mail_list_component = MailList(
             on_mail_selected=self.show_mail_content,
             on_refresh=self.load_all_mails,
         )
 
+        # グループ化設定を初期設定
+        self.mail_list_component.enable_grouping = self.enable_grouping
+        self.mail_list_component.grouping_mode = self.grouping_mode
+
+        # ソート順変更イベントを設定
+        self.mail_list_component.on_sort_order_changed = self.on_sort_order_changed
+
+        # グループ化変更イベントを設定
+        self.mail_list_component.on_group_changed = self.on_grouping_changed
+
+        # グループ選択イベントを設定
+        self.mail_list_component.on_thread_selected = self._show_group
+
         # 検索イベントを設定
         self.mail_list_component.on_search = self.on_search
-
-        # 会話グループ変更イベントを設定
-        self.mail_list_component.on_group_changed = self.on_group_by_thread_changed
-
-        # 会話選択イベントを設定
-        self.mail_list_component.on_thread_selected = self._show_thread
 
         # メール内容表示コンポーネント
         self.mail_content_viewer = MailContentViewer(
@@ -99,8 +134,8 @@ class PreviewContent(ft.Container):
         # StyledTextインスタンス
         self.styled_text = StyledText()
 
-        # キーワードリスト
-        self.keywords = self._load_keywords()
+        # ソート順の初期値
+        self.current_sort_order = "date_asc"
 
     def _init_styles(self):
         """スタイルの初期化"""
@@ -266,8 +301,8 @@ class PreviewContent(ft.Container):
             self.viewmodel = None
 
         # 会話コンテナのリセット
-        if hasattr(self, "thread_containers") and self.thread_containers:
-            self.thread_containers.clear()
+        if hasattr(self, "group_containers") and self.group_containers:
+            self.group_containers.clear()
             self.logger.debug("PreviewContent: 会話コンテナをクリア")
 
         # メールリストとメールコンテンツビューアーのリセット（ページにマウントされている場合のみ）
@@ -377,11 +412,15 @@ class PreviewContent(ft.Container):
             self.logger.error("PreviewContent: ViewModelが初期化されていません")
             return
 
-        # すべてのメールを取得
-        mails = self.viewmodel.get_all_mails()
+        # 現在のコンテキストに基づいてメールを取得（検索結果または全メール）
+        mails = self.viewmodel.get_current_mails(sort_order=self.current_sort_order)
         self.logger.debug("PreviewContent: メール取得完了", mail_count=len(mails))
 
-        # メール一覧コンポーネントに表示
+        # グループコンテナをクリア
+        self.group_containers.clear()
+
+        # メール一覧コンポーネントに表示（グループ化設定を事前に反映）
+        self.mail_list_component.enable_grouping = self.enable_grouping
         self.mail_list_component.display_mails(mails)
 
         # メール内容表示をクリア
@@ -389,12 +428,19 @@ class PreviewContent(ft.Container):
 
         # 明示的に更新
         self.update()
-        self.logger.info("PreviewContent: すべてのメール読み込み完了")
+        self.logger.info(
+            "PreviewContent: すべてのメール読み込み完了",
+            mail_count=len(mails),
+            enable_grouping=self.enable_grouping,
+        )
 
     def on_search(self, search_term):
         """検索実行時の処理"""
         self.logger.info("PreviewContent: 検索実行", search_term=search_term)
         if not search_term:
+            # 検索条件がない場合は検索状態をクリアして全件表示
+            if self.viewmodel:
+                self.viewmodel.clear_search()
             self.load_all_mails()
             return
 
@@ -403,7 +449,9 @@ class PreviewContent(ft.Container):
             return
 
         # 検索を実行
-        mails = self.viewmodel.search_mails(search_term)
+        mails = self.viewmodel.search_mails(
+            search_term, sort_order=self.current_sort_order
+        )
         self.logger.debug("PreviewContent: 検索結果取得", result_count=len(mails))
 
         # 検索結果をコンポーネントに表示
@@ -867,12 +915,12 @@ class PreviewContent(ft.Container):
 
     def _reapply_sort_to_current_thread(self):
         """現在表示中の会話に新しいソート順を適用"""
-        for thread_id, mails in self.thread_containers.items():
+        for group_id, mails in self.group_containers.items():
             # 現在選択されているグループを特定
             for item in self.mail_list_component.mail_list_view.controls:
                 if (
                     hasattr(item, "data")
-                    and item.data == thread_id
+                    and item.data == group_id
                     and item.bgcolor == Colors.SELECTED
                 ):
                     # ソート順を指定して再表示
@@ -880,7 +928,7 @@ class PreviewContent(ft.Container):
                         "date_desc" if self.thread_sort_newest_first else "date_asc"
                     )
                     sorted_mails = self.viewmodel.sort_mails(mails, sort_order)
-                    self._show_thread(sorted_mails, thread_id)
+                    self._show_group(sorted_mails, group_id)
                     break
 
     def _on_ai_review_refresh(self, e):
@@ -1057,7 +1105,7 @@ class PreviewContent(ft.Container):
                 self._update_flag_in_content_viewer(mail_id, is_flagged)
 
                 # 会話モードがオンの場合、関連する会話内の他のメールも更新
-                if self.group_by_thread:
+                if self.enable_grouping:
                     self._update_related_thread_flags(mail_id, is_flagged)
 
                 self.logger.info(
@@ -1076,7 +1124,7 @@ class PreviewContent(ft.Container):
                 self.show_error_message(str(message))
 
     def _update_related_thread_flags(self, mail_id, is_flagged):
-        """関連する会話内の他のメールのフラグも更新"""
+        """関連するグループ内の他のメールのフラグも更新"""
         try:
             # フラグを切り替えたメールを取得
             flagged_mail = self.viewmodel.get_mail_content(mail_id)
@@ -1085,7 +1133,7 @@ class PreviewContent(ft.Container):
 
             thread_id = flagged_mail.get("thread_id")
             self.logger.debug(
-                "PreviewContent: 関連会話内のフラグ更新",
+                "PreviewContent: 関連グループ内のフラグ更新",
                 mail_id=mail_id,
                 thread_id=thread_id,
             )
@@ -1112,7 +1160,7 @@ class PreviewContent(ft.Container):
                     )
         except Exception as e:
             self.logger.error(
-                f"PreviewContent: 関連会話更新エラー - {str(e)}", mail_id=mail_id
+                f"PreviewContent: 関連グループ更新エラー - {str(e)}", mail_id=mail_id
             )
 
     def _update_flag_in_content_viewer(self, mail_id, is_flagged):
@@ -1160,62 +1208,52 @@ class PreviewContent(ft.Container):
             e.control.bgcolor = None
         e.control.update()
 
-    def on_group_by_thread_changed(self, e):
-        """会話ごとに集約するフラグを切り替える"""
+    def on_grouping_changed(self, mode):
+        """グループ化モードが変更されたときの処理"""
         self.logger.info(
-            "PreviewContent: 会話ごとに集約フラグ切り替え開始",
-            value=e.control.value if hasattr(e, "control") else e,
-            current_group_by_thread=self.group_by_thread,
+            "PreviewContent: グループ化モード変更",
+            mode=mode,
+            previous_mode=(
+                self.grouping_mode if hasattr(self, "grouping_mode") else "未設定"
+            ),
         )
 
-        # フラグを切り替え
-        self._update_group_by_thread_flag(e)
+        # グループ化モードを保存
+        self.grouping_mode = mode
 
-        # メール一覧を再読み込み
-        self.logger.debug("PreviewContent: load_all_mailsを呼び出し")
+        # 従来の互換性のためにenable_groupingフラグも更新
+        self.enable_grouping = mode != "none"
+
+        # メール一覧コンポーネントのフラグも更新
+        if hasattr(self, "mail_list_component"):
+            self.mail_list_component.grouping_mode = mode
+            self.mail_list_component.enable_grouping = self.enable_grouping
+
+        # メール一覧を再読み込み（検索状態を維持）
+        self.logger.debug(
+            "PreviewContent: グループ化モード変更によるメール一覧再読み込み"
+        )
         self.load_all_mails()
 
         self.logger.info(
-            "PreviewContent: 会話ごとに集約フラグ切り替え完了",
-            group_by_thread=self.group_by_thread,
+            "PreviewContent: グループ化モード変更完了",
+            mode=self.grouping_mode,
+            enable_grouping=self.enable_grouping,
         )
 
-    def _update_group_by_thread_flag(self, e):
-        """会話ごとに集約するフラグを更新"""
-        if hasattr(e, "control"):
-            # イベントオブジェクトの場合
-            self.group_by_thread = e.control.value
-            self.logger.debug("PreviewContent: イベントオブジェクトから値を取得")
-        else:
-            # 直接値が渡された場合
-            self.group_by_thread = e
-            self.logger.debug("PreviewContent: 直接値が渡された")
-
-        self.logger.debug(
-            "PreviewContent: group_by_threadフラグを更新",
-            new_value=self.group_by_thread,
-        )
-
-        # メール一覧コンポーネントのフラグも更新
-        self.mail_list_component.group_by_thread = self.group_by_thread
-        self.logger.debug(
-            "PreviewContent: mail_list_componentのフラグを更新",
-            component_value=self.mail_list_component.group_by_thread,
-        )
-
-    def _show_thread(self, mails=None, thread_id=None):
-        """会話内容を表示"""
+    def _show_group(self, mails=None, group_id=None):
+        """グループ内容を表示"""
         self.logger.info(
-            "PreviewContent: 会話内容表示",
+            "PreviewContent: グループ内容表示",
             mail_count=len(mails) if isinstance(mails, list) else 0,
-            thread_id=thread_id,
+            group_id=group_id,
         )
 
         # パラメータの検証とメールリストの取得
-        mails = self._get_mails_for_thread_display(mails, thread_id)
+        mails = self._get_mails_for_group_display(mails, group_id)
 
         # メールリスト内の選択状態を更新
-        self._update_thread_selection_in_list(thread_id)
+        self._update_group_selection_in_list(group_id)
 
         # メール内容表示をクリア
         self.mail_content_viewer._show_empty_content()
@@ -1227,91 +1265,91 @@ class PreviewContent(ft.Container):
             return
 
         # メールを時系列順にソート
-        sorted_mails = self._sort_thread_mails(mails)
+        sorted_mails = self._sort_group_mails(mails)
 
         # メールを既読に設定
-        self._mark_thread_mails_as_read(sorted_mails)
+        self._mark_group_mails_as_read(sorted_mails)
 
-        # 会話内容を表示
-        self._display_thread_content(sorted_mails)
+        # グループ内容を表示
+        self._display_group_content(sorted_mails)
 
         self.update()
         self.logger.info(
-            "PreviewContent: 会話内容表示完了",
+            "PreviewContent: グループ内容表示完了",
             mail_count=len(sorted_mails),
-            thread_id=thread_id,
+            group_id=group_id,
         )
 
-    def _get_mails_for_thread_display(self, mails, thread_id):
-        """会話表示用のメールリストを取得"""
+    def _get_mails_for_group_display(self, mails, group_id):
+        """グループ表示用のメールリストを取得"""
         self.logger.debug(
-            "PreviewContent: _show_thread引数詳細",
+            "PreviewContent: _show_group引数詳細",
             mails_type=type(mails).__name__,
             mails_is_list=isinstance(mails, list),
-            thread_id_type=(type(thread_id).__name__ if thread_id else "None"),
-            thread_id=thread_id,
+            group_id_type=(type(group_id).__name__ if group_id else "None"),
+            group_id=group_id,
         )
 
-        # mailsが文字列の場合（会話ID）
+        # mailsが文字列の場合（グループID）
         if isinstance(mails, str):
             self.logger.warning(
-                "PreviewContent: mails引数が文字列です。会話IDとして処理します",
+                "PreviewContent: mails引数が文字列です。グループIDとして処理します",
                 mails_as_string=mails,
-                original_thread_id=thread_id,
+                original_group_id=group_id,
             )
-            thread_id = mails
+            group_id = mails
             mails = []
 
-            # 会話コンテナからメールリストを取得
-            if thread_id in self.thread_containers:
-                mails = self.thread_containers[thread_id]
+            # グループコンテナからメールリストを取得
+            if group_id in self.group_containers:
+                mails = self.group_containers[group_id]
 
         # mailsがNoneの場合
         elif mails is None:
             self.logger.warning(
-                "PreviewContent: mails引数がNoneです", thread_id=thread_id
+                "PreviewContent: mails引数がNoneです", group_id=group_id
             )
             mails = []
 
-        # mailsが空でthread_idがある場合
-        if (not mails or len(mails) == 0) and thread_id:
-            mails = self._find_mails_for_thread_id(thread_id)
+        # mailsが空でgroup_idがある場合
+        if (not mails or len(mails) == 0) and group_id:
+            mails = self._find_mails_for_group_id(group_id)
 
         return mails
 
-    def _find_mails_for_thread_id(self, thread_id):
-        """指定されたthread_idに対応するメールリストを見つける"""
+    def _find_mails_for_group_id(self, group_id):
+        """指定されたgroup_idに対応するメールリストを見つける"""
         # 完全一致で検索
-        if thread_id in self.thread_containers:
-            mails = self.thread_containers[thread_id]
+        if group_id in self.group_containers:
+            mails = self.group_containers[group_id]
             self.logger.debug(
-                "PreviewContent: 会話コンテナからメールを取得 (完全一致)",
-                thread_id=thread_id,
+                "PreviewContent: グループコンテナからメールを取得 (完全一致)",
+                group_id=group_id,
                 mail_count=len(mails),
             )
             return mails
 
-        # conv_プレフィックスがない場合は追加して検索
+        # group_プレフィックスがない場合は追加して検索
         elif (
-            not thread_id.startswith("conv_")
-            and f"conv_{thread_id}" in self.thread_containers
+            not group_id.startswith("group_")
+            and f"group_{group_id}" in self.group_containers
         ):
-            mails = self.thread_containers[f"conv_{thread_id}"]
+            mails = self.group_containers[f"group_{group_id}"]
             self.logger.debug(
-                "PreviewContent: 会話コンテナからメールを取得 (プレフィックス追加)",
-                original_id=thread_id,
-                modified_id=f"conv_{thread_id}",
+                "PreviewContent: グループコンテナからメールを取得 (プレフィックス追加)",
+                original_id=group_id,
+                modified_id=f"group_{group_id}",
                 mail_count=len(mails),
             )
             return mails
 
-        # conv_プレフィックスがある場合は削除して検索
-        elif thread_id.startswith("conv_") and thread_id[5:] in self.thread_containers:
-            mails = self.thread_containers[thread_id[5:]]
+        # group_プレフィックスがある場合は削除して検索
+        elif group_id.startswith("group_") and group_id[6:] in self.group_containers:
+            mails = self.group_containers[group_id[6:]]
             self.logger.debug(
-                "PreviewContent: 会話コンテナからメールを取得 (プレフィックス削除)",
-                original_id=thread_id,
-                modified_id=thread_id[5:],
+                "PreviewContent: グループコンテナからメールを取得 (プレフィックス削除)",
+                original_id=group_id,
+                modified_id=group_id[6:],
                 mail_count=len(mails),
             )
             return mails
@@ -1319,61 +1357,61 @@ class PreviewContent(ft.Container):
         # 見つからない場合
         else:
             self.logger.warning(
-                "PreviewContent: 指定された会話IDのメールが見つかりません",
-                thread_id=thread_id,
+                "PreviewContent: 指定されたグループIDのメールが見つかりません",
+                group_id=group_id,
             )
-            self._log_available_thread_containers()
+            self._log_available_group_containers()
             return []
 
-    def _log_available_thread_containers(self):
-        """利用可能な会話コンテナ一覧をログ出力"""
-        container_keys = list(self.thread_containers.keys())
+    def _log_available_group_containers(self):
+        """利用可能なグループコンテナ一覧をログ出力"""
+        container_keys = list(self.group_containers.keys())
         self.logger.debug(
-            "PreviewContent: 利用可能な会話コンテナ一覧",
+            "PreviewContent: 利用可能なグループコンテナ一覧",
             container_count=len(container_keys),
             sample_keys=(
                 container_keys[:5] if len(container_keys) > 5 else container_keys
             ),
         )
 
-    def _update_thread_selection_in_list(self, thread_id):
+    def _update_group_selection_in_list(self, group_id):
         """メールリスト内の選択状態を更新"""
         # メールリストコンポーネントの選択状態を更新
         if hasattr(self.mail_list_component, "selected_thread_id"):
-            self.mail_list_component.selected_thread_id = thread_id
+            self.mail_list_component.selected_thread_id = group_id
             self.logger.debug(
                 "PreviewContent: メールリストコンポーネントの選択状態を更新",
-                thread_id=thread_id,
+                group_id=group_id,
             )
 
         # 各アイテムの背景色を更新
         for item in self.mail_list_component.mail_list_view.controls:
             # 選択されたアイテムだけ色を変更
-            if thread_id and hasattr(item, "data") and item.data == thread_id:
+            if group_id and hasattr(item, "data") and item.data == group_id:
                 item.bgcolor = Colors.SELECTED
                 self.logger.debug(
                     "PreviewContent: 選択アイテムの背景色を変更",
                     item_id=item.data,
-                    thread_id=thread_id,
+                    group_id=group_id,
                 )
             else:
                 item.bgcolor = Colors.BACKGROUND
             item.update()
 
-    def _sort_thread_mails(self, mails):
-        """会話内のメールを時系列順に並べ替える"""
+    def _sort_group_mails(self, mails):
+        """グループ内のメールを時系列順に並べ替える"""
         sort_order = "date_desc" if self.thread_sort_newest_first else "date_asc"
         return self.viewmodel.sort_mails(mails, sort_order)
 
-    def _mark_thread_mails_as_read(self, mails):
-        """会話内のメールを既読に設定"""
+    def _mark_group_mails_as_read(self, mails):
+        """グループ内のメールを既読に設定"""
         for mail in mails:
             if mail.get("unread", 0):
                 self.viewmodel.mark_as_read(mail["id"])
                 mail["unread"] = 0
 
-    def _display_thread_content(self, sorted_mails):
-        """会話内容をメール内容表示コンポーネントに表示"""
+    def _display_group_content(self, sorted_mails):
+        """グループ内容をメール内容表示コンポーネントに表示"""
         try:
             # メール内容を表示
             self.mail_content_viewer.show_thread_content(sorted_mails)
@@ -1513,47 +1551,47 @@ class PreviewContent(ft.Container):
     #
 
     def _display_grouped_mails(self, mails):
-        """会話ごとにグループ化されたメールを表示"""
-        self.logger.info("PreviewContent: 会話ごとにグループ化されたメール表示開始")
+        """グループ化されたメールを表示"""
+        self.logger.info("PreviewContent: グループ化されたメール表示開始")
 
-        # 会話コンテナを初期化
-        self.thread_containers = {}
+        # グループコンテナを初期化
+        self.group_containers = {}
 
         # ViewModelを使用してメールをグループ化
-        threads = self.viewmodel.group_mails_by_thread(mails)
+        groups = self.viewmodel.group_mails_by_thread(mails)
 
         # グループ化されたメールのログ
         self.logger.debug(
-            "PreviewContent: 会話グループ化結果",
-            thread_count=len(threads),
-            thread_keys=list(threads.keys())[:5] if threads else [],
+            "PreviewContent: グループ化結果",
+            group_count=len(groups),
+            group_keys=list(groups.keys())[:5] if groups else [],
         )
 
         # グループごとにリストに追加
-        for thread_key, mails_in_thread in threads.items():
-            # 会話グループを作成
-            self._create_thread_group(thread_key, mails_in_thread)
+        for group_key, mails_in_group in groups.items():
+            # グループを作成
+            self._create_mail_group(group_key, mails_in_group)
 
-        # 会話コンテナの内容をログ出力
-        self._log_thread_containers()
+        # グループコンテナの内容をログ出力
+        self._log_group_containers()
 
         self.logger.info(
-            "PreviewContent: 会話ごとにグループ化されたメール表示完了",
-            thread_count=len(threads),
+            "PreviewContent: グループ化されたメール表示完了",
+            group_count=len(groups),
         )
 
-    def _create_thread_group(self, thread_key, mails_in_thread):
-        """会話グループを作成"""
-        # 会話内のメールを日付順にソート
-        sorted_mails = mails_in_thread
+    def _create_mail_group(self, group_key, mails_in_group):
+        """メールグループを作成"""
+        # グループ内のメールを日付順にソート
+        sorted_mails = mails_in_group
 
-        # 会話グループ用の識別子を作成
-        thread_id = self._create_thread_id(thread_key)
+        # グループ用の識別子を作成
+        group_id = self._create_group_id(group_key)
 
         self.logger.debug(
-            "PreviewContent: 会話グループ作成",
-            original_key=thread_key,
-            thread_id=thread_id,
+            "PreviewContent: メールグループ作成",
+            original_key=group_key,
+            group_id=group_id,
             mail_count=len(sorted_mails),
             first_mail_id=(
                 sorted_mails[0].get("id", "不明") if sorted_mails else "なし"
@@ -1561,78 +1599,78 @@ class PreviewContent(ft.Container):
         )
 
         # キャッシュに保存
-        self.thread_containers[thread_id] = sorted_mails
+        self.group_containers[group_id] = sorted_mails
 
         # メールリストが空でないことを確認
         if not sorted_mails:
             self.logger.warning(
-                "PreviewContent: 会話グループのメールリストが空です",
-                thread_id=thread_id,
+                "PreviewContent: グループのメールリストが空です",
+                group_id=group_id,
             )
             return
 
-        # 会話ヘッダーを作成してリストに追加
-        self._create_and_add_thread_header(thread_id, sorted_mails)
+        # グループヘッダーを作成してリストに追加
+        self._create_and_add_group_header(group_id, sorted_mails)
 
-    def _create_thread_id(self, thread_key):
-        """会話グループ用の識別子を作成"""
+    def _create_group_id(self, group_key):
+        """グループ用の識別子を作成"""
         # プレフィックスが既にある場合は追加しない
-        if thread_key.startswith("conv_"):
-            return thread_key
+        if group_key.startswith("group_"):
+            return group_key
         else:
-            return f"conv_{thread_key}"
+            return f"group_{group_key}"
 
-    def _create_and_add_thread_header(self, thread_id, sorted_mails):
-        """会話ヘッダーを作成してリストに追加"""
+    def _create_and_add_group_header(self, group_id, sorted_mails):
+        """グループヘッダーを作成してリストに追加"""
         try:
-            # ViewModelから会話の概要情報を取得
-            thread_summary = self.viewmodel.get_thread_summary(sorted_mails)
+            # ViewModelからグループの概要情報を取得
+            group_summary = self.viewmodel.get_thread_summary(sorted_mails)
 
             # ヘッダー情報を抽出
             subject, unread_count, attachment_count, risk_score = (
-                self._extract_thread_summary_info(thread_summary)
+                self._extract_group_summary_info(group_summary)
             )
 
-            # スレッドヘッダーを作成
-            thread_header = self._create_thread_header(
-                thread_id,
+            # グループヘッダーを作成
+            group_header = self._create_group_header(
+                group_id,
                 subject,
                 unread_count,
                 attachment_count,
                 risk_score,
-                thread_summary,
+                group_summary,
             )
 
             # リストに追加
-            self.mail_list_component.mail_list_view.controls.append(thread_header)
+            self.mail_list_component.mail_list_view.controls.append(group_header)
         except Exception as e:
             self.logger.error(
-                "PreviewContent: 会話ヘッダー作成中にエラーが発生",
+                "PreviewContent: グループヘッダー作成中にエラーが発生",
                 error=str(e),
-                thread_id=thread_id,
+                group_id=group_id,
             )
 
-    def _extract_thread_summary_info(self, thread_summary):
-        """会話サマリー情報を抽出"""
-        subject = thread_summary["subject"]
-        unread_count = thread_summary["unread_count"]
-        attachment_count = 1 if thread_summary["has_attachments"] else 0
+    def _extract_group_summary_info(self, group_summary):
+        """グループサマリー情報を抽出"""
+        subject = group_summary["subject"]
+        unread_count = group_summary["unread_count"]
+        attachment_count = 1 if group_summary["has_attachments"] else 0
 
         # AIスコア情報
-        risk_score = thread_summary["risk_score"]
+        risk_score = group_summary["risk_score"]
 
         return subject, unread_count, attachment_count, risk_score
 
-    def _create_thread_header(
+    def _create_group_header(
         self,
-        thread_id,
+        group_id,
         subject,
         unread_count,
         attachment_count,
         risk_score,
-        thread_summary,
+        group_summary,
     ):
-        """会話ヘッダーを作成"""
+        """グループヘッダーを作成"""
         ai_score = risk_score.get("score", 0)
         risk_color = risk_score.get("color", ft.colors.GREEN)
 
@@ -1687,13 +1725,13 @@ class PreviewContent(ft.Container):
                     ft.Row(
                         [
                             ft.Text(
-                                f"最新: {thread_summary['latest_date']}",
+                                f"最新: {group_summary['latest_date']}",
                                 size=12,
                                 color=ft.colors.GREY,
                                 expand=True,
                             ),
                             ft.Text(
-                                f"メール数: {thread_summary['mail_count']}",
+                                f"メール数: {group_summary['mail_count']}",
                                 size=12,
                                 color=ft.colors.GREY,
                             ),
@@ -1705,23 +1743,21 @@ class PreviewContent(ft.Container):
             ),
             padding=10,
             border_radius=5,
-            on_click=lambda e, tid=thread_id: self._show_thread(thread_id=tid),
-            data=thread_id,
+            on_click=lambda e, tid=group_id: self._show_group(thread_id=tid),
+            data=group_id,
             ink=True,
             bgcolor=ft.colors.WHITE,
             border=ft.border.all(1, ft.colors.BLACK12),
             margin=ft.margin.only(bottom=5),
         )
 
-    def _log_thread_containers(self):
-        """会話コンテナの内容をログ出力"""
+    def _log_group_containers(self):
+        """グループコンテナの内容をログ出力"""
         self.logger.debug(
-            "PreviewContent: 会話コンテナ作成完了",
-            container_count=len(self.thread_containers),
+            "PreviewContent: グループコンテナ作成完了",
+            container_count=len(self.group_containers),
             container_keys=(
-                list(self.thread_containers.keys())[:5]
-                if self.thread_containers
-                else []
+                list(self.group_containers.keys())[:5] if self.group_containers else []
             ),
         )
 
@@ -1814,8 +1850,8 @@ class PreviewContent(ft.Container):
             self.viewmodel = None
 
         # 会話コンテナのリセット
-        if hasattr(self, "thread_containers") and self.thread_containers:
-            self.thread_containers.clear()
+        if hasattr(self, "group_containers") and self.group_containers:
+            self.group_containers.clear()
             self.logger.debug("PreviewContent: 会話コンテナをクリア")
 
         # メールリストとメールコンテンツビューアーのリセット（ページにマウントされている場合のみ）
@@ -2048,3 +2084,11 @@ class PreviewContent(ft.Container):
         except Exception as e:
             self.logger.error(f"フラグありメール取得エラー: {str(e)}")
             return []
+
+    def on_sort_order_changed(self, sort_order):
+        """ソート順が変更されたときの処理"""
+        self.logger.info("PreviewContent: ソート順変更", sort_order=sort_order)
+        self.current_sort_order = sort_order
+
+        # 現在の表示コンテキストを維持したまま再ロード
+        self.load_all_mails()

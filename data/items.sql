@@ -124,7 +124,11 @@ CREATE TABLE IF NOT EXISTS attachments (
 CREATE TABLE IF NOT EXISTS ai_reviews (
     thread_id TEXT PRIMARY KEY,
     result JSON,
-    FOREIGN KEY (thread_id) REFERENCES mail_items(thread_id)
+    risk_score INTEGER DEFAULT 0,
+    entry_id TEXT,  -- メール単位の場合のID
+    reviewed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (thread_id) REFERENCES mail_items(thread_id),
+    FOREIGN KEY (entry_id) REFERENCES mail_items(entry_id)
 );
 
 -- styled_body（本文中のキーワードを装飾）

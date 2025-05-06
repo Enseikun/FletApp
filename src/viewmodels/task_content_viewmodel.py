@@ -53,6 +53,8 @@ class TaskContentViewModel:
 
         # オプション設定
         self._ai_review: bool = True
+        self._ai_review_mail_unit: bool = True  # メール単位AIレビュー
+        self._ai_review_thread_unit: bool = True  # 会話単位AIレビュー
         self._file_download: bool = True
         self._exclude_extensions: str = ""
 
@@ -134,6 +136,26 @@ class TaskContentViewModel:
     def ai_review(self, value: bool):
         """AIレビュー設定を設定"""
         self._ai_review = value
+
+    @property
+    def ai_review_mail_unit(self) -> bool:
+        """メール単位AIレビュー設定を取得"""
+        return self._ai_review_mail_unit
+
+    @ai_review_mail_unit.setter
+    def ai_review_mail_unit(self, value: bool):
+        """メール単位AIレビュー設定を設定"""
+        self._ai_review_mail_unit = value
+
+    @property
+    def ai_review_thread_unit(self) -> bool:
+        """会話単位AIレビュー設定を取得"""
+        return self._ai_review_thread_unit
+
+    @ai_review_thread_unit.setter
+    def ai_review_thread_unit(self, value: bool):
+        """会話単位AIレビュー設定を設定"""
+        self._ai_review_thread_unit = value
 
     @property
     def file_download(self) -> bool:
@@ -264,6 +286,8 @@ class TaskContentViewModel:
             "start_date": self._start_date.strftime("%Y-%m-%d %H:%M:%S"),
             "end_date": self._end_date.strftime("%Y-%m-%d %H:%M:%S"),
             "ai_review": 1 if self._ai_review else 0,
+            "ai_review_mail_unit": 1 if self._ai_review_mail_unit else 0,
+            "ai_review_thread_unit": 1 if self._ai_review_thread_unit else 0,
             "file_download": 1 if self._file_download else 0,
             "exclude_extensions": (
                 self._exclude_extensions.split(",")

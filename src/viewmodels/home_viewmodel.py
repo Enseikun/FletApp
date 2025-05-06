@@ -56,6 +56,12 @@ class HomeViewModel:
                 self.main_viewmodel.main_viewmodel.set_current_task_id(task_id)
                 # プレビュー画面に遷移
                 self.main_viewmodel.main_viewmodel.set_destination("preview")
+                # ページ更新を追加
+                if (
+                    hasattr(self.main_viewmodel.main_viewmodel, "page")
+                    and self.main_viewmodel.main_viewmodel.page
+                ):
+                    self.main_viewmodel.main_viewmodel.page.update()
                 self.logger.info(
                     f"HomeViewModel.select_task: プレビュー画面に遷移しました(MainContentsViewModel経由)",
                     task_id=task_id,
@@ -65,6 +71,9 @@ class HomeViewModel:
             # 通常のMainViewModelの場合
             self.main_viewmodel.set_current_task_id(task_id)
             self.main_viewmodel.set_destination("preview")
+            # ページ更新を追加
+            if hasattr(self.main_viewmodel, "page") and self.main_viewmodel.page:
+                self.main_viewmodel.page.update()
             self.logger.info(
                 f"HomeViewModel.select_task: プレビュー画面に遷移しました(直接MainViewModel経由)",
                 task_id=task_id,

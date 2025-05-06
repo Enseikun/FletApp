@@ -318,9 +318,9 @@ class HomeContentViewModel:
             # 抽出が完了している場合は、ダイアログ表示のみ（画面遷移はViewのコールバックで実施）
             if status["extraction_completed"]:
                 self.logger.info(
-                    "HomeContentViewModel: 抽出は完了しています。ダイアログ表示のみ行います"
+                    "HomeContentViewModel: 抽出は完了しています。プレビュー画面に遷移します"
                 )
-                # ここでshould_navigateはセットしない
+                result["should_navigate"] = True
                 return result
 
             # 抽出が進行中の場合は、進捗ダイアログを表示して監視
@@ -918,10 +918,9 @@ class HomeContentViewModel:
                         error=str(e),
                     )
 
-                # スキーマエラーが発生しても進捗状況を表示できるように
-                # デバッグ情報を追加
+                # 進捗状況の数値を詳細にログ出力（デバッグ用）
                 self.logger.debug(
-                    "HomeContentViewModel: 進捗状況の数値",
+                    "HomeContentViewModel: 進捗バー更新前の数値",
                     task_id=task_id,
                     total_count=total_count,
                     processed_count=processed_count,
@@ -1030,8 +1029,18 @@ class HomeContentViewModel:
                 processed_count = progress_info.get("processed_count", 0)
                 total_count = progress_info.get("total_count", 0)
 
+                print(f"[DEBUG] count: {processed_count}/{total_count}")
+
                 # 進捗メッセージを作成
                 progress_message = "メールの抽出処理を実行中です。"
+                if total_count > 0:
+                    progress_message += (
+                        f"\n処理済み: {processed_count}/{total_count} メール"
+                    )
+                    if completed_count > 0:
+                        progress_message += f" (完了: {completed_count})"
+                else:
+                    progress_message += "\n準備中..."
 
                 # 進捗状況の数値を詳細にログ出力（デバッグ用）
                 self.logger.debug(
@@ -1055,6 +1064,11 @@ class HomeContentViewModel:
                     # Linerモードでプログレスバーを更新
                     # 完了数がtotal_countを超えないようにする
                     actual_processed = min(processed_count, total_count)
+
+                    # デバッグ用print
+                    print(
+                        f"[DEBUG] update_progress_async: actual_processed={actual_processed}, max_value(total_count)={total_count}"
+                    )
 
                     # プログレスバーを更新
                     await self._progress_dialog.update_progress_async(
@@ -1080,30 +1094,6 @@ class HomeContentViewModel:
                             "HomeContentViewModel: Indeterminateモードでプログレスバー更新",
                             task_id=task_id,
                         )
-
-                # 初回フラグをオフに
-                first_try = False
-
-                # 描画を更新する余地を与える
-                await asyncio.sleep(0.1)
-
-                # 定期的に処理状態も表示
-                progress_check_count += 1
-                if progress_check_count % 5 == 0:  # 5回ごとに詳細情報を表示
-                    process_status = progress_info.get("process_details", "")
-                    if process_status:
-                        progress_message += f"\n{process_status}"
-
-                    # 最近処理したメール情報があれば表示
-                    recent_mails = progress_info.get("recent_mails", [])
-                    if recent_mails and len(recent_mails) > 0:
-                        recent_mail = recent_mails[0]
-                        subject = recent_mail.get("subject", "")
-                        if subject:
-                            # 長すぎる件名は省略
-                            if len(subject) > 30:
-                                subject = subject[:27] + "..."
-                            progress_message += f"\n最新: {subject}"
 
                 # 進捗状況をダイアログに表示
                 await self._progress_dialog.update_message_async(progress_message)
@@ -1149,8 +1139,14 @@ class HomeContentViewModel:
         is_completed = False
 
         # 指定された間隔でポーリング
+        cnt = 0
+        print(f"[DEBUG] cnt: {cnt}")
+
         while not is_completed:
             try:
+                cnt += 1
+                print(f"[DEBUG] cnt: {cnt}")
+
                 # 抽出状態をチェック
                 status = self.check_snapshot_and_extraction_plan(task_id)
 

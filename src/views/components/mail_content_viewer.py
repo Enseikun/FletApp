@@ -4,6 +4,8 @@
 """
 
 import asyncio
+import threading
+import time
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional
 
@@ -13,6 +15,7 @@ from flet import ControlEvent
 from src.core.logger import get_logger
 from src.models.mail.styled_text import StyledText
 from src.util.object_util import get_safe
+from src.views.components.ai_review_component import AIReviewComponent
 from src.views.styles.style import AppTheme, Colors, Styles
 
 
@@ -74,12 +77,29 @@ class MailContentViewer(ft.Container):
         # StyledTextインスタンス
         self.styled_text = StyledText()
 
-        # メイン表示領域
+        # スクロール可能なコンテンツ列
         self.content_column = ft.Column(
-            expand=True,
+            [],
+            spacing=10,
             scroll=ft.ScrollMode.AUTO,
+            expand=True,
             alignment=ft.MainAxisAlignment.CENTER,
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+        )
+
+        # フラグボタン
+        self.flag_button = ft.IconButton(
+            icon=ft.icons.FLAG_OUTLINED,
+            icon_color=Colors.TEXT_SECONDARY,
+            icon_size=32,
+            tooltip="問題のあるメールとしてフラグを立てる",
+            on_click=self._toggle_flag,
+        )
+
+        # AIレビューコンポーネント
+        self.ai_review_component = AIReviewComponent(
+            on_refresh=self._handle_ai_review_refresh,
+            viewmodel=None,  # ViewModelは後で設定
         )
 
         # コンテナの設定
@@ -387,6 +407,9 @@ class MailContentViewer(ft.Container):
         # メール内容表示をクリア
         self.content_column.controls.clear()
 
+        # ViewModelを設定
+        self.ai_review_component.viewmodel = self.viewmodel
+
         # メールデータのチェックと安全な取得
         # 送信者情報を解析
         sender = mail.get("sender", "不明 <unknown@example.com>")
@@ -634,7 +657,9 @@ class MailContentViewer(ft.Container):
                     border_radius=5,
                     border=ft.border.all(1, ft.colors.BLACK12),
                 ),
-                *attachments_section,
+                # AIレビュー表示（メールにAIレビュー情報がある場合）
+                self.ai_review_component,
+                # コンテンツボディ
                 ft.Container(
                     content=ft.Column(
                         [
@@ -670,13 +695,22 @@ class MailContentViewer(ft.Container):
                     margin=ft.margin.only(top=10),
                     expand=True,
                 ),
+                # 添付ファイル表示
+                *attachments_section,
             ]
         )
 
+        # AIレビュー情報があれば表示
+        if mail.get("ai_review") or (mail.get("thread_id") and self.viewmodel):
+            self.ai_review_component.show_review_for_mail(
+                self.current_mail_id, mail.get("ai_review")
+            )
+        else:
+            # AIレビュー情報がない場合は非表示
+            self.ai_review_component.reset()
+
         self._safe_update()
-        self.logger.info(
-            "MailContentViewer: メール内容表示完了", mail_id=self.current_mail_id
-        )
+        self.logger.info("MailContentViewer: メール内容表示完了")
 
     def show_thread_content(
         self, mails: List[Dict[str, Any]], sort_button: ft.Control = None
@@ -760,6 +794,9 @@ class MailContentViewer(ft.Container):
         # メール内容表示をクリア
         self.content_column.controls.clear()
 
+        # ViewModelを設定
+        self.ai_review_component.viewmodel = self.viewmodel
+
         # 会話内の最初のメールから件名を取得（空の場合はデフォルト値）
         first_mail = mails[0] if mails else {}
         subject = first_mail.get("subject", "(件名なし)")
@@ -841,8 +878,8 @@ class MailContentViewer(ft.Container):
                     border_radius=5,
                     border=ft.border.all(1, ft.colors.BLACK12),
                 ),
-                # AIレビュー - リスクスコア情報があれば表示
-                self._create_ai_review_section(ai_review_info, risk_score),
+                # AIレビュー表示
+                self.ai_review_component,
                 # 会話内の各メールを表示
                 ft.Container(
                     content=ft.Column(
@@ -855,6 +892,16 @@ class MailContentViewer(ft.Container):
                 ),
             ]
         )
+
+        # AIレビュー情報があれば表示
+        thread_id = mails[0].get("thread_id") if mails else None
+        if thread_id:
+            self.ai_review_component.show_review_for_thread(
+                thread_id, mails, ai_review_info, risk_score
+            )
+        else:
+            # AIレビュー情報がない場合は非表示
+            self.ai_review_component.reset()
 
         # 会話内の各メールを表示
         mail_container = self.content_column.controls[-1]
@@ -973,208 +1020,6 @@ class MailContentViewer(ft.Container):
 
         self._safe_update()
         self.logger.info(f"MailContentViewer: 会話内容表示完了 mail_count={len(mails)}")
-
-    def _create_ai_review_section(self, ai_review_info=None, risk_score=None):
-        """AIレビュー情報セクションを作成"""
-        # デフォルトのリスクスコア
-        if not risk_score:
-            risk_score = {
-                "label": "不明",
-                "color": ft.colors.GREY,
-                "score": 0,
-                "tooltip": "リスク評価が利用できません",
-            }
-
-        # AI情報の安全な取得
-        summary = get_safe(
-            ai_review_info, "summary", "AIによる会話の要約情報はありません。"
-        )
-        attention_points = get_safe(ai_review_info, "attention_points", [])
-        organizations = get_safe(ai_review_info, "organizations", [])
-        review = get_safe(ai_review_info, "review", "詳細な評価情報はありません。")
-        score = get_safe(ai_review_info, "score", 0)
-
-        # スコアに基づくリスクレベルの設定
-        if score > 3:
-            risk_level = {
-                "label": "高",
-                "color": ft.colors.RED,
-                "tooltip": "複数の注意点があります。内容を慎重に確認してください。",
-            }
-        elif score > 1:
-            risk_level = {
-                "label": "中",
-                "color": ft.colors.ORANGE,
-                "tooltip": "いくつかの注意点があります。確認を推奨します。",
-            }
-        elif score > 0:
-            risk_level = {
-                "label": "低",
-                "color": ft.colors.YELLOW,
-                "tooltip": "軽微な注意点があります。",
-            }
-        else:
-            risk_level = {
-                "label": "なし",
-                "color": ft.colors.GREEN,
-                "tooltip": "特に問題は見つかりませんでした。",
-            }
-
-        # 注目ポイントのコントロールを作成
-        attention_controls = []
-        for i, point in enumerate(attention_points):
-            is_important = i < 2  # 最初の2つは重要なポイントとして扱う
-            attention_controls.append(
-                self._create_animated_point(point, i * 200, is_important)
-            )
-
-        # 組織情報が存在する場合は表示用のコンポーネントを作成
-        organizations_section = None
-        if organizations:
-            org_chips = []
-            for org in organizations:
-                org_chips.append(
-                    ft.Chip(
-                        label=ft.Text(org),
-                        bgcolor=ft.colors.BLUE_50,
-                        label_style=ft.TextStyle(size=12),
-                    )
-                )
-
-            organizations_section = ft.Column(
-                [
-                    ft.Text("関連組織:", weight="bold"),
-                    ft.Wrap(
-                        spacing=5,
-                        run_spacing=5,
-                        children=org_chips,
-                    ),
-                ]
-            )
-
-        # AIレビューセクションの作成
-        return ft.Container(
-            content=ft.Column(
-                [
-                    ft.Row(
-                        [
-                            ft.Icon(
-                                name=ft.icons.PSYCHOLOGY_ALT,
-                                size=16,
-                                color=ft.colors.BLUE,
-                            ),
-                            ft.Text("AIレビュー", weight="bold"),
-                            ft.Container(
-                                content=ft.Icon(
-                                    name=ft.icons.REFRESH,
-                                    size=16,
-                                    color=ft.colors.BLUE,
-                                ),
-                                tooltip="AIに再評価させる",
-                                width=32,
-                                height=32,
-                                border_radius=16,
-                                on_hover=self._on_hover_effect,
-                                on_click=self._on_ai_review_refresh,
-                                alignment=ft.alignment.center,
-                            ),
-                        ],
-                        spacing=5,
-                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                    ),
-                    ft.Container(
-                        content=ft.Column(
-                            [
-                                # 要約セクション
-                                ft.Container(
-                                    content=ft.Column(
-                                        [
-                                            ft.Text("要約:", weight="bold"),
-                                            ft.Text(summary, size=14),
-                                        ]
-                                    ),
-                                    margin=ft.margin.only(bottom=10),
-                                ),
-                                # リスクスコアセクション
-                                ft.Row(
-                                    [
-                                        ft.Text("リスクスコア:", weight="bold"),
-                                        ft.Container(
-                                            content=ft.Text(
-                                                risk_level["label"],
-                                                color=ft.colors.WHITE,
-                                                text_align=ft.TextAlign.CENTER,
-                                            ),
-                                            bgcolor=risk_level["color"],
-                                            border_radius=5,
-                                            padding=5,
-                                            width=50,
-                                            alignment=ft.alignment.center,
-                                            tooltip=risk_level["tooltip"],
-                                        ),
-                                        ft.Text(
-                                            f"({score}点)",
-                                            size=12,
-                                            color=ft.colors.GREY,
-                                        ),
-                                    ],
-                                    spacing=10,
-                                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                                ),
-                                # 注目ポイントセクション
-                                ft.Column(
-                                    [
-                                        ft.Text("注目ポイント:", weight="bold"),
-                                        (
-                                            ft.Column(
-                                                attention_controls,
-                                                spacing=2,
-                                            )
-                                            if attention_controls
-                                            else ft.Text(
-                                                "特に注目すべきポイントはありません",
-                                                size=12,
-                                                italic=True,
-                                            )
-                                        ),
-                                    ],
-                                    spacing=5,
-                                ),
-                                # 組織情報セクション（存在する場合のみ）
-                                (
-                                    organizations_section
-                                    if organizations_section
-                                    else ft.Container()
-                                ),
-                                # レビュー詳細セクション
-                                ft.Container(
-                                    content=ft.Column(
-                                        [
-                                            ft.Text("詳細評価:", weight="bold"),
-                                            ft.Container(
-                                                content=ft.Text(review, size=12),
-                                                bgcolor=ft.colors.GREY_50,
-                                                border_radius=5,
-                                                padding=10,
-                                                width=float("inf"),
-                                            ),
-                                        ]
-                                    ),
-                                    margin=ft.margin.only(top=10),
-                                ),
-                            ],
-                            spacing=10,
-                        ),
-                        padding=10,
-                    ),
-                ],
-                spacing=5,
-            ),
-            padding=10,
-            margin=ft.margin.only(top=10),
-            border=ft.border.all(1, ft.colors.BLACK12),
-            border_radius=5,
-        )
 
     def _create_mail_content_item(self, mail, index):
         """会話内の個別メールアイテムを作成"""
@@ -1480,504 +1325,6 @@ class MailContentViewer(ft.Container):
             "MailContentViewer: メール内容表示切り替え完了", expanded=not is_expanded
         )
 
-    def _create_animated_point(self, text, delay_ms, is_important=False):
-        """アニメーション付きのポイントを作成"""
-        return Styles.container(
-            content=Styles.text(
-                f"• {text}",
-                size=14,
-                color=Colors.ERROR if is_important else None,
-                weight="bold" if is_important else None,
-            ),
-            opacity=1.0,
-            data={"delay": delay_ms, "text": text},
-            border=None,
-        )
-
-    def _on_ai_review_refresh(self, e):
-        """AIレビューの再評価ボタンがクリックされたときの処理"""
-        self.logger.info("MailContentViewer: AIレビュー再評価リクエスト")
-
-        # 再評価中の表示
-        ai_review_section = e.control.parent.parent.parent
-
-        # 読み込み中表示に切り替え
-        ai_review_section.content = ft.Column(
-            [
-                ft.Row(
-                    [
-                        ft.Icon(
-                            name=ft.icons.PSYCHOLOGY_ALT,
-                            size=16,
-                            color=ft.colors.BLUE,
-                        ),
-                        ft.Text("AIレビュー", weight="bold"),
-                        ft.ProgressRing(width=16, height=16),
-                    ],
-                    spacing=5,
-                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                ),
-                ft.Container(
-                    content=ft.Column(
-                        [
-                            ft.Text("AIによる再評価中...", italic=True),
-                            ft.ProgressBar(width=300),
-                        ],
-                        spacing=10,
-                        alignment=ft.MainAxisAlignment.CENTER,
-                    ),
-                    padding=20,
-                    alignment=ft.alignment.center,
-                ),
-            ],
-            spacing=5,
-        )
-        self._safe_update()
-
-        # ViewModelが設定されていない場合はモック処理を行う
-        if not self.viewmodel:
-
-            async def simulate_ai_review():
-                # 処理時間をシミュレート
-                await asyncio.sleep(2)
-                # モックのAIレビュー結果（新しい形式）
-                mock_review = {
-                    "summary": "この会話はプロジェクトの納期に関する相談と予算の確認について述べています。",
-                    "attention_points": [
-                        "来週金曜日までに納品が必要です",
-                        "予算超過の可能性があります",
-                        "関係者全員への確認が必要です",
-                    ],
-                    "organizations": ["株式会社テクノ", "ABCコンサルティング"],
-                    "review": "この会話は納期と予算に関する重要な情報を含んでいます。特に期限が迫っているため早急な対応が必要です。",
-                    "score": 2,
-                }
-
-                # レビュー結果表示を更新
-                self._update_ai_review_section(ai_review_section, mock_review, None)
-
-            # 非同期処理を開始
-            asyncio.create_task(simulate_ai_review())
-            return
-
-        # 会話IDを取得
-        thread_id = None
-        # 現在表示中のメールがあれば、そのメールから会話IDを取得
-        if hasattr(self, "current_mail_id") and self.current_mail_id:
-            mail = self.viewmodel.get_mail_content(self.current_mail_id)
-            if mail and mail.get("thread_id"):
-                thread_id = mail["thread_id"]
-                self.logger.debug(
-                    "MailContentViewer: 現在のメールから会話IDを取得",
-                    mail_id=self.current_mail_id,
-                    thread_id=thread_id,
-                )
-
-        # 会話IDが取得できなかった場合は、モック処理を行う
-        if not thread_id:
-            self.logger.warning("MailContentViewer: 会話IDが取得できません")
-
-            async def fallback_ai_review():
-                await asyncio.sleep(1)
-                # 会話IDがないことを示すエラー表示
-                ai_review_section.content = ft.Column(
-                    [
-                        ft.Row(
-                            [
-                                ft.Icon(
-                                    name=ft.icons.PSYCHOLOGY_ALT,
-                                    size=16,
-                                    color=ft.colors.BLUE,
-                                ),
-                                ft.Text("AIレビュー", weight="bold"),
-                                ft.Container(
-                                    content=ft.Icon(
-                                        name=ft.icons.REFRESH,
-                                        size=16,
-                                        color=ft.colors.BLUE,
-                                    ),
-                                    tooltip="AIに再評価させる",
-                                    width=32,
-                                    height=32,
-                                    border_radius=16,
-                                    on_hover=self._on_hover_effect,
-                                    on_click=self._on_ai_review_refresh,
-                                    alignment=ft.alignment.center,
-                                ),
-                            ],
-                            spacing=5,
-                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                        ),
-                        ft.Container(
-                            content=ft.Column(
-                                [
-                                    ft.Row(
-                                        [
-                                            ft.Text("リスクスコア:", weight="bold"),
-                                            ft.Container(
-                                                content=ft.Text(
-                                                    "不明",
-                                                    color=ft.colors.WHITE,
-                                                    text_align=ft.TextAlign.CENTER,
-                                                ),
-                                                bgcolor=ft.colors.GREY,
-                                                border_radius=5,
-                                                padding=5,
-                                                width=50,
-                                                alignment=ft.alignment.center,
-                                            ),
-                                        ],
-                                        spacing=10,
-                                    ),
-                                    ft.Text(
-                                        "会話IDが特定できないため、AIレビューを実行できません。",
-                                        size=14,
-                                        color=ft.colors.RED_400,
-                                    ),
-                                ],
-                                spacing=10,
-                            ),
-                            padding=10,
-                        ),
-                    ],
-                    spacing=5,
-                )
-                self._safe_update()
-
-            # 非同期処理を開始
-            asyncio.create_task(fallback_ai_review())
-            return
-
-        # AIレビューを実行する非同期処理
-        async def run_ai_review():
-            try:
-                # 実際のAIレビュー結果を取得（本来はAPI呼び出しなど）
-                await asyncio.sleep(2)  # APIレスポンスを待つ時間を模倣
-
-                # ViewModelからAIレビュー結果を再取得
-                ai_review = self.viewmodel.model.get_ai_review_for_thread(thread_id)
-
-                # AIレビュー結果がない場合はモックデータを使用
-                if not ai_review:
-                    self.logger.warning(
-                        "MailContentViewer: AIレビュー結果がないためモックデータを使用",
-                        thread_id=thread_id,
-                    )
-                    # 新しい形式のモックデータ
-                    ai_review = {
-                        "summary": "この会話はプロジェクトの納期に関する相談と予算の確認について述べています。",
-                        "attention_points": [
-                            "来週金曜日までに納品が必要です",
-                            "予算超過の可能性があります",
-                            "関係者全員への確認が必要です",
-                        ],
-                        "organizations": ["株式会社テクノ", "ABCコンサルティング"],
-                        "review": "この会話は納期と予算に関する重要な情報を含んでいます。特に期限が迫っているため早急な対応が必要です。",
-                        "score": 2,
-                    }
-
-                # リスクスコア情報を取得
-                risk_score = self._get_risk_score_from_ai_review(ai_review)
-
-                # レビュー結果表示を更新
-                self._update_ai_review_section(ai_review_section, ai_review, risk_score)
-
-            except Exception as e:
-                self.logger.error(f"AIレビュー実行中にエラーが発生: {str(e)}")
-                # エラー表示
-                ai_review_section.content = ft.Column(
-                    [
-                        ft.Row(
-                            [
-                                ft.Icon(
-                                    name=ft.icons.PSYCHOLOGY_ALT,
-                                    size=16,
-                                    color=ft.colors.BLUE,
-                                ),
-                                ft.Text("AIレビュー", weight="bold"),
-                                ft.Container(
-                                    content=ft.Icon(
-                                        name=ft.icons.REFRESH,
-                                        size=16,
-                                        color=ft.colors.BLUE,
-                                    ),
-                                    tooltip="AIに再評価させる",
-                                    width=32,
-                                    height=32,
-                                    border_radius=16,
-                                    on_hover=self._on_hover_effect,
-                                    on_click=self._on_ai_review_refresh,
-                                    alignment=ft.alignment.center,
-                                ),
-                            ],
-                            spacing=5,
-                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                        ),
-                        ft.Container(
-                            content=ft.Column(
-                                [
-                                    ft.Row(
-                                        [
-                                            ft.Text("リスクスコア:", weight="bold"),
-                                            ft.Container(
-                                                content=ft.Text(
-                                                    "エラー",
-                                                    color=ft.colors.WHITE,
-                                                    text_align=ft.TextAlign.CENTER,
-                                                ),
-                                                bgcolor=ft.colors.RED_400,
-                                                border_radius=5,
-                                                padding=5,
-                                                width=50,
-                                                alignment=ft.alignment.center,
-                                            ),
-                                        ],
-                                        spacing=10,
-                                    ),
-                                    ft.Text(
-                                        f"AIレビューの実行中にエラーが発生しました: {str(e)}",
-                                        size=14,
-                                        color=ft.colors.RED_400,
-                                    ),
-                                ],
-                                spacing=10,
-                            ),
-                            padding=10,
-                        ),
-                    ],
-                    spacing=5,
-                )
-                self._safe_update()
-
-        # 非同期処理を開始
-        asyncio.create_task(run_ai_review())
-
-    def _get_risk_score_from_ai_review(self, ai_review):
-        """AIレビュー結果からリスクスコア情報を取得"""
-        # AIレビュー結果がない場合はデフォルト値を返す
-        if not ai_review:
-            return {
-                "label": "不明",
-                "color": ft.colors.GREY,
-                "score": 0,
-                "tooltip": "リスク評価が利用できません",
-            }
-
-        # 新しいAIレビュー形式からスコアを取得
-        score = get_safe(ai_review, "score", 0)
-
-        # スコアに応じてリスクレベルを設定
-        if score > 3:
-            return {
-                "label": "高",
-                "color": ft.colors.RED,
-                "score": 3,
-                "tooltip": "複数の注意点があります。内容を慎重に確認してください。",
-            }
-        elif score > 1:
-            return {
-                "label": "中",
-                "color": ft.colors.ORANGE,
-                "score": 2,
-                "tooltip": "いくつかの注意点があります。確認を推奨します。",
-            }
-        elif score > 0:
-            return {
-                "label": "低",
-                "color": ft.colors.YELLOW,
-                "score": 1,
-                "tooltip": "軽微な注意点があります。",
-            }
-        else:
-            return {
-                "label": "なし",
-                "color": ft.colors.GREEN,
-                "score": 0,
-                "tooltip": "特に問題は見つかりませんでした。",
-            }
-
-    def _update_ai_review_section(self, section, ai_review, risk_score):
-        """AIレビューセクションの表示を更新"""
-        # 安全にAI情報を取得
-        summary = get_safe(ai_review, "summary", "AIによる会話の要約情報はありません。")
-        attention_points = get_safe(ai_review, "attention_points", [])
-        organizations = get_safe(ai_review, "organizations", [])
-        review = get_safe(ai_review, "review", "詳細な評価情報はありません。")
-        score = get_safe(ai_review, "score", 0)
-
-        # スコアに基づくリスクレベルの設定
-        if score > 3:
-            risk_level = {
-                "label": "高",
-                "color": ft.colors.RED,
-                "tooltip": "複数の注意点があります。内容を慎重に確認してください。",
-            }
-        elif score > 1:
-            risk_level = {
-                "label": "中",
-                "color": ft.colors.ORANGE,
-                "tooltip": "いくつかの注意点があります。確認を推奨します。",
-            }
-        elif score > 0:
-            risk_level = {
-                "label": "低",
-                "color": ft.colors.YELLOW,
-                "tooltip": "軽微な注意点があります。",
-            }
-        else:
-            risk_level = {
-                "label": "なし",
-                "color": ft.colors.GREEN,
-                "score": 0,
-                "tooltip": "特に問題は見つかりませんでした。",
-            }
-
-        # 注目ポイントのコントロールを作成
-        attention_controls = []
-        for i, point in enumerate(attention_points):
-            is_important = i < 2  # 最初の2つは重要なポイントとして扱う
-            attention_controls.append(
-                self._create_animated_point(point, i * 200, is_important)
-            )
-
-        # 組織情報が存在する場合は表示用のコンポーネントを作成
-        organizations_ui = None
-        if organizations:
-            org_chips = []
-            for org in organizations:
-                org_chips.append(
-                    ft.Chip(
-                        label=ft.Text(org),
-                        bgcolor=ft.colors.BLUE_50,
-                        label_style=ft.TextStyle(size=12),
-                    )
-                )
-
-            organizations_ui = ft.Column(
-                [
-                    ft.Text("関連組織:", weight="bold"),
-                    ft.Wrap(
-                        spacing=5,
-                        run_spacing=5,
-                        children=org_chips,
-                    ),
-                ]
-            )
-
-        # セクションの内容を更新
-        section.content = ft.Column(
-            [
-                ft.Row(
-                    [
-                        ft.Icon(
-                            name=ft.icons.PSYCHOLOGY_ALT,
-                            size=16,
-                            color=ft.colors.BLUE,
-                        ),
-                        ft.Text("AIレビュー (更新済み)", weight="bold"),
-                        ft.Container(
-                            content=ft.Icon(
-                                name=ft.icons.REFRESH,
-                                size=16,
-                                color=ft.colors.BLUE,
-                            ),
-                            tooltip="AIに再評価させる",
-                            width=32,
-                            height=32,
-                            border_radius=16,
-                            on_hover=self._on_hover_effect,
-                            on_click=self._on_ai_review_refresh,
-                            alignment=ft.alignment.center,
-                        ),
-                    ],
-                    spacing=5,
-                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                ),
-                ft.Container(
-                    content=ft.Column(
-                        [
-                            # 要約セクション
-                            ft.Container(
-                                content=ft.Column(
-                                    [
-                                        ft.Text("要約:", weight="bold"),
-                                        ft.Text(summary, size=14),
-                                    ]
-                                ),
-                                margin=ft.margin.only(bottom=10),
-                            ),
-                            # リスクスコアセクション
-                            ft.Row(
-                                [
-                                    ft.Text("リスクスコア:", weight="bold"),
-                                    ft.Container(
-                                        content=ft.Text(
-                                            risk_level["label"],
-                                            color=ft.colors.WHITE,
-                                            text_align=ft.TextAlign.CENTER,
-                                        ),
-                                        bgcolor=risk_level["color"],
-                                        border_radius=5,
-                                        padding=5,
-                                        width=50,
-                                        alignment=ft.alignment.center,
-                                        tooltip=risk_level["tooltip"],
-                                    ),
-                                    ft.Text(
-                                        f"({score}点)", size=12, color=ft.colors.GREY
-                                    ),
-                                ],
-                                spacing=10,
-                                vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                            ),
-                            # 注目ポイントセクション
-                            ft.Column(
-                                [
-                                    ft.Text("注目ポイント:", weight="bold"),
-                                    (
-                                        ft.Column(
-                                            attention_controls,
-                                            spacing=2,
-                                        )
-                                        if attention_controls
-                                        else ft.Text(
-                                            "特に注目すべきポイントはありません",
-                                            size=12,
-                                            italic=True,
-                                        )
-                                    ),
-                                ],
-                                spacing=5,
-                            ),
-                            # 組織情報セクション（存在する場合のみ）
-                            organizations_ui if organizations_ui else ft.Container(),
-                            # レビュー詳細セクション
-                            ft.Container(
-                                content=ft.Column(
-                                    [
-                                        ft.Text("詳細評価:", weight="bold"),
-                                        ft.Container(
-                                            content=ft.Text(review, size=12),
-                                            bgcolor=ft.colors.GREY_50,
-                                            border_radius=5,
-                                            padding=10,
-                                            width=float("inf"),
-                                        ),
-                                    ]
-                                ),
-                                margin=ft.margin.only(top=10),
-                            ),
-                        ],
-                        spacing=10,
-                    ),
-                    padding=10,
-                ),
-            ],
-            spacing=5,
-        )
-
-        self._safe_update()
-
     def _create_participants_row(self, role, participants):
         """参加者情報を表示する行を作成"""
         if not participants:
@@ -2035,18 +1382,19 @@ class MailContentViewer(ft.Container):
             return date_str
 
     def reset(self):
-        """コンポーネントの状態をリセット"""
-        self.logger.info("MailContentViewer: 状態をリセット")
-
-        # メール内容表示をクリア
-        self._show_empty_content()
-
-        # 現在表示中のメールIDをクリア
+        """コンポーネントのリセット"""
+        self.content_column.controls.clear()
         self.current_mail_id = None
+        self.flag_button = None
 
-        # viewmodelをクリア
+        # ViewModel参照をクリア
         self.viewmodel = None
 
+        # AIレビューコンポーネントのリセット
+        if hasattr(self, "ai_review_component"):
+            self.ai_review_component.reset()
+
+        self._safe_update()
         self.logger.debug("MailContentViewer: リセット完了")
 
     def update_flag_status(self, mail_id: str, is_flagged: bool) -> None:
@@ -2066,3 +1414,80 @@ class MailContentViewer(ft.Container):
         # 表示中のメールIDと一致する場合のみUIを更新
         if mail_id == self.current_mail_id:
             self._update_flag_button_ui(is_flagged)
+
+    def _handle_ai_review_refresh(self, id_value, is_thread):
+        """AIレビューリフレッシュハンドラ"""
+        self.logger.info(
+            "MailContentViewer: AIレビュー再評価リクエスト",
+            id_value=id_value,
+            is_thread=is_thread,
+        )
+
+        try:
+            # スレッドの場合
+            if (
+                is_thread
+                and hasattr(self.viewmodel, "model")
+                and hasattr(self.viewmodel.model, "get_ai_review_for_thread")
+            ):
+                # AIレビュー結果を再取得（実際には通常APIを呼ぶ）
+                thread_id = id_value
+
+                # 会話のメールリストを取得
+                mails = []
+                if hasattr(self.viewmodel, "get_thread_mails"):
+                    mails = self.viewmodel.get_thread_mails(thread_id)
+
+                # 非同期処理を模倣（実際のアプリでは適切な非同期処理を実装）
+                def delayed_update():
+                    time.sleep(2)  # 処理時間を模倣
+                    ai_review = self.viewmodel.model.get_ai_review_for_thread(thread_id)
+                    risk_score = (
+                        self.viewmodel.get_thread_risk_score(mails) if mails else None
+                    )
+
+                    # 結果を表示
+                    def update_ui():
+                        self.ai_review_component.show_review_for_thread(
+                            thread_id, mails, ai_review, risk_score
+                        )
+
+                    # UIスレッドで更新
+                    if hasattr(self, "page") and self.page:
+                        self.page.run_task(update_ui)
+
+                # バックグラウンドスレッドで実行
+                threading.Thread(target=delayed_update, daemon=True).start()
+
+            # メール単体の場合
+            elif not is_thread and hasattr(self.viewmodel, "get_mail_content"):
+                mail_id = id_value
+
+                # 非同期処理を模倣
+                def delayed_update():
+                    time.sleep(2)  # 処理時間を模倣
+                    mail = self.viewmodel.get_mail_content(mail_id)
+
+                    # 結果を表示
+                    def update_ui():
+                        if mail:
+                            self.ai_review_component.show_review_for_mail(
+                                mail_id, mail.get("ai_review")
+                            )
+
+                    # UIスレッドで更新
+                    if hasattr(self, "page") and self.page:
+                        self.page.run_task(update_ui)
+
+                # バックグラウンドスレッドで実行
+                threading.Thread(target=delayed_update, daemon=True).start()
+
+            else:
+                self.logger.warning(
+                    "MailContentViewer: AIレビュー再評価に必要なメソッドが見つかりません"
+                )
+
+        except Exception as e:
+            self.logger.error(
+                f"MailContentViewer: AIレビュー再評価中にエラー - {str(e)}"
+            )

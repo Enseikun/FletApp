@@ -3,6 +3,7 @@ import datetime
 import json
 import os
 import re
+import time
 import uuid
 from typing import Optional
 
@@ -125,7 +126,9 @@ class OutlookExtractionService:
                     end_date,
                     file_download,
                     exclude_extensions,
-                    ai_review
+                    ai_review,
+                    ai_review_mail_unit,
+                    ai_review_thread_unit
                 FROM task_info
                 WHERE id = ?
             """
@@ -164,6 +167,12 @@ class OutlookExtractionService:
                 "file_download": bool(get_safe(task_info, "file_download", False)),
                 "exclude_extensions": get_safe(task_info, "exclude_extensions"),
                 "ai_review": bool(get_safe(task_info, "ai_review", False)),
+                "ai_review_mail_unit": bool(
+                    get_safe(task_info, "ai_review_mail_unit", False)
+                ),
+                "ai_review_thread_unit": bool(
+                    get_safe(task_info, "ai_review_thread_unit", False)
+                ),
             }
 
             self.logger.info(f"抽出条件を取得しました: {conditions}")
@@ -632,6 +641,7 @@ class OutlookExtractionService:
                 self.logger.info(
                     f"チャンク処理完了: {i+1}～{i+len(chunk)}/{len(mail_tasks)}"
                 )
+                time.sleep(0.05)  # チャンクごとにCPUを明け渡す
 
             # 添付ファイル処理
             if conditions.get("file_download", False):
@@ -860,56 +870,86 @@ class OutlookExtractionService:
             bool: 処理が成功したかどうか
         """
         try:
-            # AIレビュー処理が必要なメールタスクを取得
-            query = """
-            SELECT id, task_id, message_id, mail_id
-            FROM mail_tasks 
-            WHERE task_id = ? 
-              AND mail_fetch_status = 'success'
-              AND ai_review_status = 'pending'
-            """
-            tasks = self.items_db.execute_query(query, (self.task_id,))
+            conditions = self.get_extraction_conditions()
+            if not conditions:
+                self.logger.error("AIレビュー抽出条件の取得に失敗しました")
+                return False
 
-            if not tasks:
-                self.logger.info("AIレビュー処理が必要なメールはありません")
-                return True
+            ai_review_mail_unit = conditions.get("ai_review_mail_unit", False)
+            ai_review_thread_unit = conditions.get("ai_review_thread_unit", False)
 
-            # OutlookItemModelの初期化
-            item_model = OutlookItemModel()
-            chunk_size = item_model._calculate_chunk_size()
+            # メール単位AIレビュー
+            if ai_review_mail_unit:
+                self.logger.info("メール単位AIレビューを実行します")
+                # 既にAIレビュー済みのメールを除外
+                query = """
+                SELECT mt.id, mt.task_id, mt.message_id
+                FROM mail_tasks mt
+                LEFT JOIN ai_reviews ar ON mt.message_id = ar.entry_id
+                WHERE mt.task_id = ?
+                  AND mt.mail_fetch_status = 'success'
+                  AND mt.ai_review_status = 'pending'
+                  AND (ar.entry_id IS NULL)
+                """
+                mail_tasks = self.items_db.execute_query(query, (self.task_id,))
+                if mail_tasks:
+                    for task in mail_tasks:
+                        task_id = get_safe(task, "id")
+                        message_id = get_safe(task, "message_id")
+                        self._update_mail_task_status(
+                            task_id, "processing", ai_review_status="processing"
+                        )
+                        result = self._process_ai_review(message_id, mode="mail")
+                        if result:
+                            self._update_mail_task_status(
+                                task_id, "completed", ai_review_status="success"
+                            )
+                        else:
+                            self._update_mail_task_status(
+                                task_id,
+                                "error",
+                                ai_review_status="error",
+                                error_message="メール単位AIレビュー処理に失敗しました",
+                            )
+                else:
+                    self.logger.info("メール単位AIレビュー対象なし（全て既に評価済み）")
 
-            # チャンク処理
-            for i in range(0, len(tasks), chunk_size):
-                chunk = tasks[i : i + chunk_size]
-                self.logger.info(
-                    f"AIレビュー処理チャンク: {i+1}～{i+len(chunk)}/{len(tasks)}"
-                )
-
-                for task in chunk:
-                    task_id = get_safe(task, "id")
-                    message_id = get_safe(task, "message_id")
-
-                    # ステータス更新
-                    self._update_mail_task_status(
-                        task_id, "processing", ai_review_status="processing"
+            # 会話単位AIレビュー
+            if ai_review_thread_unit:
+                self.logger.info("会話単位AIレビューを実行します")
+                # 既にAIレビュー済みのスレッドを除外
+                # まず未評価のthread_id一覧を取得
+                query = """
+                SELECT DISTINCT mi.thread_id
+                FROM mail_items mi
+                LEFT JOIN ai_reviews ar ON mi.thread_id = ar.thread_id
+                WHERE mi.task_id = ?
+                  AND mi.thread_id IS NOT NULL
+                  AND mi.thread_id != ''
+                  AND (ar.thread_id IS NULL)
+                """
+                thread_rows = self.items_db.execute_query(query, (self.task_id,))
+                thread_ids = [
+                    row["thread_id"] for row in thread_rows if row.get("thread_id")
+                ]
+                for thread_id in thread_ids:
+                    # thread_idに紐づく代表メールを1件取得（AIレビュー用データ生成のため）
+                    mail_query = """
+                    SELECT entry_id FROM mail_items WHERE thread_id = ? AND task_id = ? LIMIT 1
+                    """
+                    mail_result = self.items_db.execute_query(
+                        mail_query, (thread_id, self.task_id)
                     )
-
-                    # AIレビュー処理
-                    result = self._process_ai_review(message_id)
-                    if result:
-                        self._update_mail_task_status(
-                            task_id, "completed", ai_review_status="success"
-                        )
-                    else:
-                        self._update_mail_task_status(
-                            task_id,
-                            "error",
-                            ai_review_status="error",
-                            error_message="AIレビュー処理に失敗しました",
-                        )
+                    if not mail_result:
+                        continue
+                    entry_id = mail_result[0]["entry_id"]
+                    # メールIDを使ってAIレビュー（mode="thread"）
+                    self.logger.info(
+                        f"会話単位AIレビュー: thread_id={thread_id} entry_id={entry_id}"
+                    )
+                    self._process_ai_review(entry_id, mode="thread")
 
             return True
-
         except Exception as e:
             self.logger.error(f"AIレビュー一括処理エラー: {str(e)}")
             return False
@@ -1919,12 +1959,13 @@ class OutlookExtractionService:
             self.logger.error(f"参加者関連の保存に失敗: {str(e)}")
             return False
 
-    def _process_ai_review(self, mail_id: str) -> bool:
+    def _process_ai_review(self, mail_id: str, mode: str = "thread") -> bool:
         """
         AIレビューの処理
 
         Args:
             mail_id: メールID
+            mode: "mail"（メール単位）または"thread"（会話単位）
 
         Returns:
             bool: 処理が成功したかどうか
@@ -1947,12 +1988,7 @@ class OutlookExtractionService:
                 return False
 
             mail_data = mail_result[0]
-
-            # 会話IDを取得（必須）
             thread_id = mail_data.get("thread_id")
-            if not thread_id:
-                self.logger.error(f"AIレビュー: 会話IDが見つかりません: {mail_id}")
-                return False
 
             # 参加者情報を取得
             participants_query = """
@@ -1974,8 +2010,6 @@ class OutlookExtractionService:
                 "has_attachments": bool(mail_data.get("has_attachments", 0)),
                 "participants": {"sender": [], "to": [], "cc": [], "bcc": []},
             }
-
-            # 参加者情報を整理
             for p in participants_result:
                 p_type = p.get("participant_type", "")
                 if p_type in ["sender", "to", "cc", "bcc"]:
@@ -1983,15 +2017,10 @@ class OutlookExtractionService:
                         {"name": p.get("name", ""), "email": p.get("email", "")}
                     )
 
-            # AIReviewクラスを初期化して非同期処理を実行
-            import asyncio
-
-            from src.models.azure.ai_review import AIReview
-
             # AIレビュー用のプロンプトを構築
             prompt_data = {
-                "mail_id": mail_id[:8] + "...",  # IDは短縮して表示
-                "thread_id": thread_id[:8] + "...",  # 会話IDも短縮
+                "mail_id": mail_id[:8] + "...",
+                "thread_id": (thread_id[:8] + "...") if thread_id else "",
                 "subject": mail_info["subject"],
                 "body": mail_info["body"],
                 "sender": mail_info["participants"]["sender"],
@@ -2005,6 +2034,8 @@ class OutlookExtractionService:
             }
 
             # 非同期関数を実行
+            import asyncio
+
             try:
                 loop = asyncio.get_event_loop()
                 if loop.is_running():
@@ -2015,22 +2046,36 @@ class OutlookExtractionService:
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
 
+            # modeによって保存先カラムを切り替え
+            if mode == "mail":
+                save_key = mail_id
+                save_col = "entry_id"
+            else:
+                if not thread_id:
+                    self.logger.error(f"AIレビュー: 会話IDが見つかりません: {mail_id}")
+                    return False
+                save_key = thread_id
+                save_col = "thread_id"
+
             result = loop.run_until_complete(
-                run_ai_review(thread_id, prompt_data, self.logger)
+                run_ai_review(save_key, prompt_data, self.logger)
             )
 
             # AIの結果をデータベースに保存
             if result:
-                # 新しい結果を保存（INSERT OR REPLACEを使用して既存のデータを上書き）
-                self.items_db.execute_update(
-                    """
-                    INSERT OR REPLACE INTO ai_reviews (thread_id, result)
-                    VALUES (?, ?)
-                    """,
-                    (thread_id, result),
-                )
+                # 結果からリスクスコアを抽出
+                risk_score = self._extract_risk_score_from_result(result)
 
-                self.logger.info(f"AIレビュー結果を保存しました: 会話ID {thread_id}")
+                self.items_db.execute_update(
+                    f"""
+                    INSERT OR REPLACE INTO ai_reviews ({save_col}, result, risk_score, reviewed_at)
+                    VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+                    """,
+                    (save_key, result, risk_score),
+                )
+                self.logger.info(
+                    f"AIレビュー結果を保存しました: {save_col}={save_key}, スコア={risk_score}"
+                )
                 return True
             else:
                 self.logger.error(f"AIレビュー結果が取得できませんでした: {mail_id}")
@@ -2039,6 +2084,46 @@ class OutlookExtractionService:
         except Exception as e:
             self.logger.error(f"AIレビュー処理でエラーが発生: {str(e)}")
             return False
+
+    def _extract_risk_score_from_result(self, result_json: str) -> int:
+        """
+        AIレビュー結果のJSON文字列からリスクスコアを抽出する
+
+        Args:
+            result_json: AIレビュー結果のJSON文字列
+
+        Returns:
+            int: リスクスコア (0-3)
+        """
+        try:
+            import json
+
+            # JSON文字列をパース
+            result = json.loads(result_json)
+
+            # リスクスコアの抽出（JSONの構造に応じて調整が必要かもしれません）
+            risk_score = 0
+
+            # 以下は想定されるJSON構造に基づく例
+            if "score" in result:
+                # 直接スコアが含まれている場合
+                risk_score = int(result["score"])
+            elif "risk" in result and "score" in result["risk"]:
+                # リスクオブジェクト内にスコアが含まれている場合
+                risk_score = int(result["risk"]["score"])
+            elif "risk_level" in result:
+                # リスクレベルを数値に変換する場合
+                risk_levels = {"low": 1, "medium": 2, "high": 3, "none": 0}
+                risk_score = risk_levels.get(result["risk_level"].lower(), 0)
+
+            # スコアの範囲を確認（0～3の範囲に収める）
+            risk_score = max(0, min(risk_score, 3))
+
+            return risk_score
+
+        except Exception as e:
+            self.logger.error(f"リスクスコア抽出エラー: {str(e)}")
+            return 0  # エラー時はデフォルト値として0を返す
 
     def _extract_participants(self, mail_item):
         """

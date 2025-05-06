@@ -310,7 +310,13 @@ class HomeContent(ft.Container):
                                 "error_message", "タスク処理中にエラーが発生しました。"
                             ),
                         )
-                    # それ以外（should_navigateやshow_progress）はViewModelのコールバックでダイアログ表示→OKボタンで遷移
+                    # should_navigateフラグがTrueの場合はプレビュー画面に遷移
+                    elif result.get("should_navigate", False):
+                        self.logger.info(
+                            f"HomeContent: should_navigateフラグにより画面遷移 - {task_id}"
+                        )
+                        self._navigate_to_preview(task_id)
+                    # それ以外（show_progress）はViewModelのコールバックでダイアログ表示→OKボタンで遷移
                 else:
                     # ViewModelが必要なメソッドを持っていない場合は直接ホームビューモデルを使用
                     await self._handle_home_viewmodel_select_task(task_id)

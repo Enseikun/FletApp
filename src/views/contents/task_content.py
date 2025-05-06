@@ -88,11 +88,17 @@ class TaskContent(ft.Container):
             on_blur=self._on_date_blur,
         )
 
-        # AIレビューのチェックボックス
-        self.ai_review_checkbox = ft.Checkbox(
-            label="AIレビューを実行",
-            value=self.viewmodel.ai_review,
-            on_change=self._on_ai_review_change,
+        # AIレビューのチェックボックス（メール単位）
+        self.ai_review_mail_unit_checkbox = ft.Checkbox(
+            label="AIレビュー（メール単位）を実行",
+            value=self.viewmodel.ai_review_mail_unit,
+            on_change=self._on_ai_review_mail_unit_change,
+        )
+        # AIレビューのチェックボックス（会話単位）
+        self.ai_review_thread_unit_checkbox = ft.Checkbox(
+            label="AIレビュー（会話単位）を実行",
+            value=self.viewmodel.ai_review_thread_unit,
+            on_change=self._on_ai_review_thread_unit_change,
         )
 
         # 添付ファイルダウンロードのチェックボックス
@@ -136,9 +142,7 @@ class TaskContent(ft.Container):
                     ft.Text("フォルダ設定", size=16, weight="bold"),
                     ft.Text("移動元フォルダ", size=14),
                     self.from_folder_dropdown,
-                    ft.Text(
-                        "移動先フォルダ（未選択の場合は移動元フォルダを使用）", size=14
-                    ),
+                    ft.Text("移動先フォルダ（任意）", size=14),
                     self.to_folder_dropdown,
                     ft.Divider(),
                     ft.Text("期間設定", size=16, weight="bold"),
@@ -156,7 +160,8 @@ class TaskContent(ft.Container):
                     ),
                     ft.Divider(),
                     ft.Text("オプション", size=16, weight="bold"),
-                    self.ai_review_checkbox,
+                    self.ai_review_mail_unit_checkbox,
+                    self.ai_review_thread_unit_checkbox,
                     self.file_download_checkbox,
                     ft.Container(
                         content=self.exclude_extensions_textarea,
@@ -227,7 +232,7 @@ class TaskContent(ft.Container):
         return [
             ft.dropdownm2.Option(key=folder["entry_id"], text=folder["path"])
             for folder in folders
-            if os.path.normpath(folder["path"]).split(os.sep)[1] == root
+            if os.path.normpath(folder["path"]).split(os.sep)[2] == root
         ]
 
     async def _update_folders(self):
@@ -308,11 +313,11 @@ class TaskContent(ft.Container):
 
             # 移動先フォルダの選択肢を更新
             if selected_value:
-                root = os.path.normpath(folder_info["path"]).split(os.sep)[1]
+                root = os.path.normpath(folder_info["path"]).split(os.sep)[2]
                 filtered_folders = [
                     (f["entry_id"], f["path"])
                     for f in self.viewmodel.get_folder_info()
-                    if os.path.normpath(f["path"]).split(os.sep)[1] == root
+                    if os.path.normpath(f["path"]).split(os.sep)[2] == root
                 ]
                 filtered_folders.insert(0, ("", "フォルダを選択"))
                 self.to_folder_dropdown.update_options(filtered_folders)
@@ -342,11 +347,11 @@ class TaskContent(ft.Container):
 
             # 移動元フォルダの選択肢を更新
             if selected_value:
-                root = os.path.normpath(folder_info["path"]).split(os.sep)[1]
+                root = os.path.normpath(folder_info["path"]).split(os.sep)[2]
                 filtered_folders = [
                     (f["entry_id"], f["path"])
                     for f in self.viewmodel.get_folder_info()
-                    if os.path.normpath(f["path"]).split(os.sep)[1] == root
+                    if os.path.normpath(f["path"]).split(os.sep)[2] == root
                 ]
                 filtered_folders.insert(0, ("", "フォルダを選択"))
                 self.from_folder_dropdown.update_options(filtered_folders)
@@ -463,9 +468,13 @@ class TaskContent(ft.Container):
                 e.control.value = self.viewmodel.end_date.strftime("%Y-%m-%d %H:%M")
             e.control.update()
 
-    def _on_ai_review_change(self, e):
-        """AIレビュー設定変更時の処理"""
-        self.viewmodel.ai_review = e.control.value
+    def _on_ai_review_mail_unit_change(self, e):
+        """AIレビュー（メール単位）設定変更時の処理"""
+        self.viewmodel.ai_review_mail_unit = e.control.value
+
+    def _on_ai_review_thread_unit_change(self, e):
+        """AIレビュー（会話単位）設定変更時の処理"""
+        self.viewmodel.ai_review_thread_unit = e.control.value
 
     def _on_file_download_change(self, e):
         """添付ファイルダウンロードオプション変更時の処理"""
@@ -543,7 +552,8 @@ class TaskContent(ft.Container):
             "%Y-%m-%d %H:%M"
         )
         self.end_date_picker.value = self.viewmodel.end_date.strftime("%Y-%m-%d %H:%M")
-        self.ai_review_checkbox.value = self.viewmodel.ai_review
+        self.ai_review_mail_unit_checkbox.value = self.viewmodel.ai_review_mail_unit
+        self.ai_review_thread_unit_checkbox.value = self.viewmodel.ai_review_thread_unit
         self.file_download_checkbox.value = self.viewmodel.file_download
         self.exclude_extensions_textarea.value = self.viewmodel.exclude_extensions
         self.exclude_extensions_textarea.disabled = not self.viewmodel.file_download

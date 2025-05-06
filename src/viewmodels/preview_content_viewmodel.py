@@ -37,6 +37,10 @@ class PreviewContentViewModel:
         # キャッシュされたメールリスト
         self.cached_mail_list = []
 
+        # 最後の検索条件を保持する変数
+        self.last_search_term = None
+        self.is_search_result = False
+
         # サンプルデータフラグ - task_idが指定されていない場合のみサンプルデータを使用
         self.use_sample_data = False
         self.logger.debug(
@@ -173,11 +177,18 @@ class PreviewContentViewModel:
             sort_order=sort_order,
         )
 
+        # 検索ステータスを更新
+        self.last_search_term = search_term
+        self.is_search_result = True
+
         # 実際のデータを検索
         result = self.model.search_mails(search_term)
 
         # データの整合性チェックと補完
         formatted_results = [self._ensure_mail_fields(mail) for mail in result]
+
+        # 検索結果をキャッシュに保存（追加）
+        self.cached_mail_list = formatted_results
 
         # 検索結果をソート
         sorted_result = self.sort_mails(formatted_results, sort_order)
@@ -778,18 +789,98 @@ class PreviewContentViewModel:
     def _sort_mails_by_order(
         self, mails: List[Dict[str, Any]], sort_order: str
     ) -> List[Dict[str, Any]]:
-        """指定された順序でメールをソート"""
-        if sort_order == "date_asc":
-            return sorted(mails, key=lambda x: x.get("date", ""))
-        elif sort_order == "date_desc":
-            return sorted(mails, key=lambda x: x.get("date", ""), reverse=True)
-        elif sort_order == "subject":
-            return sorted(mails, key=lambda x: x.get("subject", "").lower())
-        elif sort_order == "sender":
-            return sorted(mails, key=lambda x: x.get("sender", "").lower())
+        """
+        メールをソート順に基づいて並べ替える。
+
+        Args:
+            mails: メールのリスト
+            sort_order: ソート順
+
+        Returns:
+            並べ替えられたメールのリスト
+        """
+        if sort_order == "date_desc":
+            # 日付の新しい順にソート
+            return sorted(
+                mails,
+                key=lambda mail: mail.get("received_time", ""),
+                reverse=True,
+            )
+        elif sort_order == "date_asc":
+            # 日付の古い順にソート
+            return sorted(
+                mails,
+                key=lambda mail: mail.get("received_time", ""),
+                reverse=False,
+            )
+        elif sort_order == "sender_asc":
+            # 送信者の昇順にソート
+            return sorted(
+                mails,
+                key=lambda mail: mail.get("sender_name", "").lower(),
+                reverse=False,
+            )
+        elif sort_order == "sender_desc":
+            # 送信者の降順にソート
+            return sorted(
+                mails,
+                key=lambda mail: mail.get("sender_name", "").lower(),
+                reverse=True,
+            )
+        elif sort_order == "risk_score_asc":
+            # リスクスコアの昇順にソート
+            return sorted(
+                mails,
+                key=lambda mail: self._get_risk_score(mail),
+                reverse=False,
+            )
+        elif sort_order == "risk_score_desc":
+            # リスクスコアの降順にソート
+            return sorted(
+                mails,
+                key=lambda mail: self._get_risk_score(mail),
+                reverse=True,
+            )
         else:
-            # デフォルトは日付降順
-            return sorted(mails, key=lambda x: x.get("date", ""), reverse=True)
+            # デフォルトは日付の新しい順
+            return sorted(
+                mails,
+                key=lambda mail: mail.get("received_time", ""),
+                reverse=True,
+            )
+
+    def _get_risk_score(self, mail):
+        """
+        メールのリスクスコアを取得する
+
+        Args:
+            mail: メールデータ
+
+        Returns:
+            int: リスクスコア (0-3)、デフォルトは0
+        """
+        try:
+            # メールのIDを取得
+            entry_id = mail.get("entry_id", "")
+            thread_id = mail.get("thread_id", "")
+
+            if not entry_id and not thread_id:
+                return 0
+
+            # グループ化モードに応じてIDを選択
+            key_id = thread_id if self.group_mode == "conversation" else entry_id
+            key_col = "thread_id" if self.group_mode == "conversation" else "entry_id"
+
+            # ai_reviewsテーブルからリスクスコアを取得
+            query = f"SELECT risk_score FROM ai_reviews WHERE {key_col} = ?"
+            result = self.db.execute_query(query, (key_id,))
+
+            if result and len(result) > 0:
+                return result[0].get("risk_score", 0)
+            return 0
+        except Exception as e:
+            self.logger.error(f"リスクスコア取得エラー: {str(e)}")
+            return 0
 
     def group_mails_by_thread(
         self, mails: List[Dict[str, Any]]
@@ -883,3 +974,30 @@ class PreviewContentViewModel:
                 "不明", "リスク評価が利用できません"
             ),
         }
+
+    def get_current_mails(self, sort_order: str = "date_desc") -> List[Dict[str, Any]]:
+        """
+        現在のコンテキスト（すべてのメールまたは検索結果）に基づいてメールを取得する
+
+        Args:
+            sort_order: ソート順（"date_desc", "date_asc", "subject", "sender"）
+
+        Returns:
+            List[Dict[str, Any]]: ソートされたメールリスト
+        """
+        self.logger.debug(
+            "PreviewContentViewModel: 現在のメール取得", is_search=self.is_search_result
+        )
+
+        if self.is_search_result and self.last_search_term:
+            # 前回の検索結果がある場合は再検索
+            return self.search_mails(self.last_search_term, sort_order)
+        else:
+            # 通常のすべてのメール取得
+            return self.get_all_mails(sort_order)
+
+    def clear_search(self):
+        """検索状態をクリアする"""
+        self.is_search_result = False
+        self.last_search_term = None
+        self.logger.debug("PreviewContentViewModel: 検索状態をクリア")

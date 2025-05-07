@@ -116,7 +116,7 @@ class MailList(ft.Container):
 
         # グループ化メニュー
         self.grouping_menu = ft.PopupMenuButton(
-            icon=ft.icons.GROUP_WORK,
+            icon=ft.icons.CATEGORY,
             tooltip="グループ化の設定",
             items=[
                 ft.PopupMenuItem(
@@ -326,7 +326,11 @@ class MailList(ft.Container):
     def _update_grouping_ui(self):
         """グループ化設定に応じてUIを更新"""
         # グループ化設定表示を更新
-        if hasattr(self, "grouping_menu"):
+        if (
+            hasattr(self, "grouping_menu")
+            and self.grouping_menu
+            and hasattr(self.grouping_menu, "items")
+        ):
             # メニュー項目のチェック状態を更新
             for item in self.grouping_menu.items:
                 if hasattr(item, "text"):
@@ -341,6 +345,9 @@ class MailList(ft.Container):
 
             # メニューの更新
             self.grouping_menu.update()
+            self.logger.debug(
+                "MailList: グループ化メニューUI更新完了", mode=self.grouping_mode
+            )
 
     def _show_thread(self, thread_id):
         """会話内容表示のトリガー"""
@@ -1252,9 +1259,42 @@ class MailList(ft.Container):
         # 選択されたソート順を保存
         self.sort_order = e
 
+        # ソートメニューのUI表示を更新
+        self._update_sort_ui()
+
         # コールバック関数が設定されていれば呼び出す
         if self.on_sort_order_changed:
             self.on_sort_order_changed(e)
+
+    def _update_sort_ui(self):
+        """ソート設定に応じてソートメニューのUIを更新"""
+        # ソートメニューのUI表示を更新
+        if (
+            hasattr(self, "sort_menu")
+            and self.sort_menu
+            and hasattr(self.sort_menu, "items")
+        ):
+            # メニュー項目のチェック状態を更新
+            for item in self.sort_menu.items:
+                if hasattr(item, "text"):
+                    if item.text == "日付 (新しい順)":
+                        item.checked = self.sort_order == "date_desc"
+                    elif item.text == "日付 (古い順)":
+                        item.checked = self.sort_order == "date_asc"
+                    elif item.text == "送信者 (昇順)":
+                        item.checked = self.sort_order == "sender_asc"
+                    elif item.text == "送信者 (降順)":
+                        item.checked = self.sort_order == "sender_desc"
+                    elif item.text == "リスクスコア (低→高)":
+                        item.checked = self.sort_order == "risk_score_asc"
+                    elif item.text == "リスクスコア (高→低)":
+                        item.checked = self.sort_order == "risk_score_desc"
+
+            # メニューの更新
+            self.sort_menu.update()
+            self.logger.debug(
+                "MailList: ソートメニューUI更新完了", sort_order=self.sort_order
+            )
 
     def _on_search_field_change(self, e):
         """検索フィールドの値が変更されたときの処理"""

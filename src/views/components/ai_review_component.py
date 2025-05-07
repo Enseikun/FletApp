@@ -10,6 +10,7 @@ import flet as ft
 
 from src.core.logger import get_logger
 from src.util.object_util import get_safe
+from src.views.styles.style import AppTheme
 
 
 class AIReviewComponent(ft.Container):
@@ -50,7 +51,7 @@ class AIReviewComponent(ft.Container):
         # メインのコンテンツコンテナ
         self.content_column = ft.Column(
             [],
-            spacing=5,
+            spacing=AppTheme.SPACING_MD,
         )
 
     def _build(self):
@@ -182,6 +183,55 @@ class AIReviewComponent(ft.Container):
 
     def _create_ai_review_section(self, ai_review_info=None, risk_score=None):
         """AIレビュー情報セクションを作成"""
+        # AIレビューがない場合はシンプルな表示
+        if not ai_review_info:
+            return ft.Container(
+                content=ft.Column(
+                    [
+                        ft.Container(
+                            content=ft.Row(
+                                [
+                                    ft.Text("AIレビュー", weight="bold"),
+                                    ft.Container(
+                                        content=ft.Text(
+                                            "再評価",
+                                            size=12,
+                                            color=ft.colors.BLUE,
+                                        ),
+                                        tooltip="AIに再評価させる",
+                                        padding=AppTheme.SPACING_SM,
+                                        border_radius=AppTheme.BORDER_RADIUS,
+                                        on_hover=self._on_hover_effect,
+                                        on_click=self._on_ai_review_refresh,
+                                        alignment=ft.alignment.center,
+                                    ),
+                                ],
+                                spacing=AppTheme.SPACING_SM,
+                                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                            ),
+                            padding=AppTheme.SPACING_MD,
+                        ),
+                        ft.Container(
+                            content=ft.Text(
+                                "このメールにはAIレビュー情報がありません",
+                                size=12,
+                                color=ft.colors.GREY,
+                                text_align=ft.TextAlign.CENTER,
+                            ),
+                            padding=AppTheme.SPACING_MD,
+                            alignment=ft.alignment.center,
+                            width=float("inf"),
+                        ),
+                    ],
+                    spacing=AppTheme.SPACING_SM,
+                ),
+                padding=0,
+                border=ft.border.all(1, ft.colors.BLACK12),
+                border_radius=5,
+                margin=ft.margin.only(top=AppTheme.SPACING_MD),
+                bgcolor=ft.colors.WHITE,
+            )
+
         # デフォルトのリスクスコア
         if not risk_score:
             risk_score = {
@@ -241,31 +291,28 @@ class AIReviewComponent(ft.Container):
         return ft.Container(
             content=ft.Column(
                 [
-                    ft.Row(
-                        [
-                            ft.Icon(
-                                name=ft.icons.PSYCHOLOGY_ALT,
-                                size=16,
-                                color=ft.colors.BLUE,
-                            ),
-                            ft.Text("AIレビュー", weight="bold"),
-                            ft.Container(
-                                content=ft.Icon(
-                                    name=ft.icons.REFRESH,
-                                    size=16,
-                                    color=ft.colors.BLUE,
+                    ft.Container(
+                        content=ft.Row(
+                            [
+                                ft.Text("AIレビュー", weight="bold"),
+                                ft.Container(
+                                    content=ft.Text(
+                                        "再評価",
+                                        size=12,
+                                        color=ft.colors.BLUE,
+                                    ),
+                                    tooltip="AIに再評価させる",
+                                    padding=AppTheme.SPACING_SM,
+                                    border_radius=AppTheme.BORDER_RADIUS,
+                                    on_hover=self._on_hover_effect,
+                                    on_click=self._on_ai_review_refresh,
+                                    alignment=ft.alignment.center,
                                 ),
-                                tooltip="AIに再評価させる",
-                                width=32,
-                                height=32,
-                                border_radius=16,
-                                on_hover=self._on_hover_effect,
-                                on_click=self._on_ai_review_refresh,
-                                alignment=ft.alignment.center,
-                            ),
-                        ],
-                        spacing=5,
-                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                            ],
+                            spacing=AppTheme.SPACING_SM,
+                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                        ),
+                        padding=AppTheme.SPACING_MD,
                     ),
                     ft.Container(
                         content=ft.Column(
@@ -282,13 +329,13 @@ class AIReviewComponent(ft.Container):
                                             ),
                                             bgcolor=risk_color,
                                             border_radius=5,
-                                            padding=5,
+                                            padding=AppTheme.SPACING_SM,
                                             width=50,
                                             alignment=ft.alignment.center,
                                             tooltip=risk_tooltip,
                                         ),
                                     ],
-                                    spacing=10,
+                                    spacing=AppTheme.SPACING_MD,
                                 ),
                                 # 会話要約セクション
                                 ft.Column(
@@ -298,11 +345,11 @@ class AIReviewComponent(ft.Container):
                                             content=ft.Text(summary, size=12),
                                             bgcolor=ft.colors.GREY_50,
                                             border_radius=5,
-                                            padding=10,
+                                            padding=AppTheme.SPACING_MD,
                                             width=float("inf"),
                                         ),
                                     ],
-                                    spacing=5,
+                                    spacing=AppTheme.SPACING_SM,
                                 ),
                                 # 注目ポイントセクション
                                 ft.Column(
@@ -311,7 +358,7 @@ class AIReviewComponent(ft.Container):
                                         (
                                             ft.Column(
                                                 attention_controls,
-                                                spacing=2,
+                                                spacing=AppTheme.SPACING_XS,
                                             )
                                             if attention_controls
                                             else ft.Text(
@@ -321,7 +368,7 @@ class AIReviewComponent(ft.Container):
                                             )
                                         ),
                                     ],
-                                    spacing=5,
+                                    spacing=AppTheme.SPACING_SM,
                                 ),
                                 # 組織情報セクション（存在する場合のみ）
                                 (
@@ -338,25 +385,25 @@ class AIReviewComponent(ft.Container):
                                                 content=ft.Text(review, size=12),
                                                 bgcolor=ft.colors.GREY_50,
                                                 border_radius=5,
-                                                padding=10,
+                                                padding=AppTheme.SPACING_MD,
                                                 width=float("inf"),
                                             ),
                                         ]
                                     ),
-                                    margin=ft.margin.only(top=10),
+                                    margin=ft.margin.only(top=AppTheme.SPACING_MD),
                                 ),
                             ],
-                            spacing=10,
+                            spacing=AppTheme.SPACING_MD,
                         ),
-                        padding=10,
+                        padding=AppTheme.SPACING_MD,
                     ),
                 ],
-                spacing=5,
+                spacing=AppTheme.SPACING_SM,
             ),
             padding=0,
             border=ft.border.all(1, ft.colors.BLACK12),
             border_radius=5,
-            margin=ft.margin.only(top=10),
+            margin=ft.margin.only(top=AppTheme.SPACING_MD),
             bgcolor=ft.colors.WHITE,
         )
 
@@ -396,9 +443,9 @@ class AIReviewComponent(ft.Container):
                 ft.Row(
                     [
                         ft.Icon(
-                            name=ft.icons.PSYCHOLOGY_ALT,
-                            size=16,
-                            color=ft.colors.BLUE,
+                            name=ft.icons.REVIEWS,
+                            size=20,
+                            color=ft.colors.GREY,
                         ),
                         ft.Text("AIレビュー", weight="bold"),
                         ft.ProgressRing(width=16, height=16),
